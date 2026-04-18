@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { AgentDetailModal } from "@/components/performance/AgentDetailModal";
 
 const STATUS_FILTERS: Array<{ id: "all" | AgentStatus; label: string }> = [
   { id: "all", label: "الكل" },
@@ -48,7 +49,7 @@ const DOT_BY_STATUS: Record<AgentStatus, string> = {
   offline: "bg-muted-foreground",
 };
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => void }) {
   const timer = useLiveTimer(agent.statusSince);
   const isLive = agent.status === "in_call" || agent.status === "online";
 
@@ -86,7 +87,14 @@ function AgentCard({ agent }: { agent: Agent }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm truncate">{agent.name}</p>
+          <button
+            onClick={() => onOpen(agent.id)}
+            className="text-right group"
+          >
+            <p className="font-bold text-sm truncate group-hover:text-primary transition-colors group-hover:underline underline-offset-4">
+              {agent.name}
+            </p>
+          </button>
           <p className="text-[11px] text-muted-foreground">
             تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span> · {agent.supervisor}
           </p>
@@ -125,7 +133,7 @@ function AgentCard({ agent }: { agent: Agent }) {
         <Button size="sm" variant="outline" className="text-xs h-8" onClick={handleListen}>
           <Headphones className="w-3 h-3 ml-1" /> استماع
         </Button>
-        <Button size="sm" variant="outline" className="text-xs h-8">
+        <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => onOpen(agent.id)}>
           <Eye className="w-3 h-3 ml-1" /> تفاصيل
         </Button>
         <Button size="sm" variant="outline" className="text-xs h-8 text-destructive hover:text-destructive">
@@ -142,6 +150,7 @@ const Monitoring = () => {
   const [filter, setFilter] = useState<"all" | AgentStatus>("all");
   const [query, setQuery] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: agents.length };
@@ -250,7 +259,7 @@ const Monitoring = () => {
       {/* Cards Grid */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         {filtered.map((a) => (
-          <AgentCard key={a.id} agent={a} />
+          <AgentCard key={a.id} agent={a} onOpen={setSelectedAgent} />
         ))}
         {filtered.length === 0 && (
           <div className="col-span-full glass-card p-10 text-center">
@@ -258,6 +267,12 @@ const Monitoring = () => {
           </div>
         )}
       </section>
+
+      <AgentDetailModal
+        agentId={selectedAgent}
+        open={selectedAgent !== null}
+        onClose={() => setSelectedAgent(null)}
+      />
     </AppLayout>
   );
 };

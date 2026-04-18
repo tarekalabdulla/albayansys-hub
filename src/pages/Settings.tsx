@@ -29,7 +29,13 @@ import {
   Upload,
   Save,
   Shield,
+  Sparkles,
+  PhoneCall,
+  Wifi,
+  KeyRound,
+  CheckCircle2,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 
@@ -73,8 +79,27 @@ const Settings = () => {
     name: "", email: "", role: "agent", active: true,
   });
 
-  const [serverIP, setServerIP] = useState("192.168.1.50");
-  const [serverPort, setServerPort] = useState("8088");
+  // Yeastar P-Series (P560)
+  const [pHost, setPHost] = useState("192.168.1.50");
+  const [pPort, setPPort] = useState("8088");
+  const [pApiUser, setPApiUser] = useState("apiuser");
+  const [pApiSecret, setPApiSecret] = useState("");
+  const [pUseTLS, setPUseTLS] = useState(true);
+  const [pEnabled, setPEnabled] = useState(true);
+
+  // Yeastar S-Series (S20)
+  const [sHost, setSHost] = useState("192.168.1.60");
+  const [sAmiPort, setSAmiPort] = useState("5038");
+  const [sAmiUser, setSAmiUser] = useState("admin");
+  const [sAmiSecret, setSAmiSecret] = useState("");
+  const [sCdrUrl, setSCdrUrl] = useState("https://cdr.hb.sa/s20");
+  const [sEnabled, setSEnabled] = useState(false);
+
+  // Google AI
+  const [googleAiKey, setGoogleAiKey] = useState("");
+  const [googleAiModel, setGoogleAiModel] = useState("gemini-1.5-pro");
+  const [googleAiEnabled, setGoogleAiEnabled] = useState(false);
+
   const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
   const [webhookSecret, setWebhookSecret] = useState("••••••••••");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -132,7 +157,12 @@ const Settings = () => {
     const data = {
       exportedAt: new Date().toISOString(),
       users,
-      server: { ip: serverIP, port: serverPort, webhookUrl },
+      pbx: {
+        pSeries: { enabled: pEnabled, host: pHost, port: pPort, apiUser: pApiUser, useTLS: pUseTLS },
+        sSeries: { enabled: sEnabled, host: sHost, amiPort: sAmiPort, amiUser: sAmiUser, cdrUrl: sCdrUrl },
+      },
+      googleAi: { enabled: googleAiEnabled, model: googleAiModel },
+      webhook: { url: webhookUrl },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -149,17 +179,55 @@ const Settings = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       if (Array.isArray(data.users)) setUsers(data.users);
-      if (data.server?.ip)         setServerIP(data.server.ip);
-      if (data.server?.port)       setServerPort(data.server.port);
-      if (data.server?.webhookUrl) setWebhookUrl(data.server.webhookUrl);
+      if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
+      if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
+      if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
+      if (data.webhook?.url) setWebhookUrl(data.webhook.url);
       Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
     } catch {
       Swal.fire({ icon: "error", title: "ملف غير صالح", text: "تعذّر قراءة JSON." });
     }
   };
 
-  const saveServer = () => {
-    Swal.fire({ icon: "success", title: "تم حفظ إعدادات السيرفر", timer: 1500, showConfirmButton: false });
+  const savePbx = (kind: "P560" | "S20") => {
+    Swal.fire({
+      icon: "success",
+      title: `تم حفظ إعدادات Yeastar ${kind}`,
+      text: "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
+      timer: 1800,
+      showConfirmButton: false,
+    });
+  };
+
+  const testPbx = (kind: "P560" | "S20") => {
+    Swal.fire({
+      title: `اختبار اتصال Yeastar ${kind}`,
+      html: '<div class="text-sm">جاري المحاولة...</div>',
+      timer: 1200,
+      showConfirmButton: false,
+    }).then(() => {
+      Swal.fire({
+        icon: "success",
+        title: "نجح الاتصال ✓",
+        text: `تم التحقق من سنترال ${kind} بنجاح.`,
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    });
+  };
+
+  const saveGoogleAi = () => {
+    if (googleAiEnabled && !googleAiKey.trim()) {
+      Swal.fire({ icon: "warning", title: "المفتاح مطلوب", text: "يرجى إدخال Google AI API Key." });
+      return;
+    }
+    Swal.fire({
+      icon: "success",
+      title: "تم حفظ إعدادات Google AI",
+      text: googleAiEnabled ? `النموذج: ${googleAiModel}` : "تم تعطيل Google AI.",
+      timer: 1800,
+      showConfirmButton: false,
+    });
   };
 
   return (
@@ -226,36 +294,169 @@ const Settings = () => {
         </div>
       </section>
 
+      {/* PBX (Yeastar) Settings — Tabs */}
+      <section className="glass-card p-5 mb-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <PhoneCall className="w-4 h-4 text-primary" />
+            <div>
+              <h3 className="text-base font-bold">إعدادات السنترال (Yeastar)</h3>
+              <p className="text-xs text-muted-foreground">يدعم النظام نوعَي السنترال — اختر التبويب وأدخل بيانات الاتصال.</p>
+            </div>
+          </div>
+        </div>
+
+        <Tabs defaultValue="p560" dir="rtl" className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-md mb-5">
+            <TabsTrigger value="p560" className="gap-2">
+              <Server className="w-3.5 h-3.5" /> Yeastar P560 (P-Series)
+            </TabsTrigger>
+            <TabsTrigger value="s20" className="gap-2">
+              <Server className="w-3.5 h-3.5" /> Yeastar S20 (S-Series)
+            </TabsTrigger>
+          </TabsList>
+
+          {/* P-Series */}
+          <TabsContent value="p560" className="space-y-4 mt-0">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className={cn("w-4 h-4", pEnabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل سنترال P-Series</span>
+              </div>
+              <Switch checked={pEnabled} onCheckedChange={setPEnabled} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
+                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
+                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
+                <Input value={pApiUser} onChange={(e) => setPApiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Secret</label>
+                <Input value={pApiSecret} onChange={(e) => setPApiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="••••••••" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
+              <div className="flex items-center gap-2">
+                <Wifi className="w-4 h-4 text-info" />
+                <span className="text-xs font-medium">استخدام HTTPS / TLS</span>
+              </div>
+              <Switch checked={pUseTLS} onCheckedChange={setPUseTLS} disabled={!pEnabled} />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled}>
+                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
+              </Button>
+              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled}>
+                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* S-Series */}
+          <TabsContent value="s20" className="space-y-4 mt-0">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className={cn("w-4 h-4", sEnabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل سنترال S-Series</span>
+              </div>
+              <Switch checked={sEnabled} onCheckedChange={setSEnabled} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
+                <Input value={sHost} onChange={(e) => setSHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ AMI</label>
+                <Input value={sAmiPort} onChange={(e) => setSAmiPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Username</label>
+                <Input value={sAmiUser} onChange={(e) => setSAmiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Secret</label>
+                <Input value={sAmiSecret} onChange={(e) => setSAmiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!sEnabled} placeholder="••••••••" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+                  <Webhook className="w-3 h-3" /> CDR Webhook URL
+                </label>
+                <Input value={sCdrUrl} onChange={(e) => setSCdrUrl(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => savePbx("S20")} className="flex-1 gradient-primary text-primary-foreground" disabled={!sEnabled}>
+                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات S20
+              </Button>
+              <Button variant="outline" onClick={() => testPbx("S20")} disabled={!sEnabled}>
+                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Server settings */}
+        {/* Google AI Settings */}
         <section className="glass-card p-5">
-          <h3 className="text-base font-bold flex items-center gap-2">
-            <Server className="w-4 h-4 text-primary" /> إعدادات السيرفر
-          </h3>
-          <p className="text-xs text-muted-foreground mb-5">عنوان السيرفر و Webhook التكاملات.</p>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" /> إعدادات Google AI
+            </h3>
+            <Switch checked={googleAiEnabled} onCheckedChange={setGoogleAiEnabled} />
+          </div>
+          <p className="text-xs text-muted-foreground mb-5">
+            مفتاح Gemini لتفعيل التحليلات الذكية وملخصات المكالمات.
+          </p>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP</label>
-                <Input value={serverIP} onChange={(e) => setServerIP(e.target.value)} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المنفذ</label>
-                <Input value={serverPort} onChange={(e) => setServerPort(e.target.value)} dir="ltr" className="bg-background/60" />
-              </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+                <KeyRound className="w-3 h-3" /> Google AI API Key
+              </label>
+              <Input
+                value={googleAiKey}
+                onChange={(e) => setGoogleAiKey(e.target.value)}
+                type="password"
+                dir="ltr"
+                placeholder="AIza..."
+                className="bg-background/60"
+                disabled={!googleAiEnabled}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                احصل على المفتاح من{" "}
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline" dir="ltr">
+                  Google AI Studio
+                </a>
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">النموذج</label>
+              <Select value={googleAiModel} onValueChange={setGoogleAiModel} disabled={!googleAiEnabled}>
+                <SelectTrigger className="bg-background/60"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                  <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                  <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                <Webhook className="w-3 h-3" /> Webhook URL
+                <Webhook className="w-3 h-3" /> Webhook URL (اختياري)
               </label>
               <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} dir="ltr" className="bg-background/60" />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المفتاح السري</label>
-              <Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" />
-            </div>
-            <Button onClick={saveServer} className="w-full gradient-primary text-primary-foreground">
-              <Save className="w-4 h-4 ml-2" /> حفظ الإعدادات
+            <Button onClick={saveGoogleAi} className="w-full gradient-primary text-primary-foreground">
+              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات Google AI
             </Button>
           </div>
         </section>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -6,6 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Phone,
   PhoneIncoming,
@@ -15,7 +16,12 @@ import {
   TrendingUp,
   Award,
   User,
+  FileDown,
+  Loader2,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import Swal from "sweetalert2";
 import { Bar, Doughnut, Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -100,6 +106,9 @@ function generateWeeklyData(agent: Agent) {
 }
 
 export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalProps) {
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
   const agent = useMemo(
     () => AGENTS.find((a) => a.id === agentId) || null,
     [agentId],
@@ -114,6 +123,51 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     () => (agent ? generateWeeklyData(agent) : []),
     [agent],
   );
+
+  const downloadPdf = async () => {
+    if (!reportRef.current || !agent) return;
+    try {
+      setExporting(true);
+      await new Promise((r) => setTimeout(r, 350));
+      const bgVar = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: bgVar ? `hsl(${bgVar})` : "#ffffff",
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW - 16;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let heightLeft = imgH;
+      let position = 8;
+      pdf.addImage(imgData, "PNG", 8, position, imgW, imgH);
+      heightLeft -= pageH - 16;
+      while (heightLeft > 0) {
+        pdf.addPage();
+        position = 8 - (imgH - heightLeft);
+        pdf.addImage(imgData, "PNG", 8, position, imgW, imgH);
+        heightLeft -= pageH - 16;
+      }
+      const fileName = `report-${agent.name.replace(/\s+/g, "_")}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      pdf.save(fileName);
+      Swal.fire({
+        icon: "success",
+        title: "تم تحميل التقرير",
+        text: fileName,
+        timer: 1800,
+        showConfirmButton: false,
+        confirmButtonColor: "hsl(174 72% 38%)",
+      });
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "تعذّر إنشاء PDF", text: String(e) });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (!agent) return null;
 
@@ -228,10 +282,31 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
                 <span>المشرف: {agent.supervisor}</span>
               </div>
             </div>
+            <Button
+              onClick={downloadPdf}
+              disabled={exporting}
+              className="gradient-primary text-primary-foreground shrink-0"
+              size="sm"
+            >
+              {exporting ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <FileDown className="w-4 h-4 ml-2" />}
+              {exporting ? "جاري التحميل..." : "تحميل PDF"}
+            </Button>
           </div>
         </DialogHeader>
 
-        <div className="p-6 space-y-5">
+        <div ref={reportRef} className="p-6 space-y-5 bg-background">
+          {/* ترويسة التقرير (تظهر داخل الـ PDF) */}
+          <div className="flex items-center justify-between pb-3 border-b border-border">
+            <div>
+              <p className="text-xs text-muted-foreground">تقرير أداء الموظف</p>
+              <h3 className="text-lg font-bold">{agent.name} <span className="text-muted-foreground text-xs font-normal">— {agent.id}</span></h3>
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] text-muted-foreground">تاريخ التقرير</p>
+              <p className="text-xs font-bold tabular-nums">{new Date().toLocaleDateString("ar-SA")}</p>
+            </div>
+          </div>
+
           {/* بطاقات إحصائية */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatBox icon={PhoneIncoming} label="مكالمات مجابة" value={agent.answered} cls="text-success" bg="bg-success/10" />
