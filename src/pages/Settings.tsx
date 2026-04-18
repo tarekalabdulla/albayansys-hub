@@ -79,8 +79,27 @@ const Settings = () => {
     name: "", email: "", role: "agent", active: true,
   });
 
-  const [serverIP, setServerIP] = useState("192.168.1.50");
-  const [serverPort, setServerPort] = useState("8088");
+  // Yeastar P-Series (P560)
+  const [pHost, setPHost] = useState("192.168.1.50");
+  const [pPort, setPPort] = useState("8088");
+  const [pApiUser, setPApiUser] = useState("apiuser");
+  const [pApiSecret, setPApiSecret] = useState("");
+  const [pUseTLS, setPUseTLS] = useState(true);
+  const [pEnabled, setPEnabled] = useState(true);
+
+  // Yeastar S-Series (S20)
+  const [sHost, setSHost] = useState("192.168.1.60");
+  const [sAmiPort, setSAmiPort] = useState("5038");
+  const [sAmiUser, setSAmiUser] = useState("admin");
+  const [sAmiSecret, setSAmiSecret] = useState("");
+  const [sCdrUrl, setSCdrUrl] = useState("https://cdr.hb.sa/s20");
+  const [sEnabled, setSEnabled] = useState(false);
+
+  // Google AI
+  const [googleAiKey, setGoogleAiKey] = useState("");
+  const [googleAiModel, setGoogleAiModel] = useState("gemini-1.5-pro");
+  const [googleAiEnabled, setGoogleAiEnabled] = useState(false);
+
   const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
   const [webhookSecret, setWebhookSecret] = useState("••••••••••");
   const fileRef = useRef<HTMLInputElement>(null);
