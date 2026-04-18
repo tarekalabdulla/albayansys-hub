@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { AgentDetailModal } from "@/components/performance/AgentDetailModal";
 
 const STATUS_FILTERS: Array<{ id: "all" | AgentStatus; label: string }> = [
   { id: "all", label: "الكل" },
