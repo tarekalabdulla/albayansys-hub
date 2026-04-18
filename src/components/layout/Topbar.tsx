@@ -359,10 +359,15 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Avatar */}
-          <div className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1">
+          {/* Avatar — يفتح الملف الشخصي */}
+          <button
+            onClick={() => navigate("/profile")}
+            className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1 hover:scale-105 transition-transform"
+            aria-label="فتح الملف الشخصي"
+            title="الملف الشخصي"
+          >
             س.ع
-          </div>
+          </button>
         </div>
       </div>
     </header>
