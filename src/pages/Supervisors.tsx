@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -269,7 +270,12 @@ export default function Supervisors() {
                               </AvatarFallback>
                             </Avatar>
                             <div>
-                              <p className="text-sm font-bold">{s.name}</p>
+                              <Link
+                                to={`/supervisors/${s.id}`}
+                                className="text-sm font-bold hover:text-primary hover:underline transition-colors"
+                              >
+                                {s.name}
+                              </Link>
                               <p className="text-[11px] text-muted-foreground">
                                 {s.email}
                               </p>

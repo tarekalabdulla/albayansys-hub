@@ -14,6 +14,7 @@ import Recordings from "./pages/Recordings";
 import Mailbox from "./pages/Mailbox";
 import Settings from "./pages/Settings";
 import Supervisors from "./pages/Supervisors";
+import SupervisorDetail from "./pages/SupervisorDetail";
 import Profile from "./pages/Profile";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/recordings" element={<Recordings />} />
           <Route path="/mail" element={<Mailbox />} />
           <Route path="/supervisors" element={<Supervisors />} />
+          <Route path="/supervisors/:id" element={<SupervisorDetail />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
