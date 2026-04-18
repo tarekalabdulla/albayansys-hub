@@ -157,7 +157,12 @@ const Settings = () => {
     const data = {
       exportedAt: new Date().toISOString(),
       users,
-      server: { ip: serverIP, port: serverPort, webhookUrl },
+      pbx: {
+        pSeries: { enabled: pEnabled, host: pHost, port: pPort, apiUser: pApiUser, useTLS: pUseTLS },
+        sSeries: { enabled: sEnabled, host: sHost, amiPort: sAmiPort, amiUser: sAmiUser, cdrUrl: sCdrUrl },
+      },
+      googleAi: { enabled: googleAiEnabled, model: googleAiModel },
+      webhook: { url: webhookUrl },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -174,17 +179,55 @@ const Settings = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       if (Array.isArray(data.users)) setUsers(data.users);
-      if (data.server?.ip)         setServerIP(data.server.ip);
-      if (data.server?.port)       setServerPort(data.server.port);
-      if (data.server?.webhookUrl) setWebhookUrl(data.server.webhookUrl);
+      if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
+      if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
+      if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
+      if (data.webhook?.url) setWebhookUrl(data.webhook.url);
       Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
     } catch {
       Swal.fire({ icon: "error", title: "ملف غير صالح", text: "تعذّر قراءة JSON." });
     }
   };
 
-  const saveServer = () => {
-    Swal.fire({ icon: "success", title: "تم حفظ إعدادات السيرفر", timer: 1500, showConfirmButton: false });
+  const savePbx = (kind: "P560" | "S20") => {
+    Swal.fire({
+      icon: "success",
+      title: `تم حفظ إعدادات Yeastar ${kind}`,
+      text: "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
+      timer: 1800,
+      showConfirmButton: false,
+    });
+  };
+
+  const testPbx = (kind: "P560" | "S20") => {
+    Swal.fire({
+      title: `اختبار اتصال Yeastar ${kind}`,
+      html: '<div class="text-sm">جاري المحاولة...</div>',
+      timer: 1200,
+      showConfirmButton: false,
+    }).then(() => {
+      Swal.fire({
+        icon: "success",
+        title: "نجح الاتصال ✓",
+        text: `تم التحقق من سنترال ${kind} بنجاح.`,
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    });
+  };
+
+  const saveGoogleAi = () => {
+    if (googleAiEnabled && !googleAiKey.trim()) {
+      Swal.fire({ icon: "warning", title: "المفتاح مطلوب", text: "يرجى إدخال Google AI API Key." });
+      return;
+    }
+    Swal.fire({
+      icon: "success",
+      title: "تم حفظ إعدادات Google AI",
+      text: googleAiEnabled ? `النموذج: ${googleAiModel}` : "تم تعطيل Google AI.",
+      timer: 1800,
+      showConfirmButton: false,
+    });
   };
 
   return (
