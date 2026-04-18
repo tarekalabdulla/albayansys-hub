@@ -29,7 +29,13 @@ import {
   Upload,
   Save,
   Shield,
+  Sparkles,
+  PhoneCall,
+  Wifi,
+  KeyRound,
+  CheckCircle2,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 
