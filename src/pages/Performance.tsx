@@ -21,6 +21,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { AgentDetailModal } from "@/components/performance/AgentDetailModal";
 
 type SortKey = "name" | "answered" | "missed" | "avgDuration" | "rate";
 type SortDir = "asc" | "desc";
@@ -43,6 +44,7 @@ const Performance = () => {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("answered");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const rows: Row[] = useMemo(
     () =>
@@ -210,12 +212,17 @@ const Performance = () => {
               {filtered.map((r) => (
                 <tr key={r.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg gradient-primary grid place-items-center text-xs font-bold text-primary-foreground">
+                    <button
+                      onClick={() => setSelectedAgent(r.id)}
+                      className="flex items-center gap-3 group text-right"
+                    >
+                      <div className="w-9 h-9 rounded-lg gradient-primary grid place-items-center text-xs font-bold text-primary-foreground transition-transform group-hover:scale-110">
                         {r.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
                       </div>
-                      <p className="text-sm font-semibold">{r.name}</p>
-                    </div>
+                      <p className="text-sm font-semibold group-hover:text-primary transition-colors underline-offset-4 group-hover:underline">
+                        {r.name}
+                      </p>
+                    </button>
                   </td>
                   <td className="px-4 py-3 tabular-nums text-sm font-semibold" dir="ltr">{r.ext}</td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">{r.supervisor}</td>
@@ -245,6 +252,12 @@ const Performance = () => {
           </table>
         </div>
       </section>
+
+      <AgentDetailModal
+        agentId={selectedAgent}
+        open={selectedAgent !== null}
+        onClose={() => setSelectedAgent(null)}
+      />
     </AppLayout>
   );
 };
