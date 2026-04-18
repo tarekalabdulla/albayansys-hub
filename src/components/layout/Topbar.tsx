@@ -1,5 +1,6 @@
-import { Menu, Search, Bell, Sun, Moon, Palette, Check } from "lucide-react";
+import { Menu, Search, Bell, Sun, Moon, Palette, Check, Mail, Star, Paperclip, Inbox } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import {
   applyMode,
   applyTheme,
@@ -18,6 +20,7 @@ import {
   THEMES,
   type ThemeId,
 } from "@/lib/themes";
+import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -27,6 +30,7 @@ interface TopbarProps {
 }
 
 export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
+  const navigate = useNavigate();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
 
@@ -49,6 +53,13 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
     setTheme(id);
     applyTheme(id);
   };
+
+  // الرسائل غير المقروءة في الوارد
+  const inboxMails = MAILS.filter((m) => m.folder === "inbox");
+  const unreadCount = inboxMails.filter((m) => !m.read).length;
+  const latestThree = [...inboxMails]
+    .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+    .slice(0, 3);
 
   return (
     <header className="sticky top-0 z-30 glass border-b border-border/60">
@@ -127,10 +138,107 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
             {mode === "light" ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
           </Button>
 
-          {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative" aria-label="الإشعارات">
+          {/* Mail dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative" aria-label="البريد الداخلي">
+                <Mail className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <>
+                    <span className="absolute top-1.5 left-1.5 w-2.5 h-2.5 rounded-full bg-destructive ring-2 ring-background animate-pulse" />
+                    <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-extrabold ring-2 ring-background">
+                      {unreadCount}
+                    </span>
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80 p-0">
+              {/* رأس */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-l from-primary/10 to-transparent">
+                <div className="flex items-center gap-2">
+                  <Inbox className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-bold">البريد الوارد</span>
+                </div>
+                {unreadCount > 0 && (
+                  <Badge className="bg-destructive text-destructive-foreground text-[10px] h-5">
+                    {unreadCount} جديدة
+                  </Badge>
+                )}
+              </div>
+
+              {/* قائمة آخر ٣ */}
+              <div className="max-h-[320px] overflow-y-auto">
+                {latestThree.length === 0 && (
+                  <div className="text-center py-8 text-xs text-muted-foreground">
+                    لا توجد رسائل
+                  </div>
+                )}
+                {latestThree.map((m) => {
+                  const prio = priorityMeta(m.priority);
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => navigate("/mail")}
+                      className={cn(
+                        "w-full text-right px-4 py-3 border-b border-border/60 transition-colors flex gap-3 hover:bg-muted/50",
+                        !m.read && "bg-info/5",
+                      )}
+                    >
+                      <div className="w-9 h-9 rounded-full gradient-primary grid place-items-center text-[10px] font-bold text-primary-foreground shrink-0">
+                        {m.from.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <p className={cn("text-xs truncate", !m.read ? "font-extrabold" : "font-semibold")}>
+                            {m.from.name}
+                          </p>
+                          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                            {formatMailDate(m.date)}
+                          </span>
+                        </div>
+                        <p className={cn(
+                          "text-[11px] truncate mb-1",
+                          !m.read ? "font-bold text-foreground" : "text-foreground/75",
+                        )}>
+                          {m.subject}
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          {!m.read && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                          {m.starred && <Star className="w-3 h-3 fill-warning text-warning" />}
+                          {m.attachments && m.attachments.length > 0 && (
+                            <Paperclip className="w-3 h-3 text-muted-foreground" />
+                          )}
+                          <Badge variant="outline" className={cn("text-[9px] h-4 px-1.5", prio.cls)}>
+                            {prio.label}
+                          </Badge>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* تذييل */}
+              <button
+                onClick={() => navigate("/mail")}
+                className="w-full px-4 py-2.5 text-xs font-bold text-primary hover:bg-primary/5 transition-colors border-t border-border"
+              >
+                عرض كل الرسائل ←
+              </button>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Notifications (Alerts page) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative"
+            aria-label="الإشعارات التنبيهية"
+            onClick={() => navigate("/alerts")}
+          >
             <Bell className="w-5 h-5" />
-            <span className="absolute top-2 left-2 w-2 h-2 rounded-full bg-destructive ring-2 ring-background" />
+            <span className="absolute top-2 left-2 w-2 h-2 rounded-full bg-destructive ring-2 ring-background animate-pulse" />
           </Button>
 
           {/* Avatar */}
