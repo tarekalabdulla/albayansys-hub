@@ -49,7 +49,7 @@ const DOT_BY_STATUS: Record<AgentStatus, string> = {
   offline: "bg-muted-foreground",
 };
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => void }) {
   const timer = useLiveTimer(agent.statusSince);
   const isLive = agent.status === "in_call" || agent.status === "online";
 
