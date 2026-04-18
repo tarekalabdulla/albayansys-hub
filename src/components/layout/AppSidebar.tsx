@@ -7,6 +7,7 @@ import {
   Bell,
   Sparkles,
   Mic,
+  Mail,
   Settings,
   PhoneCall,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/alerts", label: "الإشعارات التنبيهية", icon: Bell },
   { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles },
   { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic },
+  { to: "/mail", label: "البريد الداخلي", icon: Mail },
   { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings },
 ];
 
