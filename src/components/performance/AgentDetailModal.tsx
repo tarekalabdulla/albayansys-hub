@@ -19,8 +19,6 @@ import {
   FileDown,
   Loader2,
 } from "lucide-react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import Swal from "sweetalert2";
 import { Bar, Doughnut, Line } from "react-chartjs-2";
 import {
