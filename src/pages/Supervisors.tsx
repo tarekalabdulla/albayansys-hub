@@ -45,54 +45,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface Supervisor {
-  id: string;
-  name: string;
-  email: string;
-  ext: string;
-  role: "مشرف" | "مشرف أول" | "مدير قسم";
-  agentIds: string[];
-}
-
-const SUP_KEY = "callcenter:supervisors";
-
-function loadSupervisors(): Supervisor[] {
-  try {
-    const raw = localStorage.getItem(SUP_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  // Seed initial
-  return [
-    {
-      id: "S-001",
-      name: "أ. سلمان العامر",
-      email: "salman@bayan.sa",
-      ext: "1001",
-      role: "مدير قسم",
-      agentIds: AGENTS.slice(0, 4).map((a) => a.id),
-    },
-    {
-      id: "S-002",
-      name: "أ. منى الشمري",
-      email: "mona@bayan.sa",
-      ext: "1002",
-      role: "مشرف أول",
-      agentIds: AGENTS.slice(4, 8).map((a) => a.id),
-    },
-    {
-      id: "S-003",
-      name: "أ. بدر الزهراني",
-      email: "badr@bayan.sa",
-      ext: "1003",
-      role: "مشرف",
-      agentIds: AGENTS.slice(8, 12).map((a) => a.id),
-    },
-  ];
-}
-
-function saveSupervisors(list: Supervisor[]) {
-  localStorage.setItem(SUP_KEY, JSON.stringify(list));
-}
+import {
+  loadSupervisors,
+  saveSupervisors,
+  type Supervisor,
+} from "@/lib/supervisorsData";
 
 export default function Supervisors() {
   const { toast } = useToast();

@@ -40,24 +40,7 @@ import {
   Line,
 } from "recharts";
 
-interface Supervisor {
-  id: string;
-  name: string;
-  email: string;
-  ext: string;
-  role: string;
-  agentIds: string[];
-}
-
-const SUP_KEY = "callcenter:supervisors";
-
-function loadSupervisors(): Supervisor[] {
-  try {
-    const raw = localStorage.getItem(SUP_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
+import { loadSupervisors } from "@/lib/supervisorsData";
 
 export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
