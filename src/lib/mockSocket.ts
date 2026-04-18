@@ -64,10 +64,12 @@ export const mockSocket = {
     tickHandle = null;
     started = false;
   },
-  on(event: EventName, cb: Listener) {
+  on(event: EventName, cb: Listener): () => void {
     if (!listeners.has(event)) listeners.set(event, new Set());
     listeners.get(event)!.add(cb);
-    return () => listeners.get(event)!.delete(cb);
+    return () => {
+      listeners.get(event)!.delete(cb);
+    };
   },
   // Snapshot فوري للمستهلكين
   snapshot(): Agent[] {
