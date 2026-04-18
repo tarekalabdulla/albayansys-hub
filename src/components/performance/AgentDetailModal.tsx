@@ -106,6 +106,9 @@ function generateWeeklyData(agent: Agent) {
 }
 
 export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalProps) {
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
   const agent = useMemo(
     () => AGENTS.find((a) => a.id === agentId) || null,
     [agentId],
@@ -120,6 +123,51 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     () => (agent ? generateWeeklyData(agent) : []),
     [agent],
   );
+
+  const downloadPdf = async () => {
+    if (!reportRef.current || !agent) return;
+    try {
+      setExporting(true);
+      await new Promise((r) => setTimeout(r, 350));
+      const bgVar = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: bgVar ? `hsl(${bgVar})` : "#ffffff",
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW - 16;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      let heightLeft = imgH;
+      let position = 8;
+      pdf.addImage(imgData, "PNG", 8, position, imgW, imgH);
+      heightLeft -= pageH - 16;
+      while (heightLeft > 0) {
+        pdf.addPage();
+        position = 8 - (imgH - heightLeft);
+        pdf.addImage(imgData, "PNG", 8, position, imgW, imgH);
+        heightLeft -= pageH - 16;
+      }
+      const fileName = `report-${agent.name.replace(/\s+/g, "_")}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      pdf.save(fileName);
+      Swal.fire({
+        icon: "success",
+        title: "تم تحميل التقرير",
+        text: fileName,
+        timer: 1800,
+        showConfirmButton: false,
+        confirmButtonColor: "hsl(174 72% 38%)",
+      });
+    } catch (e) {
+      Swal.fire({ icon: "error", title: "تعذّر إنشاء PDF", text: String(e) });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (!agent) return null;
 
