@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,14 +64,29 @@ export default function SupervisorDetail() {
   const supervisors = loadSupervisors();
   const supervisor = supervisors.find((s) => s.id === id);
 
+  type Range = "day" | "week" | "month";
+  const [range, setRange] = useState<Range>("week");
+
+  const rangeMultiplier: Record<Range, number> = {
+    day: 0.2,
+    week: 1,
+    month: 4.2,
+  };
+  const rangeLabel: Record<Range, string> = {
+    day: "اليوم",
+    week: "الأسبوع",
+    month: "الشهر",
+  };
+
   const team = useMemo(
     () => (supervisor ? AGENTS.filter((a) => supervisor.agentIds.includes(a.id)) : []),
     [supervisor],
   );
 
   const stats = useMemo(() => {
-    const answered = team.reduce((s, a) => s + a.answered, 0);
-    const missed = team.reduce((s, a) => s + a.missed, 0);
+    const m = rangeMultiplier[range];
+    const answered = Math.round(team.reduce((s, a) => s + a.answered, 0) * m);
+    const missed = Math.round(team.reduce((s, a) => s + a.missed, 0) * m);
     const total = answered + missed;
     const sla = total ? Math.round((answered / total) * 100) : 0;
     const idle = team.filter((a) => a.status === "idle").length;
@@ -79,7 +95,7 @@ export default function SupervisorDetail() {
       ? Math.round(team.reduce((s, a) => s + a.avgDuration, 0) / team.length)
       : 0;
     return { answered, missed, sla, idle, inCall, avgDuration };
-  }, [team]);
+  }, [team, range]);
 
   const statusData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -101,15 +117,27 @@ export default function SupervisorDetail() {
     offline: "hsl(var(--muted-foreground))",
   };
 
-  const trend = useMemo(
-    () =>
-      Array.from({ length: 7 }).map((_, i) => ({
-        day: ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"][i],
-        answered: 80 + Math.floor(Math.random() * 80),
-        missed: Math.floor(Math.random() * 20),
-      })),
-    [team],
-  );
+  const trend = useMemo(() => {
+    if (range === "day") {
+      return Array.from({ length: 12 }).map((_, i) => ({
+        day: `${String(i * 2).padStart(2, "0")}:00`,
+        answered: 5 + Math.floor(Math.random() * 25),
+        missed: Math.floor(Math.random() * 5),
+      }));
+    }
+    if (range === "month") {
+      return Array.from({ length: 4 }).map((_, i) => ({
+        day: `أسبوع ${i + 1}`,
+        answered: 400 + Math.floor(Math.random() * 200),
+        missed: 20 + Math.floor(Math.random() * 40),
+      }));
+    }
+    return Array.from({ length: 7 }).map((_, i) => ({
+      day: ["السبت", "الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"][i],
+      answered: 80 + Math.floor(Math.random() * 80),
+      missed: Math.floor(Math.random() * 20),
+    }));
+  }, [range, team]);
 
   if (!supervisor) {
     return (
@@ -153,12 +181,30 @@ export default function SupervisorDetail() {
                 </div>
               </div>
             </div>
-            <Button asChild variant="outline">
-              <Link to="/supervisors">
-                <ArrowRight className="w-4 h-4 ml-2" />
-                العودة
-              </Link>
-            </Button>
+            <div className="flex flex-col sm:items-end gap-2">
+              <ToggleGroup
+                type="single"
+                value={range}
+                onValueChange={(v) => v && setRange(v as Range)}
+                className="bg-muted/50 rounded-lg p-1"
+              >
+                <ToggleGroupItem value="day" className="text-xs h-8 px-3">
+                  اليوم
+                </ToggleGroupItem>
+                <ToggleGroupItem value="week" className="text-xs h-8 px-3">
+                  الأسبوع
+                </ToggleGroupItem>
+                <ToggleGroupItem value="month" className="text-xs h-8 px-3">
+                  الشهر
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/supervisors">
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                  العودة
+                </Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -216,7 +262,7 @@ export default function SupervisorDetail() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" />
-                المكالمات خلال الأسبوع
+                المكالمات خلال {rangeLabel[range]}
               </CardTitle>
             </CardHeader>
             <CardContent>
