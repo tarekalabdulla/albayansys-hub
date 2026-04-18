@@ -1,0 +1,352 @@
+import { useRef, useState } from "react";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  UserPlus,
+  Pencil,
+  Trash2,
+  Server,
+  Webhook,
+  Database,
+  Download,
+  Upload,
+  Save,
+  Shield,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import Swal from "sweetalert2";
+
+type Role = "admin" | "supervisor" | "agent" | "viewer";
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  active: boolean;
+}
+
+const ROLE_LABEL: Record<Role, string> = {
+  admin: "مدير النظام",
+  supervisor: "مشرف",
+  agent: "موظف",
+  viewer: "مشاهد",
+};
+
+const ROLE_BADGE: Record<Role, string> = {
+  admin: "bg-destructive/15 text-destructive border-destructive/30",
+  supervisor: "bg-primary/15 text-primary border-primary/30",
+  agent: "bg-info/15 text-info border-info/30",
+  viewer: "bg-muted text-muted-foreground border-border",
+};
+
+const INITIAL_USERS: User[] = [
+  { id: "u1", name: "سلمان العامر", email: "salman@hb.sa", role: "admin", active: true },
+  { id: "u2", name: "منى الشهري",   email: "mona@hb.sa",   role: "supervisor", active: true },
+  { id: "u3", name: "بدر القحطاني", email: "badr@hb.sa",   role: "supervisor", active: true },
+  { id: "u4", name: "ريم الحربي",   email: "reem@hb.sa",   role: "agent",      active: true },
+  { id: "u5", name: "فهد التركي",   email: "fahad@hb.sa",  role: "viewer",     active: false },
+];
+
+const Settings = () => {
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<User | null>(null);
+  const [form, setForm] = useState<Omit<User, "id">>({
+    name: "", email: "", role: "agent", active: true,
+  });
+
+  const [serverIP, setServerIP] = useState("192.168.1.50");
+  const [serverPort, setServerPort] = useState("8088");
+  const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
+  const [webhookSecret, setWebhookSecret] = useState("••••••••••");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ name: "", email: "", role: "agent", active: true });
+    setOpen(true);
+  };
+
+  const openEdit = (u: User) => {
+    setEditing(u);
+    setForm({ name: u.name, email: u.email, role: u.role, active: u.active });
+    setOpen(true);
+  };
+
+  const submit = () => {
+    if (!form.name.trim() || !form.email.trim()) {
+      Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "يرجى تعبئة الاسم والبريد." });
+      return;
+    }
+    if (editing) {
+      setUsers((p) => p.map((u) => u.id === editing.id ? { ...editing, ...form } : u));
+      Swal.fire({ icon: "success", title: "تم التعديل", timer: 1500, showConfirmButton: false });
+    } else {
+      const id = `u${Date.now()}`;
+      setUsers((p) => [...p, { id, ...form }]);
+      Swal.fire({ icon: "success", title: "تم إضافة المستخدم", timer: 1500, showConfirmButton: false });
+    }
+    setOpen(false);
+  };
+
+  const remove = (u: User) => {
+    Swal.fire({
+      title: `حذف ${u.name}؟`,
+      text: "لا يمكن التراجع عن هذا الإجراء.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "نعم، احذف",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+    }).then((r) => {
+      if (r.isConfirmed) {
+        setUsers((p) => p.filter((x) => x.id !== u.id));
+        Swal.fire({ icon: "success", title: "تم الحذف", timer: 1200, showConfirmButton: false });
+      }
+    });
+  };
+
+  const toggleActive = (u: User) => {
+    setUsers((p) => p.map((x) => x.id === u.id ? { ...x, active: !x.active } : x));
+  };
+
+  const exportJSON = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      users,
+      server: { ip: serverIP, port: serverPort, webhookUrl },
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `hulul-albayan-backup-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    Swal.fire({ icon: "success", title: "تم تصدير النسخة الاحتياطية", timer: 1800, showConfirmButton: false });
+  };
+
+  const importJSON = async (file: File) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (Array.isArray(data.users)) setUsers(data.users);
+      if (data.server?.ip)         setServerIP(data.server.ip);
+      if (data.server?.port)       setServerPort(data.server.port);
+      if (data.server?.webhookUrl) setWebhookUrl(data.server.webhookUrl);
+      Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
+    } catch {
+      Swal.fire({ icon: "error", title: "ملف غير صالح", text: "تعذّر قراءة JSON." });
+    }
+  };
+
+  const saveServer = () => {
+    Swal.fire({ icon: "success", title: "تم حفظ إعدادات السيرفر", timer: 1500, showConfirmButton: false });
+  };
+
+  return (
+    <AppLayout title="الإعدادات والمستخدمين" subtitle="إدارة الصلاحيات وإعدادات النظام">
+      {/* Users Table */}
+      <section className="glass-card overflow-hidden mb-6">
+        <div className="flex items-center justify-between p-5 border-b border-border/60 flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-primary" />
+            <div>
+              <h3 className="text-base font-bold">إدارة المستخدمين والصلاحيات</h3>
+              <p className="text-xs text-muted-foreground">{users.length} مستخدم نشط</p>
+            </div>
+          </div>
+          <Button onClick={openAdd} className="gradient-primary text-primary-foreground">
+            <UserPlus className="w-4 h-4 ml-2" /> إضافة مستخدم
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-right">
+            <thead className="bg-muted/50 text-xs font-bold text-muted-foreground uppercase">
+              <tr>
+                <th className="px-4 py-3">المستخدم</th>
+                <th className="px-4 py-3">البريد</th>
+                <th className="px-4 py-3">الدور</th>
+                <th className="px-4 py-3">الحالة</th>
+                <th className="px-4 py-3 text-left">إجراءات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg gradient-primary grid place-items-center text-xs font-bold text-primary-foreground">
+                        {u.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
+                      </div>
+                      <p className="text-sm font-semibold">{u.name}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground" dir="ltr">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full border", ROLE_BADGE[u.role])}>
+                      {ROLE_LABEL[u.role]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Switch checked={u.active} onCheckedChange={() => toggleActive(u)} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1.5">
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(u)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => remove(u)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Server settings */}
+        <section className="glass-card p-5">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <Server className="w-4 h-4 text-primary" /> إعدادات السيرفر
+          </h3>
+          <p className="text-xs text-muted-foreground mb-5">عنوان السيرفر و Webhook التكاملات.</p>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP</label>
+                <Input value={serverIP} onChange={(e) => setServerIP(e.target.value)} dir="ltr" className="bg-background/60" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المنفذ</label>
+                <Input value={serverPort} onChange={(e) => setServerPort(e.target.value)} dir="ltr" className="bg-background/60" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+                <Webhook className="w-3 h-3" /> Webhook URL
+              </label>
+              <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} dir="ltr" className="bg-background/60" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المفتاح السري</label>
+              <Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" />
+            </div>
+            <Button onClick={saveServer} className="w-full gradient-primary text-primary-foreground">
+              <Save className="w-4 h-4 ml-2" /> حفظ الإعدادات
+            </Button>
+          </div>
+        </section>
+
+        {/* Backup */}
+        <section className="glass-card p-5">
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي
+          </h3>
+          <p className="text-xs text-muted-foreground mb-5">تصدير واستيراد إعدادات النظام والمستخدمين بصيغة JSON.</p>
+          <div className="space-y-3">
+            <button
+              onClick={exportJSON}
+              className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40"
+            >
+              <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
+              <p className="text-sm font-bold">تصدير النسخة الاحتياطية</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">يُنزَّل ملف .json كامل</p>
+            </button>
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40"
+            >
+              <Upload className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
+              <p className="text-sm font-bold">استيراد نسخة احتياطية</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">اختر ملف .json للاستعادة</p>
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importJSON(f);
+                e.target.value = "";
+              }}
+            />
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-info/10 text-info text-xs">
+              <Database className="w-4 h-4 shrink-0" />
+              <span>آخر نسخة احتياطية: قبل ساعتين</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* User Modal */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>{editing ? "تعديل مستخدم" : "إضافة مستخدم جديد"}</DialogTitle>
+            <DialogDescription>
+              {editing ? "حدّث بيانات المستخدم وصلاحياته." : "أدخل بيانات المستخدم لمنحه صلاحيات الدخول."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block">الاسم الكامل</label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="مثال: أحمد العتيبي" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block">البريد الإلكتروني</label>
+              <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" dir="ltr" placeholder="user@hb.sa" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block">الدور</label>
+              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as Role })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">مدير النظام</SelectItem>
+                  <SelectItem value="supervisor">مشرف</SelectItem>
+                  <SelectItem value="agent">موظف</SelectItem>
+                  <SelectItem value="viewer">مشاهد</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40">
+              <span className="text-sm font-medium">حساب نشط</span>
+              <Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
+            <Button onClick={submit} className="gradient-primary text-primary-foreground">
+              {editing ? "حفظ التعديلات" : "إضافة المستخدم"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </AppLayout>
+  );
+};
+
+export default Settings;
