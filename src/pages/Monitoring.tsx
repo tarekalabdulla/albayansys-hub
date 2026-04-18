@@ -133,7 +133,7 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
         <Button size="sm" variant="outline" className="text-xs h-8" onClick={handleListen}>
           <Headphones className="w-3 h-3 ml-1" /> استماع
         </Button>
-        <Button size="sm" variant="outline" className="text-xs h-8">
+        <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => onOpen(agent.id)}>
           <Eye className="w-3 h-3 ml-1" /> تفاصيل
         </Button>
         <Button size="sm" variant="outline" className="text-xs h-8 text-destructive hover:text-destructive">
