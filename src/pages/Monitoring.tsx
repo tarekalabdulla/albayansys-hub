@@ -87,7 +87,14 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-sm truncate">{agent.name}</p>
+          <button
+            onClick={() => onOpen(agent.id)}
+            className="text-right group"
+          >
+            <p className="font-bold text-sm truncate group-hover:text-primary transition-colors group-hover:underline underline-offset-4">
+              {agent.name}
+            </p>
+          </button>
           <p className="text-[11px] text-muted-foreground">
             تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span> · {agent.supervisor}
           </p>
