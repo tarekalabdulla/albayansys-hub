@@ -181,12 +181,30 @@ export default function SupervisorDetail() {
                 </div>
               </div>
             </div>
-            <Button asChild variant="outline">
-              <Link to="/supervisors">
-                <ArrowRight className="w-4 h-4 ml-2" />
-                العودة
-              </Link>
-            </Button>
+            <div className="flex flex-col sm:items-end gap-2">
+              <ToggleGroup
+                type="single"
+                value={range}
+                onValueChange={(v) => v && setRange(v as Range)}
+                className="bg-muted/50 rounded-lg p-1"
+              >
+                <ToggleGroupItem value="day" className="text-xs h-8 px-3">
+                  اليوم
+                </ToggleGroupItem>
+                <ToggleGroupItem value="week" className="text-xs h-8 px-3">
+                  الأسبوع
+                </ToggleGroupItem>
+                <ToggleGroupItem value="month" className="text-xs h-8 px-3">
+                  الشهر
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/supervisors">
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                  العودة
+                </Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -244,7 +262,7 @@ export default function SupervisorDetail() {
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="w-4 h-4 text-primary" />
-                المكالمات خلال الأسبوع
+                المكالمات خلال {rangeLabel[range]}
               </CardTitle>
             </CardHeader>
             <CardContent>
