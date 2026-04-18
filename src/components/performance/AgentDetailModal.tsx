@@ -127,6 +127,10 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     try {
       setExporting(true);
       await new Promise((r) => setTimeout(r, 350));
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
       const bgVar = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
       const canvas = await html2canvas(reportRef.current, {
         scale: 2,
