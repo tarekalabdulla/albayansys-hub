@@ -61,6 +61,26 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
     .slice(0, 3);
 
+  // التنبيهات: قائمة محلية مع حالة "مقروء"
+  type AlertItem = {
+    id: string;
+    level: "danger" | "warning" | "info";
+    title: string;
+    message: string;
+    time: string;
+  };
+  const initialAlerts: AlertItem[] = useMemo(
+    () => [
+      { id: "n1", level: "danger",  title: "تجاوز SLA حرج",   message: "6 مكالمات في الانتظار > دقيقتين", time: "منذ 3 د" },
+      { id: "n2", level: "warning", title: "خمول مطوّل",       message: "الموظفة هند خاملة منذ 14 دقيقة",  time: "منذ 12 د" },
+      { id: "n3", level: "warning", title: "تجاوز الاستراحة",  message: "يوسف تجاوز 25 دقيقة استراحة",     time: "منذ 18 د" },
+    ],
+    [],
+  );
+  const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
+  const unreadAlertsCount = initialAlerts.filter((a) => !readAlerts.has(a.id)).length;
+  const markAllAlertsRead = () => setReadAlerts(new Set(initialAlerts.map((a) => a.id)));
+
   return (
     <header className="sticky top-0 z-30 glass border-b border-border/60">
       <div className="flex items-center gap-3 px-4 sm:px-6 h-16">
