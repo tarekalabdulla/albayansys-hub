@@ -294,36 +294,169 @@ const Settings = () => {
         </div>
       </section>
 
+      {/* PBX (Yeastar) Settings — Tabs */}
+      <section className="glass-card p-5 mb-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <PhoneCall className="w-4 h-4 text-primary" />
+            <div>
+              <h3 className="text-base font-bold">إعدادات السنترال (Yeastar)</h3>
+              <p className="text-xs text-muted-foreground">يدعم النظام نوعَي السنترال — اختر التبويب وأدخل بيانات الاتصال.</p>
+            </div>
+          </div>
+        </div>
+
+        <Tabs defaultValue="p560" dir="rtl" className="w-full">
+          <TabsList className="grid grid-cols-2 w-full max-w-md mb-5">
+            <TabsTrigger value="p560" className="gap-2">
+              <Server className="w-3.5 h-3.5" /> Yeastar P560 (P-Series)
+            </TabsTrigger>
+            <TabsTrigger value="s20" className="gap-2">
+              <Server className="w-3.5 h-3.5" /> Yeastar S20 (S-Series)
+            </TabsTrigger>
+          </TabsList>
+
+          {/* P-Series */}
+          <TabsContent value="p560" className="space-y-4 mt-0">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className={cn("w-4 h-4", pEnabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل سنترال P-Series</span>
+              </div>
+              <Switch checked={pEnabled} onCheckedChange={setPEnabled} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
+                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
+                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
+                <Input value={pApiUser} onChange={(e) => setPApiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Secret</label>
+                <Input value={pApiSecret} onChange={(e) => setPApiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="••••••••" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
+              <div className="flex items-center gap-2">
+                <Wifi className="w-4 h-4 text-info" />
+                <span className="text-xs font-medium">استخدام HTTPS / TLS</span>
+              </div>
+              <Switch checked={pUseTLS} onCheckedChange={setPUseTLS} disabled={!pEnabled} />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled}>
+                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
+              </Button>
+              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled}>
+                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* S-Series */}
+          <TabsContent value="s20" className="space-y-4 mt-0">
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className={cn("w-4 h-4", sEnabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل سنترال S-Series</span>
+              </div>
+              <Switch checked={sEnabled} onCheckedChange={setSEnabled} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
+                <Input value={sHost} onChange={(e) => setSHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ AMI</label>
+                <Input value={sAmiPort} onChange={(e) => setSAmiPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Username</label>
+                <Input value={sAmiUser} onChange={(e) => setSAmiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Secret</label>
+                <Input value={sAmiSecret} onChange={(e) => setSAmiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!sEnabled} placeholder="••••••••" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+                  <Webhook className="w-3 h-3" /> CDR Webhook URL
+                </label>
+                <Input value={sCdrUrl} onChange={(e) => setSCdrUrl(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={() => savePbx("S20")} className="flex-1 gradient-primary text-primary-foreground" disabled={!sEnabled}>
+                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات S20
+              </Button>
+              <Button variant="outline" onClick={() => testPbx("S20")} disabled={!sEnabled}>
+                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </section>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Server settings */}
+        {/* Google AI Settings */}
         <section className="glass-card p-5">
-          <h3 className="text-base font-bold flex items-center gap-2">
-            <Server className="w-4 h-4 text-primary" /> إعدادات السيرفر
-          </h3>
-          <p className="text-xs text-muted-foreground mb-5">عنوان السيرفر و Webhook التكاملات.</p>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" /> إعدادات Google AI
+            </h3>
+            <Switch checked={googleAiEnabled} onCheckedChange={setGoogleAiEnabled} />
+          </div>
+          <p className="text-xs text-muted-foreground mb-5">
+            مفتاح Gemini لتفعيل التحليلات الذكية وملخصات المكالمات.
+          </p>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP</label>
-                <Input value={serverIP} onChange={(e) => setServerIP(e.target.value)} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المنفذ</label>
-                <Input value={serverPort} onChange={(e) => setServerPort(e.target.value)} dir="ltr" className="bg-background/60" />
-              </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
+                <KeyRound className="w-3 h-3" /> Google AI API Key
+              </label>
+              <Input
+                value={googleAiKey}
+                onChange={(e) => setGoogleAiKey(e.target.value)}
+                type="password"
+                dir="ltr"
+                placeholder="AIza..."
+                className="bg-background/60"
+                disabled={!googleAiEnabled}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                احصل على المفتاح من{" "}
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline" dir="ltr">
+                  Google AI Studio
+                </a>
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">النموذج</label>
+              <Select value={googleAiModel} onValueChange={setGoogleAiModel} disabled={!googleAiEnabled}>
+                <SelectTrigger className="bg-background/60"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                  <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                  <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                <Webhook className="w-3 h-3" /> Webhook URL
+                <Webhook className="w-3 h-3" /> Webhook URL (اختياري)
               </label>
               <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} dir="ltr" className="bg-background/60" />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">المفتاح السري</label>
-              <Input value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" />
-            </div>
-            <Button onClick={saveServer} className="w-full gradient-primary text-primary-foreground">
-              <Save className="w-4 h-4 ml-2" /> حفظ الإعدادات
+            <Button onClick={saveGoogleAi} className="w-full gradient-primary text-primary-foreground">
+              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات Google AI
             </Button>
           </div>
         </section>
