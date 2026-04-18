@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bell,
   Sparkles,
+  Mic,
   Settings,
   PhoneCall,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/performance", label: "جدول الأداء", icon: BarChart3 },
   { to: "/alerts", label: "الإشعارات التنبيهية", icon: Bell },
   { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles },
+  { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic },
   { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings },
 ];
 
