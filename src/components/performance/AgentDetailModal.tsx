@@ -282,10 +282,31 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
                 <span>المشرف: {agent.supervisor}</span>
               </div>
             </div>
+            <Button
+              onClick={downloadPdf}
+              disabled={exporting}
+              className="gradient-primary text-primary-foreground shrink-0"
+              size="sm"
+            >
+              {exporting ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <FileDown className="w-4 h-4 ml-2" />}
+              {exporting ? "جاري التحميل..." : "تحميل PDF"}
+            </Button>
           </div>
         </DialogHeader>
 
-        <div className="p-6 space-y-5">
+        <div ref={reportRef} className="p-6 space-y-5 bg-background">
+          {/* ترويسة التقرير (تظهر داخل الـ PDF) */}
+          <div className="flex items-center justify-between pb-3 border-b border-border">
+            <div>
+              <p className="text-xs text-muted-foreground">تقرير أداء الموظف</p>
+              <h3 className="text-lg font-bold">{agent.name} <span className="text-muted-foreground text-xs font-normal">— {agent.id}</span></h3>
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] text-muted-foreground">تاريخ التقرير</p>
+              <p className="text-xs font-bold tabular-nums">{new Date().toLocaleDateString("ar-SA")}</p>
+            </div>
+          </div>
+
           {/* بطاقات إحصائية */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatBox icon={PhoneIncoming} label="مكالمات مجابة" value={agent.answered} cls="text-success" bg="bg-success/10" />
