@@ -9,6 +9,8 @@ import {
   Mail,
   Settings,
   PhoneCall,
+  UserCog,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,9 +19,11 @@ const NAV = [
   { to: "/live", label: "التقرير الحي", icon: Activity },
   { to: "/monitoring", label: "مراقبة الموظفين", icon: MonitorPlay },
   { to: "/performance", label: "جدول الأداء", icon: BarChart3 },
+  { to: "/supervisors", label: "إدارة المشرفين", icon: UserCog },
   { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles },
   { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic },
   { to: "/mail", label: "البريد الداخلي", icon: Mail },
+  { to: "/profile", label: "ملفي الشخصي", icon: User },
   { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings },
 ];
 
