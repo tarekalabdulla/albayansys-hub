@@ -259,7 +259,7 @@ const Monitoring = () => {
       {/* Cards Grid */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         {filtered.map((a) => (
-          <AgentCard key={a.id} agent={a} />
+          <AgentCard key={a.id} agent={a} onOpen={setSelectedAgent} />
         ))}
         {filtered.length === 0 && (
           <div className="col-span-full glass-card p-10 text-center">
@@ -267,6 +267,12 @@ const Monitoring = () => {
           </div>
         )}
       </section>
+
+      <AgentDetailModal
+        agentId={selectedAgent}
+        open={selectedAgent !== null}
+        onClose={() => setSelectedAgent(null)}
+      />
     </AppLayout>
   );
 };
