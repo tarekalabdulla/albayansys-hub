@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
+import Monitoring from "./pages/Monitoring";
+import LiveReport from "./pages/LiveReport";
 
 const queryClient = new QueryClient();
 
@@ -17,26 +19,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
-          <Route
-            path="/live"
-            element={
-              <PlaceholderPage
-                title="التقرير الحي"
-                subtitle="رسوم بيانية متوسطة وجدول أداء تفصيلي"
-                description="سيعرض هذا القسم رسوماً بيانية لتوزيع المكالمات وجدولاً تفصيلياً يبيّن أداء كل موظف مع تحويلاته وحالته بشارات ملونة."
-              />
-            }
-          />
-          <Route
-            path="/monitoring"
-            element={
-              <PlaceholderPage
-                title="مراقبة الموظفين"
-                subtitle="شريط تنبيهات ذكي وبطاقات مع مؤقتات حية"
-                description="شبكة بطاقات تتغير حواف ألوانها بناءً على حالة الموظف، مع مؤقتات حية وأدوات بحث وفلترة."
-              />
-            }
-          />
+          <Route path="/live" element={<LiveReport />} />
+          <Route path="/monitoring" element={<Monitoring />} />
           <Route
             path="/performance"
             element={
