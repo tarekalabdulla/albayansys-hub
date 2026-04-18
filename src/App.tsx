@@ -10,6 +10,7 @@ import LiveReport from "./pages/LiveReport";
 import Performance from "./pages/Performance";
 import Alerts from "./pages/Alerts";
 import AIAnalytics from "./pages/AIAnalytics";
+import Recordings from "./pages/Recordings";
 import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
           <Route path="/performance" element={<Performance />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/ai" element={<AIAnalytics />} />
+          <Route path="/recordings" element={<Recordings />} />
           <Route path="/settings" element={<Settings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
