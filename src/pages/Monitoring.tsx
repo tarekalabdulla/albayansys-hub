@@ -150,6 +150,7 @@ const Monitoring = () => {
   const [filter, setFilter] = useState<"all" | AgentStatus>("all");
   const [query, setQuery] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: agents.length };
