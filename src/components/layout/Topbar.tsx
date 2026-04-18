@@ -1,5 +1,5 @@
-import { Menu, Search, Bell, Sun, Moon, Palette, Check, Mail, Star, Paperclip, Inbox } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Menu, Search, Bell, Sun, Moon, Palette, Check, Mail, Star, Paperclip, Inbox, AlertOctagon, AlertTriangle, Info, CheckCheck, ArrowLeft } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -60,6 +60,26 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const latestThree = [...inboxMails]
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
     .slice(0, 3);
+
+  // التنبيهات: قائمة محلية مع حالة "مقروء"
+  type AlertItem = {
+    id: string;
+    level: "danger" | "warning" | "info";
+    title: string;
+    message: string;
+    time: string;
+  };
+  const initialAlerts: AlertItem[] = useMemo(
+    () => [
+      { id: "n1", level: "danger",  title: "تجاوز SLA حرج",   message: "6 مكالمات في الانتظار > دقيقتين", time: "منذ 3 د" },
+      { id: "n2", level: "warning", title: "خمول مطوّل",       message: "الموظفة هند خاملة منذ 14 دقيقة",  time: "منذ 12 د" },
+      { id: "n3", level: "warning", title: "تجاوز الاستراحة",  message: "يوسف تجاوز 25 دقيقة استراحة",     time: "منذ 18 د" },
+    ],
+    [],
+  );
+  const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
+  const unreadAlertsCount = initialAlerts.filter((a) => !readAlerts.has(a.id)).length;
+  const markAllAlertsRead = () => setReadAlerts(new Set(initialAlerts.map((a) => a.id)));
 
   return (
     <header className="sticky top-0 z-30 glass border-b border-border/60">
@@ -229,17 +249,115 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Notifications (Alerts page) */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="relative"
-            aria-label="الإشعارات التنبيهية"
-            onClick={() => navigate("/alerts")}
-          >
-            <Bell className="w-5 h-5" />
-            <span className="absolute top-2 left-2 w-2 h-2 rounded-full bg-destructive ring-2 ring-background animate-pulse" />
-          </Button>
+          {/* Notifications dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative"
+                aria-label="الإشعارات التنبيهية"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadAlertsCount > 0 && (
+                  <>
+                    <span className="absolute top-1.5 left-1.5 w-2.5 h-2.5 rounded-full bg-destructive ring-2 ring-background animate-pulse" />
+                    <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] px-1 grid place-items-center rounded-full bg-destructive text-destructive-foreground text-[10px] font-extrabold ring-2 ring-background">
+                      {unreadAlertsCount}
+                    </span>
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80 p-0">
+              {/* رأس */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-gradient-to-l from-destructive/10 to-transparent">
+                <div className="flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-destructive" />
+                  <span className="text-sm font-bold">آخر التنبيهات</span>
+                </div>
+                {unreadAlertsCount > 0 && (
+                  <Badge className="bg-destructive text-destructive-foreground text-[10px] h-5">
+                    {unreadAlertsCount} جديدة
+                  </Badge>
+                )}
+              </div>
+
+              {/* قائمة التنبيهات */}
+              <div className="max-h-[320px] overflow-y-auto">
+                {initialAlerts.map((a) => {
+                  const isRead = readAlerts.has(a.id);
+                  const Icon =
+                    a.level === "danger" ? AlertOctagon : a.level === "warning" ? AlertTriangle : Info;
+                  const colorCls =
+                    a.level === "danger"
+                      ? "bg-destructive/15 text-destructive"
+                      : a.level === "warning"
+                      ? "bg-warning/15 text-warning"
+                      : "bg-info/15 text-info";
+                  const borderCls =
+                    a.level === "danger"
+                      ? "border-r-destructive"
+                      : a.level === "warning"
+                      ? "border-r-warning"
+                      : "border-r-info";
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => setReadAlerts((p) => new Set(p).add(a.id))}
+                      className={cn(
+                        "w-full text-right px-4 py-3 border-b border-border/60 border-r-4 transition-colors flex gap-3 hover:bg-muted/50",
+                        borderCls,
+                        !isRead && "bg-destructive/5",
+                      )}
+                    >
+                      <div className={cn("w-9 h-9 rounded-lg grid place-items-center shrink-0", colorCls)}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <p className={cn("text-xs truncate", !isRead ? "font-extrabold" : "font-semibold")}>
+                            {a.title}
+                          </p>
+                          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                            {a.time}
+                          </span>
+                        </div>
+                        <p className={cn(
+                          "text-[11px] truncate",
+                          !isRead ? "font-bold text-foreground" : "text-foreground/70",
+                        )}>
+                          {a.message}
+                        </p>
+                        {!isRead && (
+                          <span className="inline-block mt-1 w-1.5 h-1.5 rounded-full bg-destructive" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* تذييل */}
+              <div className="grid grid-cols-2 border-t border-border">
+                <button
+                  onClick={markAllAlertsRead}
+                  disabled={unreadAlertsCount === 0}
+                  className="px-3 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 border-l border-border"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  تعليم الكل كمقروء
+                </button>
+                <button
+                  onClick={() => navigate("/alerts")}
+                  className="px-3 py-2.5 text-xs font-bold text-primary hover:bg-primary/5 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  فتح صفحة التنبيهات
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* Avatar */}
           <div className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1">
