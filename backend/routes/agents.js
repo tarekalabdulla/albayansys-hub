@@ -109,8 +109,13 @@ router.patch("/:id/status", requireRole("admin", "supervisor"), async (req, res)
   );
   if (!rows[0]) return res.status(404).json({ error: "not_found" });
 
-  const io = req.app.get("io");
-  io?.emit("agent:update", rows[0]);
+  // بثّ مفلتر حسب الدور
+  const broadcastFiltered = req.app.get("broadcastFiltered");
+  if (broadcastFiltered) {
+    broadcastFiltered("agent:update", rows[0], (p) => ({ agentId: p.id }));
+  } else {
+    req.app.get("io")?.emit("agent:update", rows[0]);
+  }
 
   res.json({ agent: rows[0] });
 });
