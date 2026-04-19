@@ -1,5 +1,5 @@
 -- ============================================
--- جدول المشرفين + الربط مع الموظفين
+-- جدول المشرفين + الربط مع الموظفين + ربط user_id
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS supervisors (
@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS supervisors (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- فهرس فريد على user_id (مستخدم واحد = سجل مشرف واحد)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_supervisors_user_id_unique
+  ON supervisors(user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_supervisors_email ON supervisors(email);
 
 -- جدول الربط مشرف ↔ موظفين (many-to-many)
