@@ -16,6 +16,7 @@ import pbxRoutes from "./routes/pbx.js";
 import cdrRoutes from "./routes/cdr.js";
 import statsRoutes from "./routes/stats.js";
 import mailRoutes from "./routes/mail.js";
+import supervisorsRoutes from "./routes/supervisors.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -74,6 +75,7 @@ app.use("/api/pbx", pbxRoutes);
 app.use("/api/cdr", cdrRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/mail", mailRoutes);
+app.use("/api/supervisors", supervisorsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);
