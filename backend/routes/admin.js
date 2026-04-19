@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { query } from "../db/pool.js";
+import { pool } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 
 const router = Router();
@@ -14,7 +14,7 @@ router.post("/reset-all", async (req, res) => {
     : ["calls", "alerts", "mail", "supervisors", "stats"];
 
   const summary = {};
-  const client = await (await import("../db/pool.js")).pool.connect();
+  const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
