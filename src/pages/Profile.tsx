@@ -422,9 +422,9 @@ export default function Profile() {
                   />
                 </div>
                 <div className="flex justify-end pt-2">
-                  <Button onClick={changePassword} className="gap-1.5">
+                  <Button onClick={changePassword} disabled={savingPwd} className="gap-1.5">
                     <KeyRound className="w-4 h-4" />
-                    تحديث كلمة المرور
+                    {savingPwd ? "جاري التحديث..." : "تحديث كلمة المرور"}
                   </Button>
                 </div>
               </CardContent>
