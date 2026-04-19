@@ -1,13 +1,31 @@
-// إعدادات السنترال Yeastar P-Series (Open API)
-// كل المسارات للأدمن فقط.
+// إعدادات السنترال Yeastar P-Series (Open API) + Webhook للأحداث الحية
 import { Router } from "express";
+import express from "express";
 import { z } from "zod";
 import https from "node:https";
+import crypto from "node:crypto";
 import { query } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
+import { handleYeastarWebhook } from "../lib/yeastarWebhook.js";
 
 const router = Router();
+
+// ============ Webhook عام (بدون auth — مؤمَّن بـ HMAC) ============
+// نستخدم raw body parser لحفظ نفس البايتات للتحقق من التوقيع
+router.post(
+  "/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+  (req, _res, next) => {
+    req.rawBody = req.body; // Buffer
+    try { req.body = JSON.parse(req.body.toString("utf8") || "{}"); }
+    catch { req.body = {}; }
+    next();
+  },
+  handleYeastarWebhook,
+);
+
+// ============ كل ما تحت يحتاج admin ============
 router.use(authRequired, requireRole("admin"));
 
 const SAFE_FIELDS = `
