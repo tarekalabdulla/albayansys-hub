@@ -1097,6 +1097,31 @@ const Settings = () => {
             </Button>
           </div>
 
+          {/* زر الاستعادة من نسخة احتياطية */}
+          <div className="mb-3">
+            <input
+              ref={restoreFileRef}
+              type="file"
+              accept=".sql,.dump"
+              className="hidden"
+              onChange={onRestoreFileSelected}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleRestoreClick}
+              disabled={restoring || downloadingBackup || resetting}
+              className="w-full border-warning/40 text-warning hover:bg-warning/10 hover:text-warning"
+            >
+              {restoring ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 ml-2" />
+              )}
+              {restoring ? "جاري الاستعادة..." : "استعادة من نسخة احتياطية (.sql / .dump)"}
+            </Button>
+          </div>
+
           <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground mb-2">
             <Database className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
             <span>
