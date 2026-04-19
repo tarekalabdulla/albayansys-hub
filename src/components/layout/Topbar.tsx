@@ -47,6 +47,7 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const session = getSession();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   const handleLogout = () => {
     clearSession();
