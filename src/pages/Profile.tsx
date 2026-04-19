@@ -121,6 +121,10 @@ export default function Profile() {
           bio: u.bio || "",
           role: u.job_title || ROLE_LABELS[u.role],
         }));
+        setAvatarUrl(u.avatar_url ?? undefined);
+        // زامن مع الـ session
+        const cur = getSession();
+        if (cur) setSession(cur.identifier, cur.role, u.display_name ?? cur.displayName, u.avatar_url ?? undefined);
       } catch {
         /* ignore — fallback to local */
       }
@@ -131,6 +135,9 @@ export default function Profile() {
   const [newTask, setNewTask] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => session?.avatarUrl);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
