@@ -6,6 +6,7 @@ export interface Supervisor {
   email: string;
   ext: string;
   role: string;
+  userId?: string | null;
   agentIds: string[];
 }
 
