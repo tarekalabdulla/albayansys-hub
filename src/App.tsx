@@ -18,6 +18,7 @@ import SupervisorDetail from "./pages/SupervisorDetail";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -30,18 +31,18 @@ const App = () => (
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/" element={<Index />} />
-          <Route path="/live" element={<LiveReport />} />
-          <Route path="/monitoring" element={<Monitoring />} />
-          <Route path="/performance" element={<Performance />} />
-          <Route path="/alerts" element={<Alerts />} />
-          <Route path="/ai" element={<AIAnalytics />} />
-          <Route path="/recordings" element={<Recordings />} />
-          <Route path="/mail" element={<Mailbox />} />
-          <Route path="/supervisors" element={<Supervisors />} />
-          <Route path="/supervisors/:id" element={<SupervisorDetail />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+          <Route path="/live" element={<ProtectedRoute><LiveReport /></ProtectedRoute>} />
+          <Route path="/monitoring" element={<ProtectedRoute><Monitoring /></ProtectedRoute>} />
+          <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
+          <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
+          <Route path="/ai" element={<ProtectedRoute><AIAnalytics /></ProtectedRoute>} />
+          <Route path="/recordings" element={<ProtectedRoute><Recordings /></ProtectedRoute>} />
+          <Route path="/mail" element={<ProtectedRoute><Mailbox /></ProtectedRoute>} />
+          <Route path="/supervisors" element={<ProtectedRoute><Supervisors /></ProtectedRoute>} />
+          <Route path="/supervisors/:id" element={<ProtectedRoute><SupervisorDetail /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
