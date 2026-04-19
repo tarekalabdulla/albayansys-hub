@@ -82,9 +82,9 @@ export default function Supervisors() {
     return {
       supervisors: supervisors.length,
       assigned: assignedIds.size,
-      unassigned: totalAgents - assignedIds.size,
+      unassigned: Math.max(0, totalAgents - assignedIds.size),
     };
-  }, [supervisors]);
+  }, [supervisors, AGENTS]);
 
   const openNew = () => {
     setEditing({

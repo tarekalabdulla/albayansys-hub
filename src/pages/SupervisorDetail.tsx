@@ -47,6 +47,7 @@ export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
   const supervisors = loadSupervisors();
   const supervisor = supervisors.find((s) => s.id === id);
+  const AGENTS = useLiveAgents();
 
   type Range = "day" | "week" | "month";
   const [range, setRange] = useState<Range>("week");
