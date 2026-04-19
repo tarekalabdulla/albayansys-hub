@@ -183,9 +183,36 @@ const Settings = () => {
     stats: true,
   });
   const [resetting, setResetting] = useState(false);
+  const [downloadingBackup, setDownloadingBackup] = useState(false);
 
   const toggleScope = (s: ResetScope) =>
     setResetScopes((p) => ({ ...p, [s]: !p[s] }));
+
+  const downloadBackup = async (format: "plain" | "custom" = "plain") => {
+    if (!USE_REAL_API) {
+      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "تنزيل النسخة الاحتياطية يحتاج تفعيل API الحقيقي." });
+      return false;
+    }
+    setDownloadingBackup(true);
+    try {
+      await adminApi.downloadBackup(format);
+      Swal.fire({
+        icon: "success",
+        title: "تم تنزيل النسخة الاحتياطية",
+        text: format === "custom"
+          ? "ملف .dump جاهز للاستعادة عبر pg_restore."
+          : "ملف .sql جاهز للاستعادة عبر psql -f.",
+        timer: 2200,
+        showConfirmButton: false,
+      });
+      return true;
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التنزيل", text: e?.message || "خطأ غير متوقع" });
+      return false;
+    } finally {
+      setDownloadingBackup(false);
+    }
+  };
 
   const runResetAll = async () => {
     const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
