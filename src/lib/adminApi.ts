@@ -37,4 +37,22 @@ export const adminApi = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  // استعادة من ملف .sql / .dump — يتطلب تأكيد مزدوج (confirm=RESTORE)
+  restoreBackup: async (file: File): Promise<{ ok: boolean; tool: string; message: string; warnings?: string | null }> => {
+    const token = tokenStorage.get();
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("confirm", "RESTORE");
+    const res = await fetch(`${API_URL}/api/admin/restore`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || data?.detail || `HTTP ${res.status}`);
+    }
+    return data;
+  },
 };
