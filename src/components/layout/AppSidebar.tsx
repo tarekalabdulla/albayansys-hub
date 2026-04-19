@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Activity,
@@ -15,7 +16,8 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
+import { getRole, getSession, ROLE_LABELS, resolveAvatarUrl, type Role } from "@/lib/auth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface NavItem {
   to: string;
@@ -49,6 +51,16 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const role = getRole();
   const visibleNav = NAV.filter((item) => role && item.roles.includes(role));
   const roleLabel = role ? ROLE_LABELS[role] : "زائر";
+
+  const [session, setSession] = useState(getSession());
+  useEffect(() => {
+    const onUpd = () => setSession(getSession());
+    window.addEventListener("session:updated", onUpd);
+    return () => window.removeEventListener("session:updated", onUpd);
+  }, []);
+  const avatarSrc = resolveAvatarUrl(session?.avatarUrl);
+  const displayName = session?.displayName || session?.identifier || "—";
+  const initials = displayName.split(" ").map((s) => s[0]).join("").slice(0, 2);
 
   return (
     <>
