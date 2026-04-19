@@ -77,3 +77,22 @@ export async function deleteUserAvatar(id: string): Promise<ManagedUser> {
   const { data } = await api.delete(`/users/${id}/avatar`);
   return data.user;
 }
+
+// ============================================
+// ربط agent record بمستخدم
+// ============================================
+export interface AgentLite {
+  id: string;
+  name: string;
+  ext: string;
+  userId: string | null;
+}
+
+export async function listAgentsForLink(): Promise<AgentLite[]> {
+  const { data } = await api.get("/agents");
+  return data.agents;
+}
+
+export async function linkAgentToUser(agentId: string, userId: string | null): Promise<void> {
+  await api.patch(`/agents/${agentId}/link-user`, { userId });
+}
