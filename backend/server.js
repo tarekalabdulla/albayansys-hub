@@ -14,6 +14,7 @@ import callsRoutes from "./routes/calls.js";
 import alertsRoutes from "./routes/alerts.js";
 import pbxRoutes from "./routes/pbx.js";
 import cdrRoutes from "./routes/cdr.js";
+import statsRoutes from "./routes/stats.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -70,6 +71,7 @@ app.use("/api/calls", callsRoutes);
 app.use("/api/alerts", alertsRoutes);
 app.use("/api/pbx", pbxRoutes);
 app.use("/api/cdr", cdrRoutes);
+app.use("/api/stats", statsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);
