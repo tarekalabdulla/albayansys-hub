@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AGENTS, formatDuration } from "@/lib/mockData";
+import { formatDuration } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
