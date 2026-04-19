@@ -134,4 +134,49 @@ router.post("/change-password", authRequired, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// رفع الصورة الشخصية (avatar)
+// ============================================================
+router.post(
+  "/avatar",
+  authRequired,
+  (req, res, next) => {
+    uploadAvatar.single("avatar")(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "file_too_large" });
+      if (err.message === "invalid_file_type") return res.status(415).json({ error: "invalid_file_type" });
+      return res.status(400).json({ error: "upload_failed" });
+    });
+  },
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "no_file" });
+    const publicUrl = `/uploads/avatars/${req.file.filename}`;
+
+    // اجلب القديمة لتنظيفها
+    const { rows: prevRows } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.user.sub]);
+    const prevUrl = prevRows[0]?.avatar_url;
+
+    const { rows } = await query(
+      `UPDATE users SET avatar_url = $1 WHERE id = $2
+       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
+      [publicUrl, req.user.sub]
+    );
+    if (prevUrl && prevUrl !== publicUrl) deleteUploadedFile(prevUrl);
+    res.json({ user: rows[0] });
+  }
+);
+
+// حذف الصورة الشخصية
+router.delete("/avatar", authRequired, async (req, res) => {
+  const { rows: prevRows } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.user.sub]);
+  const prevUrl = prevRows[0]?.avatar_url;
+  const { rows } = await query(
+    `UPDATE users SET avatar_url = NULL WHERE id = $1
+     RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
+    [req.user.sub]
+  );
+  if (prevUrl) deleteUploadedFile(prevUrl);
+  res.json({ user: rows[0] });
+});
+
 export default router;
