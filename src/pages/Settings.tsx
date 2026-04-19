@@ -277,31 +277,146 @@ const Settings = () => {
     Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
   };
 
-  const savePbx = (kind: "P560" | "S20") => {
-    Swal.fire({
-      icon: "success",
-      title: `تم حفظ إعدادات Yeastar ${kind}`,
-      text: "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
-      timer: 1800,
-      showConfirmButton: false,
-    });
-  };
+  // ===== Yeastar P-Series — جلب من الخادم =====
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    let alive = true;
+    setPLoading(true);
+    getPbxSettings()
+      .then((s) => {
+        if (!alive || !s) return;
+        setPEnabled(!!s.enabled);
+        if (s.host) setPHost(s.host);
+        if (s.port) setPPort(String(s.port));
+        setPUseTLS(!!s.use_tls);
+        if (s.api_username) setPApiUser(s.api_username);
+        setPHasStoredSecret(!!s.has_secret);
+        setPLastTest({ at: s.last_test_at, ok: s.last_test_ok, msg: s.last_test_msg });
+      })
+      .catch(() => { /* ignore — اعرض الافتراضيات */ })
+      .finally(() => { if (alive) setPLoading(false); });
+    return () => { alive = false; };
+  }, []);
 
-  const testPbx = (kind: "P560" | "S20") => {
-    Swal.fire({
-      title: `اختبار اتصال Yeastar ${kind}`,
-      html: '<div class="text-sm">جاري المحاولة...</div>',
-      timer: 1200,
-      showConfirmButton: false,
-    }).then(() => {
+  const savePbx = async (kind: "P560" | "S20") => {
+    // S20 يبقى محلياً (لا يدعمه الخادم بعد)
+    if (kind === "S20" || !USE_REAL_API) {
       Swal.fire({
         icon: "success",
-        title: "نجح الاتصال ✓",
-        text: `تم التحقق من سنترال ${kind} بنجاح.`,
+        title: `تم حفظ إعدادات Yeastar ${kind}`,
+        text: USE_REAL_API
+          ? "ملاحظة: حفظ S-Series يتم محلياً فقط حالياً."
+          : "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
         timer: 1800,
         showConfirmButton: false,
       });
+      return;
+    }
+
+    setPSaving(true);
+    try {
+      const port = parseInt(pPort, 10);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        throw new Error("منفذ غير صالح (1-65535)");
+      }
+      const payload: any = {
+        enabled: pEnabled,
+        host: pHost.trim(),
+        port,
+        use_tls: pUseTLS,
+        api_username: pApiUser.trim(),
+      };
+      // أرسل السر فقط لو المستخدم كتبه (تجنّب مسح المحفوظ)
+      if (pApiSecret.trim()) payload.api_secret = pApiSecret;
+
+      const s = await updatePbxSettings(payload);
+      setPHasStoredSecret(!!s.has_secret);
+      setPApiSecret(""); // امسح الحقل للأمان
+      Swal.fire({
+        icon: "success",
+        title: "تم حفظ إعدادات Yeastar P560",
+        text: "تم تخزين الإعدادات بشكل مشفّر على الخادم.",
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || "خطأ غير متوقع";
+      Swal.fire({ icon: "error", title: "تعذّر الحفظ", text: msg });
+    } finally {
+      setPSaving(false);
+    }
+  };
+
+  const clearStoredSecret = async () => {
+    if (!USE_REAL_API) return;
+    const r = await Swal.fire({
+      icon: "warning",
+      title: "مسح السر المحفوظ؟",
+      text: "سيُحذف API Secret من الخادم نهائياً.",
+      showCancelButton: true,
+      confirmButtonText: "نعم، امسح",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
     });
+    if (!r.isConfirmed) return;
+    try {
+      const s = await updatePbxSettings({ clear_secret: true });
+      setPHasStoredSecret(!!s.has_secret);
+      Swal.fire({ icon: "success", title: "تم المسح", timer: 1200, showConfirmButton: false });
+    } catch {
+      Swal.fire({ icon: "error", title: "تعذّر المسح" });
+    }
+  };
+
+  const testPbx = async (kind: "P560" | "S20") => {
+    if (kind === "S20" || !USE_REAL_API) {
+      Swal.fire({
+        title: `اختبار اتصال Yeastar ${kind}`,
+        html: '<div class="text-sm">جاري المحاولة...</div>',
+        timer: 1200,
+        showConfirmButton: false,
+      }).then(() => {
+        Swal.fire({
+          icon: "success",
+          title: "نجح الاتصال ✓",
+          text: `تم التحقق من سنترال ${kind} بنجاح. (وضع تجريبي)`,
+          timer: 1800,
+          showConfirmButton: false,
+        });
+      });
+      return;
+    }
+
+    setPTesting(true);
+    Swal.fire({
+      title: "اختبار اتصال Yeastar P560",
+      html: '<div class="text-sm">جاري الاتصال بالسنترال...</div>',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
+    try {
+      const port = parseInt(pPort, 10);
+      const payload: any = {
+        host: pHost.trim() || undefined,
+        port: isNaN(port) ? undefined : port,
+        use_tls: pUseTLS,
+        api_username: pApiUser.trim() || undefined,
+      };
+      if (pApiSecret.trim()) payload.api_secret = pApiSecret;
+
+      const r = await testPbxConnection(payload);
+      // حدّث آخر اختبار في الواجهة
+      setPLastTest({ at: new Date().toISOString(), ok: r.ok, msg: r.message });
+      Swal.fire({
+        icon: r.ok ? "success" : "error",
+        title: r.ok ? "نجح الاتصال ✓" : "فشل الاتصال",
+        text: `${r.message}${r.elapsed_ms ? ` (${r.elapsed_ms}ms)` : ""}`,
+        timer: r.ok ? 2200 : undefined,
+        showConfirmButton: !r.ok,
+      });
+    } finally {
+      setPTesting(false);
+    }
   };
 
   const saveGoogleAi = () => {
