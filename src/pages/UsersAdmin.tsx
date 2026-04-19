@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -21,13 +22,14 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { USE_REAL_API } from "@/lib/config";
-import { ROLE_LABELS, getSession, type Role } from "@/lib/auth";
+import { ROLE_LABELS, getSession, resolveAvatarUrl, setSession, type Role } from "@/lib/auth";
 import {
   listUsers, createUser, updateUser, deleteUser,
+  uploadUserAvatar, deleteUserAvatar,
   type ManagedUser, type CreateUserPayload,
 } from "@/lib/usersApi";
 import {
-  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2,
+  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2, Camera,
 } from "lucide-react";
 
 const ROLE_BADGE: Record<Role, string> = {
