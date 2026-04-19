@@ -81,30 +81,63 @@ function load<T>(key: string, fallback: T): T {
 
 export default function Profile() {
   const { toast } = useToast();
-  const [profile, setProfile] = useState<ProfileData>(() =>
-    load(PROFILE_KEY, defaultProfile),
-  );
+  const session = getSession();
+
+  const [profile, setProfile] = useState<ProfileData>(() => {
+    const local = load<Partial<ProfileData>>(PROFILE_KEY, {});
+    return {
+      ...defaultProfile,
+      ...local,
+      name: session?.displayName || local.name || session?.identifier || "",
+      role: session ? ROLE_LABELS[session.role as Role] : (local.role || ""),
+    };
+  });
+
+  useEffect(() => {
+    const s = getSession();
+    if (s?.displayName) {
+      setProfile((p) => ({ ...p, name: s.displayName!, role: ROLE_LABELS[s.role] }));
+    }
+  }, []);
+
   const [tasks, setTasks] = useState<Task[]>(() => load(TASKS_KEY, defaultTasks));
   const [newTask, setNewTask] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPwd, setSavingPwd] = useState(false);
 
-  // password
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
 
-  const initials = profile.name
+  const initials = (profile.name || "?")
     .split(" ")
     .map((p) => p[0])
     .join("")
     .slice(0, 2);
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    if (USE_REAL_API) {
+      setSavingProfile(true);
+      try {
+        await updateProfileViaApi({ display_name: profile.name });
+        toast({ title: "تم الحفظ", description: "تم تحديث بياناتك على الخادم" });
+      } catch (err: any) {
+        toast({
+          title: "تعذّر الحفظ",
+          description: err?.response?.data?.error || "خطأ في الاتصال بالخادم",
+          variant: "destructive",
+        });
+      } finally {
+        setSavingProfile(false);
+      }
+      return;
+    }
     toast({ title: "تم الحفظ", description: "تم تحديث بياناتك الشخصية" });
   };
 
-  const changePassword = () => {
+  const changePassword = async () => {
     if (!oldPwd || !newPwd || !confirmPwd) {
       toast({
         title: "حقول ناقصة",
@@ -129,12 +162,39 @@ export default function Profile() {
       });
       return;
     }
+
+    if (USE_REAL_API) {
+      setSavingPwd(true);
+      try {
+        await changePasswordViaApi(oldPwd, newPwd);
+        setOldPwd("");
+        setNewPwd("");
+        setConfirmPwd("");
+        toast({ title: "تم التغيير", description: "تم تحديث كلمة المرور بنجاح" });
+      } catch (err: any) {
+        const code = err?.response?.data?.error;
+        toast({
+          title: "تعذّر التحديث",
+          description:
+            code === "wrong_current_password"
+              ? "كلمة المرور الحالية غير صحيحة"
+              : code === "invalid_input"
+              ? "كلمة المرور الجديدة قصيرة جداً"
+              : "خطأ في الاتصال بالخادم",
+          variant: "destructive",
+        });
+      } finally {
+        setSavingPwd(false);
+      }
+      return;
+    }
+
     setOldPwd("");
     setNewPwd("");
     setConfirmPwd("");
     toast({
-      title: "تم التغيير",
-      description: "تم تحديث كلمة المرور بنجاح",
+      title: "وضع تجريبي",
+      description: "تغيير كلمة السر يعمل فقط بعد ربط الخادم",
     });
   };
 
