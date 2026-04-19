@@ -7,6 +7,7 @@ import {
   RecentCallsList,
   SupervisorList,
 } from "@/components/dashboard/SidePanels";
+import { LiveCallsPanel, LiveExtensionsPanel } from "@/components/dashboard/LivePanels";
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
 } from "lucide-react";
