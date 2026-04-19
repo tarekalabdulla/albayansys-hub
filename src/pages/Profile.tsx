@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,9 +13,13 @@ import { useToast } from "@/hooks/use-toast";
 import { USE_REAL_API } from "@/lib/config";
 import {
   getSession,
+  setSession,
   fetchProfileViaApi,
   updateProfileViaApi,
   changePasswordViaApi,
+  uploadAvatarViaApi,
+  deleteAvatarViaApi,
+  resolveAvatarUrl,
   ROLE_LABELS,
   type Role,
 } from "@/lib/auth";
@@ -32,8 +36,11 @@ import {
   Plus,
   Trash2,
   CheckCircle2,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRef } from "react";
 
 interface ProfileData {
   name: string;
