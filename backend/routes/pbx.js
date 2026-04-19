@@ -1,24 +1,44 @@
-// إعدادات السنترال Yeastar P-Series (Open API)
-// كل المسارات للأدمن فقط.
+// إعدادات السنترال Yeastar P-Series (Open API) + Webhook للأحداث الحية
 import { Router } from "express";
+import express from "express";
 import { z } from "zod";
 import https from "node:https";
+import crypto from "node:crypto";
 import { query } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
+import { handleYeastarWebhook } from "../lib/yeastarWebhook.js";
 
 const router = Router();
+
+// ============ Webhook عام (بدون auth — مؤمَّن بـ HMAC) ============
+// نستخدم raw body parser لحفظ نفس البايتات للتحقق من التوقيع
+router.post(
+  "/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+  (req, _res, next) => {
+    req.rawBody = req.body; // Buffer
+    try { req.body = JSON.parse(req.body.toString("utf8") || "{}"); }
+    catch { req.body = {}; }
+    next();
+  },
+  handleYeastarWebhook,
+);
+
+// ============ كل ما تحت يحتاج admin ============
 router.use(authRequired, requireRole("admin"));
 
 const SAFE_FIELDS = `
   id, enabled, host, port, use_tls, api_username, webhook_url,
-  last_test_at, last_test_ok, last_test_msg, updated_at, updated_by
+  last_test_at, last_test_ok, last_test_msg, last_event_at, updated_at, updated_by
 `;
 
-// رجّع الإعدادات بدون السر — مع علامة has_secret
+// رجّع الإعدادات بدون السر — مع علامة has_secret / has_webhook_secret
 async function loadSafe() {
   const { rows } = await query(
-    `SELECT ${SAFE_FIELDS}, (api_secret_enc IS NOT NULL) AS has_secret
+    `SELECT ${SAFE_FIELDS},
+            (api_secret_enc IS NOT NULL) AS has_secret,
+            (webhook_secret_enc IS NOT NULL) AS has_webhook_secret
      FROM pbx_settings WHERE id = 1`
   );
   return rows[0] || null;
@@ -158,4 +178,46 @@ router.post("/test", async (req, res) => {
   res.status(ok ? 200 : 502).json({ ok, status, message: msg, elapsed_ms: elapsed });
 });
 
+// ============ Webhook secret management (admin) ============
+// POST /api/pbx/webhook-secret/regenerate — يولّد سر HMAC جديد ويُرجعه مرة واحدة فقط
+router.post("/webhook-secret/regenerate", async (req, res) => {
+  try {
+    const secret = crypto.randomBytes(32).toString("hex"); // 64 hex char
+    const enc = encryptSecret(secret);
+    await query(`UPDATE pbx_settings SET webhook_secret_enc = $1 WHERE id = 1`, [enc]);
+    res.json({
+      ok: true,
+      secret, // ⚠️ لا يُحفَظ في DB كنص خام؛ يُعرض مرة واحدة هنا فقط
+      message: "احفظ هذا السر الآن — لن يُعرض مرة أخرى",
+    });
+  } catch (e) {
+    res.status(500).json({ error: "regenerate_failed", message: e.message });
+  }
+});
+
+// DELETE /api/pbx/webhook-secret — يمسح السر (يعطّل التحقق)
+router.delete("/webhook-secret", async (_req, res) => {
+  await query(`UPDATE pbx_settings SET webhook_secret_enc = NULL WHERE id = 1`);
+  res.json({ ok: true });
+});
+
+// GET /api/pbx/live — snapshot للحالة الحية (للوحة التحكم)
+router.get("/live", async (_req, res) => {
+  const [calls, exts] = await Promise.all([
+    query(
+      `SELECT id, extension, agent_name, caller_number, callee_number, direction, status, queue_name,
+              EXTRACT(EPOCH FROM started_at) * 1000 AS "startedAt",
+              EXTRACT(EPOCH FROM answered_at) * 1000 AS "answeredAt"
+       FROM calls_live ORDER BY started_at DESC LIMIT 200`
+    ),
+    query(
+      `SELECT extension, agent_name, status, device_state,
+              EXTRACT(EPOCH FROM updated_at) * 1000 AS "updatedAt"
+       FROM ext_status ORDER BY extension`
+    ),
+  ]);
+  res.json({ calls: calls.rows, extensions: exts.rows });
+});
+
 export default router;
+

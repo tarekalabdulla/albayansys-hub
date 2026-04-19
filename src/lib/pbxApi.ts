@@ -10,9 +10,11 @@ export interface PbxSettings {
   api_username: string | null;
   webhook_url: string | null;
   has_secret: boolean;
+  has_webhook_secret: boolean;
   last_test_at: string | null;
   last_test_ok: boolean | null;
   last_test_msg: string | null;
+  last_event_at: string | null;
   updated_at: string;
   updated_by: string | null;
 }
@@ -59,4 +61,20 @@ export async function testPbxConnection(payload?: {
       message: err?.response?.data?.message || err?.response?.data?.error || "فشل الاتصال",
     };
   }
+}
+
+// ============ Webhook secret management ============
+export async function regenerateWebhookSecret(): Promise<{ secret: string; message: string }> {
+  const { data } = await api.post("/pbx/webhook-secret/regenerate");
+  return data;
+}
+
+export async function clearWebhookSecret(): Promise<void> {
+  await api.delete("/pbx/webhook-secret");
+}
+
+// snapshot للحالة الحية (مكالمات + تحويلات) من DB
+export async function getPbxLiveSnapshot(): Promise<{ calls: any[]; extensions: any[] }> {
+  const { data } = await api.get("/pbx/live");
+  return data;
 }

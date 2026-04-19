@@ -32,7 +32,11 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: "1mb" }));
+// JSON parser لكل المسارات ما عدا webhook الـ Yeastar (يحتاج raw body للتحقق من HMAC)
+app.use((req, res, next) => {
+  if (req.path === "/api/pbx/webhook") return next();
+  return express.json({ limit: "1mb" })(req, res, next);
+});
 app.use(morgan("tiny"));
 
 // خدمة ملفات الرفع (الصور الشخصية) — متاحة عامّة عبر URL
