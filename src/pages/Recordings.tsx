@@ -3,9 +3,11 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { AudioPlayer } from "@/components/recordings/AudioPlayer";
 import { TranscriptView } from "@/components/recordings/TranscriptView";
 import { QualityScore } from "@/components/recordings/QualityScore";
+import { YeastarCdrTable } from "@/components/recordings/YeastarCdrTable";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search,
   Phone,
@@ -15,6 +17,8 @@ import {
   Sparkles,
   Filter,
   ChevronLeft,
+  Server,
+  Sparkle,
 } from "lucide-react";
 import {
   RECORDINGS,
