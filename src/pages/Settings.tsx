@@ -256,7 +256,7 @@ const Settings = () => {
       return;
     }
     const data = result.data;
-    if (data.users) setUsers(data.users);
+    if (data.users) setUsers(data.users as User[]);
     if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
     if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
     if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
