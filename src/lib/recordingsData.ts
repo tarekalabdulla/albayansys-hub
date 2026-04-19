@@ -100,33 +100,8 @@ const SUMMARIES = [
   "دعم فني لإعادة ضبط الراوتر، تم حل المشكلة خلال المكالمة.",
 ];
 
-export const RECORDINGS: CallRecording[] = Array.from({ length: 12 }).map((_, i) => {
-  const agent = AGENTS[i % AGENTS.length];
-  const score = 65 + Math.floor(Math.random() * 35);
-  const sentiment: CallRecording["sentiment"] =
-    score >= 85 ? "positive" : score >= 70 ? "neutral" : "negative";
-  const day = String(15 + (i % 14)).padStart(2, "0");
-  const hh = String(8 + (i % 10)).padStart(2, "0");
-  const mm = String((i * 13) % 60).padStart(2, "0");
-
-  return {
-    id: `REC-${9000 + i}`,
-    agentName: agent.name,
-    agentAvatar: agent.avatar,
-    customerNumber: `+9665${Math.floor(10000000 + Math.random() * 89999999)}`,
-    date: `2025-04-${day}`,
-    time: `${hh}:${mm}`,
-    duration: 60 + Math.floor(Math.random() * 240),
-    audioUrl: SAMPLE_AUDIO[i % SAMPLE_AUDIO.length],
-    qualityScore: score,
-    sentiment,
-    category: CATEGORIES[i % CATEGORIES.length],
-    tags: ["تم الحل", i % 2 === 0 ? "VIP" : "عادي", sentiment === "negative" ? "يحتاج متابعة" : "مكتمل"],
-    metrics: genMetrics(score),
-    transcript: SAMPLE_TRANSCRIPTS[i % SAMPLE_TRANSCRIPTS.length],
-    summary: SUMMARIES[i % SUMMARIES.length],
-  };
-});
+// قائمة فارغة افتراضياً — التسجيلات الحقيقية تأتي من Yeastar CDR
+export const RECORDINGS: CallRecording[] = [];
 
 export function formatTime(s: number): string {
   const m = Math.floor(s / 60);

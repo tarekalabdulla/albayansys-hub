@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 const CATEGORIES = ["الكل", "استفسار", "شكوى", "دعم فني", "مبيعات", "متابعة"] as const;
 
 export default function Recordings() {
-  const [selectedId, setSelectedId] = useState<string>(RECORDINGS[0].id);
+  const [selectedId, setSelectedId] = useState<string>(RECORDINGS[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("الكل");
   const [currentTime, setCurrentTime] = useState(0);
@@ -51,16 +51,15 @@ export default function Recordings() {
     });
   }, [search, category]);
 
-  const selected: CallRecording =
+  const selected: CallRecording | undefined =
     filtered.find((r) => r.id === selectedId) || filtered[0] || RECORDINGS[0];
 
   const handleSeek = (time: number) => {
     setSeekTo(time);
-    // إعادة تعيين بعد لحظة كي يستجيب لطلبات seek متعددة لنفس القيمة
     setTimeout(() => setSeekTo(null), 50);
   };
 
-  const sentiment = sentimentLabel(selected.sentiment);
+  const sentiment = selected ? sentimentLabel(selected.sentiment) : { label: "—", cls: "" };
 
   return (
     <AppLayout
@@ -201,100 +200,105 @@ export default function Recordings() {
             <ChevronLeft className="w-4 h-4 ms-1" /> العودة للقائمة
           </Button>
 
-          {/* رأس المكالمة */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl gradient-primary grid place-items-center text-sm font-bold text-primary-foreground shadow-glow">
-                  {selected.agentAvatar}
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">{selected.agentName}</h3>
-                  <p className="text-xs text-muted-foreground font-mono">{selected.id}</p>
-                </div>
-              </div>
-              <Badge variant="outline" className={sentiment.cls}>
-                المشاعر: {sentiment.label}
-              </Badge>
+          {!selected ? (
+            <div className="rounded-2xl border border-border bg-card p-10 shadow-card text-center text-sm text-muted-foreground">
+              لا توجد تسجيلات بعد — راجع تبويب Yeastar CDR
             </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
-                <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="font-mono truncate">{selected.customerNumber}</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
-                <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span>{selected.date}</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
-                <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span>{selected.time} • {formatTime(selected.duration)}</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
-                <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span>{selected.category}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {selected.tags.map((t) => (
-                <Badge key={t} variant="secondary" className="text-[10px]">
-                  {t}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
-          {/* المشغل */}
-          <AudioPlayer
-            src={selected.audioUrl}
-            onTimeUpdate={setCurrentTime}
-            seekTo={seekTo}
-          />
-
-          {/* الملخص + النص + الجودة */}
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-            <div className="xl:col-span-3 space-y-4">
-              {/* الملخص الذكي */}
+          ) : (
+            <>
+              {/* رأس المكالمة */}
               <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg bg-accent/15 grid place-items-center">
-                    <Sparkles className="w-4 h-4 text-accent" />
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl gradient-primary grid place-items-center text-sm font-bold text-primary-foreground shadow-glow">
+                      {selected.agentAvatar}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-foreground">{selected.agentName}</h3>
+                      <p className="text-xs text-muted-foreground font-mono">{selected.id}</p>
+                    </div>
                   </div>
-                  <h3 className="text-sm font-bold text-foreground">الملخص الذكي</h3>
+                  <Badge variant="outline" className={sentiment.cls}>
+                    المشاعر: {sentiment.label}
+                  </Badge>
                 </div>
-                <p className="text-sm text-foreground/85 leading-relaxed">
-                  {selected.summary}
-                </p>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
+                    <Phone className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span className="font-mono truncate">{selected.customerNumber}</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
+                    <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>{selected.date}</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
+                    <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>{selected.time} • {formatTime(selected.duration)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/60">
+                    <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+                    <span>{selected.category}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {selected.tags.map((t) => (
+                    <Badge key={t} variant="secondary" className="text-[10px]">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
               </div>
 
-              {/* النص */}
-              <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-primary" />
-                    <h3 className="text-sm font-bold text-foreground">نص المكالمة</h3>
-                  </div>
-                  <span className="text-[10px] text-muted-foreground">
-                    اضغط على أي سطر للقفز إليه
-                  </span>
-                </div>
-                <TranscriptView
-                  lines={selected.transcript}
-                  currentTime={currentTime}
-                  onSeek={handleSeek}
-                />
-              </div>
-            </div>
+              {/* المشغل */}
+              <AudioPlayer
+                src={selected.audioUrl}
+                onTimeUpdate={setCurrentTime}
+                seekTo={seekTo}
+              />
 
-            {/* درجة الجودة */}
-            <div className="xl:col-span-2">
-              <div className="rounded-2xl border border-border bg-card p-4 shadow-card sticky top-4">
-                <QualityScore score={selected.qualityScore} metrics={selected.metrics} />
+              {/* الملخص + النص + الجودة */}
+              <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+                <div className="xl:col-span-3 space-y-4">
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-accent/15 grid place-items-center">
+                        <Sparkles className="w-4 h-4 text-accent" />
+                      </div>
+                      <h3 className="text-sm font-bold text-foreground">الملخص الذكي</h3>
+                    </div>
+                    <p className="text-sm text-foreground/85 leading-relaxed">
+                      {selected.summary}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary" />
+                        <h3 className="text-sm font-bold text-foreground">نص المكالمة</h3>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        اضغط على أي سطر للقفز إليه
+                      </span>
+                    </div>
+                    <TranscriptView
+                      lines={selected.transcript}
+                      currentTime={currentTime}
+                      onSeek={handleSeek}
+                    />
+                  </div>
+                </div>
+
+                <div className="xl:col-span-2">
+                  <div className="rounded-2xl border border-border bg-card p-4 shadow-card sticky top-4">
+                    <QualityScore score={selected.qualityScore} metrics={selected.metrics} />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </section>
       </div>
         </TabsContent>

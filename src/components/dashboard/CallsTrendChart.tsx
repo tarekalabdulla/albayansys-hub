@@ -23,11 +23,26 @@ function cssVarA(name: string, alpha: number): string {
   return `hsl(${v} / ${alpha})`;
 }
 
-const DAYS = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
+const DAY_NAMES = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
-export function CallsTrendChart() {
-  const answered = [142, 168, 195, 210, 188, 230, 175];
-  const missed   = [12, 18, 9, 22, 14, 11, 8];
+interface TrendPoint {
+  date: string;
+  answered: number;
+  missed: number;
+}
+
+interface Props {
+  trend?: TrendPoint[];
+}
+
+export function CallsTrendChart({ trend = [] }: Props) {
+  const labels = trend.map((t) => {
+    const d = new Date(t.date);
+    return DAY_NAMES[d.getDay()];
+  });
+  const answered = trend.map((t) => Number(t.answered) || 0);
+  const missed = trend.map((t) => Number(t.missed) || 0);
+  const hasData = answered.some((v) => v > 0) || missed.some((v) => v > 0);
 
   return (
     <div className="glass-card p-6 anim-fade-in">
@@ -41,54 +56,58 @@ export function CallsTrendChart() {
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-destructive" /> فائتة</span>
         </div>
       </div>
-      <div className="h-[260px]">
-        <Line
-          data={{
-            labels: DAYS,
-            datasets: [
-              {
-                label: "مجابة",
-                data: answered,
-                borderColor: cssVar("--primary"),
-                backgroundColor: cssVarA("--primary", 0.18),
-                fill: true,
-                tension: 0.4,
-                borderWidth: 2.5,
-                pointBackgroundColor: cssVar("--primary"),
-                pointRadius: 4,
+      <div className="h-[260px] grid place-items-center">
+        {!hasData ? (
+          <p className="text-sm text-muted-foreground">لا توجد مكالمات في آخر 7 أيام</p>
+        ) : (
+          <Line
+            data={{
+              labels,
+              datasets: [
+                {
+                  label: "مجابة",
+                  data: answered,
+                  borderColor: cssVar("--primary"),
+                  backgroundColor: cssVarA("--primary", 0.18),
+                  fill: true,
+                  tension: 0.4,
+                  borderWidth: 2.5,
+                  pointBackgroundColor: cssVar("--primary"),
+                  pointRadius: 4,
+                },
+                {
+                  label: "فائتة",
+                  data: missed,
+                  borderColor: cssVar("--destructive"),
+                  backgroundColor: cssVarA("--destructive", 0.12),
+                  fill: true,
+                  tension: 0.4,
+                  borderWidth: 2,
+                  pointBackgroundColor: cssVar("--destructive"),
+                  pointRadius: 3,
+                },
+              ],
+            }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: { rtl: true, bodyFont: { family: "Cairo" }, titleFont: { family: "Cairo" } },
               },
-              {
-                label: "فائتة",
-                data: missed,
-                borderColor: cssVar("--destructive"),
-                backgroundColor: cssVarA("--destructive", 0.12),
-                fill: true,
-                tension: 0.4,
-                borderWidth: 2,
-                pointBackgroundColor: cssVar("--destructive"),
-                pointRadius: 3,
+              scales: {
+                x: {
+                  ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
+                  grid: { display: false },
+                },
+                y: {
+                  ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
+                  grid: { color: cssVarA("--border", 0.6) },
+                },
               },
-            ],
-          }}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { rtl: true, bodyFont: { family: "Cairo" }, titleFont: { family: "Cairo" } },
-            },
-            scales: {
-              x: {
-                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
-                grid: { display: false },
-              },
-              y: {
-                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
-                grid: { color: cssVarA("--border", 0.6) },
-              },
-            },
-          }}
-        />
+            }}
+          />
+        )}
       </div>
     </div>
   );
