@@ -14,6 +14,7 @@ export interface Session {
   role: Role;
   ts: number;
   displayName?: string;
+  avatarUrl?: string;
 }
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -108,11 +109,28 @@ export interface ProfileFromApi {
   phone: string | null;
   bio: string | null;
   job_title: string | null;
+  avatar_url: string | null;
 }
 
 // جلب الملف الشخصي الكامل
 export async function fetchProfileViaApi(): Promise<ProfileFromApi> {
   const { data } = await api.get("/auth/me");
+  return data.user;
+}
+
+// رفع صورة شخصية
+export async function uploadAvatarViaApi(file: File): Promise<ProfileFromApi> {
+  const fd = new FormData();
+  fd.append("avatar", file);
+  const { data } = await api.post("/auth/avatar", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.user;
+}
+
+// حذف الصورة الشخصية
+export async function deleteAvatarViaApi(): Promise<ProfileFromApi> {
+  const { data } = await api.delete("/auth/avatar");
   return data.user;
 }
 
