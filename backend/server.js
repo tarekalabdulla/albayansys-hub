@@ -97,8 +97,13 @@ io.on("connection", async (socket) => {
   });
 });
 
-// شغّل المحاكي
-startSimulator(io);
+// شغّل المحاكي فقط إذا فُعِّل صراحةً
+if (process.env.ENABLE_SIMULATOR === "true") {
+  startSimulator(io);
+  console.log("🎲 Simulator: ON");
+} else {
+  console.log("🎲 Simulator: OFF (set ENABLE_SIMULATOR=true to enable)");
+}
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
