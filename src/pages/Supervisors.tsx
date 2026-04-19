@@ -46,11 +46,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supervisorsApi, type Supervisor } from "@/lib/supervisorsApi";
+import { listUsers, type ManagedUser } from "@/lib/usersApi";
 
 export default function Supervisors() {
   const { toast } = useToast();
   const AGENTS = useLiveAgents();
   const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
+  const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -60,8 +62,12 @@ export default function Supervisors() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const list = await supervisorsApi.list();
+      const [list, us] = await Promise.all([
+        supervisorsApi.list(),
+        listUsers().catch(() => [] as ManagedUser[]),
+      ]);
       setSupervisors(list);
+      setUsers(us);
     } catch (e: any) {
       toast({
         title: "تعذر التحميل",
@@ -105,6 +111,7 @@ export default function Supervisors() {
       email: "",
       ext: "",
       role: "مشرف",
+      userId: null,
       agentIds: [],
     });
     setOpen(true);
@@ -142,22 +149,18 @@ export default function Supervisors() {
     setSaving(true);
     try {
       const isUpdate = supervisors.some((s) => s.id === editing.id);
+      const payload = {
+        name: editing.name,
+        email: editing.email,
+        ext: editing.ext,
+        role: editing.role,
+        userId: editing.userId || null,
+        agentIds: editing.agentIds,
+      };
       if (isUpdate) {
-        await supervisorsApi.update(editing.id, {
-          name: editing.name,
-          email: editing.email,
-          ext: editing.ext,
-          role: editing.role,
-          agentIds: editing.agentIds,
-        });
+        await supervisorsApi.update(editing.id, payload);
       } else {
-        await supervisorsApi.create({
-          name: editing.name,
-          email: editing.email,
-          ext: editing.ext,
-          role: editing.role,
-          agentIds: editing.agentIds,
-        });
+        await supervisorsApi.create(payload);
       }
       await fetchAll();
       setOpen(false);
@@ -168,7 +171,10 @@ export default function Supervisors() {
     } catch (e: any) {
       toast({
         title: "تعذر الحفظ",
-        description: e?.response?.data?.error || "حدث خطأ",
+        description:
+          e?.response?.data?.message ||
+          e?.response?.data?.error ||
+          "حدث خطأ",
         variant: "destructive",
       });
     } finally {
