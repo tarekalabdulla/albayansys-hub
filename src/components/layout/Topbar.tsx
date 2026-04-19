@@ -31,9 +31,10 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
-import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
+import { clearSession, getSession, ROLE_LABELS, resolveAvatarUrl } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -44,10 +45,20 @@ interface TopbarProps {
 export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const session = getSession();
+  const [session, setSessionState] = useState(getSession());
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
   const [logoutOpen, setLogoutOpen] = useState(false);
+
+  useEffect(() => {
+    const onUpd = () => setSessionState(getSession());
+    window.addEventListener("session:updated", onUpd);
+    return () => window.removeEventListener("session:updated", onUpd);
+  }, []);
+
+  const initials = (session?.displayName || session?.identifier || "?")
+    .split(" ").map((s) => s[0]).join("").slice(0, 2);
+  const avatarSrc = resolveAvatarUrl(session?.avatarUrl);
 
   const handleLogout = () => {
     clearSession();
@@ -397,11 +408,16 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1 hover:scale-105 transition-transform"
+                className="hidden sm:flex w-9 h-9 rounded-full overflow-hidden items-center justify-center mr-1 hover:scale-105 transition-transform shadow-soft ring-1 ring-border"
                 aria-label="قائمة المستخدم"
                 title={session?.identifier ?? "المستخدم"}
               >
-                س.ع
+                <Avatar className="w-9 h-9">
+                  {avatarSrc && <AvatarImage src={avatarSrc} alt={session?.displayName || session?.identifier || "user"} />}
+                  <AvatarFallback className="gradient-primary text-primary-foreground text-xs font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

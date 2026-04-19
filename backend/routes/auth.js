@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { query } from "../db/pool.js";
 import { signToken, authRequired } from "../middleware/auth.js";
+import { uploadAvatar, deleteUploadedFile } from "../middleware/upload.js";
 
 const router = Router();
 
@@ -43,7 +44,7 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authRequired, async (req, res) => {
   const { rows } = await query(
-    `SELECT id, identifier, role, display_name, email, ext, department, phone, bio, job_title
+    `SELECT id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url
      FROM users WHERE id = $1`,
     [req.user.sub]
   );
@@ -93,7 +94,7 @@ router.patch("/me", authRequired, async (req, res) => {
   try {
     const { rows } = await query(
       `UPDATE users SET ${fields.join(", ")} WHERE id = $${i}
-       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title`,
+       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
       values
     );
     res.json({ user: rows[0] });
@@ -131,6 +132,51 @@ router.post("/change-password", authRequired, async (req, res) => {
   const newHash = await bcrypt.hash(new_password, 10);
   await query("UPDATE users SET password_hash = $1 WHERE id = $2", [newHash, user.id]);
   res.json({ ok: true });
+});
+
+// ============================================================
+// رفع الصورة الشخصية (avatar)
+// ============================================================
+router.post(
+  "/avatar",
+  authRequired,
+  (req, res, next) => {
+    uploadAvatar.single("avatar")(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "file_too_large" });
+      if (err.message === "invalid_file_type") return res.status(415).json({ error: "invalid_file_type" });
+      return res.status(400).json({ error: "upload_failed" });
+    });
+  },
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "no_file" });
+    const publicUrl = `/uploads/avatars/${req.file.filename}`;
+
+    // اجلب القديمة لتنظيفها
+    const { rows: prevRows } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.user.sub]);
+    const prevUrl = prevRows[0]?.avatar_url;
+
+    const { rows } = await query(
+      `UPDATE users SET avatar_url = $1 WHERE id = $2
+       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
+      [publicUrl, req.user.sub]
+    );
+    if (prevUrl && prevUrl !== publicUrl) deleteUploadedFile(prevUrl);
+    res.json({ user: rows[0] });
+  }
+);
+
+// حذف الصورة الشخصية
+router.delete("/avatar", authRequired, async (req, res) => {
+  const { rows: prevRows } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.user.sub]);
+  const prevUrl = prevRows[0]?.avatar_url;
+  const { rows } = await query(
+    `UPDATE users SET avatar_url = NULL WHERE id = $1
+     RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
+    [req.user.sub]
+  );
+  if (prevUrl) deleteUploadedFile(prevUrl);
+  res.json({ user: rows[0] });
 });
 
 export default router;

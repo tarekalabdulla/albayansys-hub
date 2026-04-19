@@ -14,6 +14,7 @@ export interface Session {
   role: Role;
   ts: number;
   displayName?: string;
+  avatarUrl?: string;
 }
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -66,9 +67,27 @@ export function hasRole(...roles: Role[]): boolean {
   return r !== null && roles.includes(r);
 }
 
-export function setSession(identifier: string, role: Role, displayName?: string) {
-  const session: Session = { identifier, role, ts: Date.now(), displayName };
+export function setSession(identifier: string, role: Role, displayName?: string, avatarUrl?: string) {
+  const prev = getSession();
+  const session: Session = {
+    identifier,
+    role,
+    ts: Date.now(),
+    displayName,
+    avatarUrl: avatarUrl !== undefined ? avatarUrl : prev?.avatarUrl,
+  };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // أعلم الواجهة بأي تغيير (Topbar/Sidebar)
+  try { window.dispatchEvent(new CustomEvent("session:updated")); } catch {}
+}
+
+// رابط كامل للصورة (يجمع API_URL مع المسار النسبي /uploads/...)
+export function resolveAvatarUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  // نستورد من config محلياً لتفادي circular import
+  const base = (import.meta.env.VITE_API_URL as string | undefined) || "";
+  return `${base}${url}`;
 }
 
 export function clearSession() {
@@ -82,7 +101,15 @@ export function clearSession() {
 export async function loginViaApi(identifier: string, password: string) {
   const { data } = await api.post("/auth/login", { identifier, password });
   tokenStorage.set(data.token);
-  setSession(data.user.identifier, data.user.role, data.user.display_name);
+  setSession(data.user.identifier, data.user.role, data.user.display_name, data.user.avatar_url ?? undefined);
+  // اجلب الـ avatar مباشرة بعد الدخول لو لم يُرجِعه login
+  if (!data.user.avatar_url) {
+    try {
+      const me = await fetchProfileViaApi();
+      const cur = getSession();
+      if (cur) setSession(cur.identifier, cur.role, me.display_name ?? cur.displayName, me.avatar_url ?? undefined);
+    } catch { /* ignore */ }
+  }
   return data.user;
 }
 
@@ -108,11 +135,28 @@ export interface ProfileFromApi {
   phone: string | null;
   bio: string | null;
   job_title: string | null;
+  avatar_url: string | null;
 }
 
 // جلب الملف الشخصي الكامل
 export async function fetchProfileViaApi(): Promise<ProfileFromApi> {
   const { data } = await api.get("/auth/me");
+  return data.user;
+}
+
+// رفع صورة شخصية
+export async function uploadAvatarViaApi(file: File): Promise<ProfileFromApi> {
+  const fd = new FormData();
+  fd.append("avatar", file);
+  const { data } = await api.post("/auth/avatar", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.user;
+}
+
+// حذف الصورة الشخصية
+export async function deleteAvatarViaApi(): Promise<ProfileFromApi> {
+  const { data } = await api.delete("/auth/avatar");
   return data.user;
 }
 
@@ -129,7 +173,7 @@ export async function updateProfileViaApi(payload: {
   const { data } = await api.patch("/auth/me", payload);
   const current = getSession();
   if (current) {
-    setSession(current.identifier, current.role, data.user.display_name);
+    setSession(current.identifier, current.role, data.user.display_name, data.user.avatar_url ?? undefined);
   }
   return data.user;
 }

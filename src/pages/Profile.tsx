@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,9 +13,13 @@ import { useToast } from "@/hooks/use-toast";
 import { USE_REAL_API } from "@/lib/config";
 import {
   getSession,
+  setSession,
   fetchProfileViaApi,
   updateProfileViaApi,
   changePasswordViaApi,
+  uploadAvatarViaApi,
+  deleteAvatarViaApi,
+  resolveAvatarUrl,
   ROLE_LABELS,
   type Role,
 } from "@/lib/auth";
@@ -32,8 +36,11 @@ import {
   Plus,
   Trash2,
   CheckCircle2,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRef } from "react";
 
 interface ProfileData {
   name: string;
@@ -114,6 +121,10 @@ export default function Profile() {
           bio: u.bio || "",
           role: u.job_title || ROLE_LABELS[u.role],
         }));
+        setAvatarUrl(u.avatar_url ?? undefined);
+        // زامن مع الـ session
+        const cur = getSession();
+        if (cur) setSession(cur.identifier, cur.role, u.display_name ?? cur.displayName, u.avatar_url ?? undefined);
       } catch {
         /* ignore — fallback to local */
       }
@@ -124,6 +135,9 @@ export default function Profile() {
   const [newTask, setNewTask] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPwd, setSavingPwd] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(() => session?.avatarUrl);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
@@ -135,6 +149,58 @@ export default function Profile() {
     .map((p) => p[0])
     .join("")
     .slice(0, 2);
+
+  const onPickAvatar = () => fileInputRef.current?.click();
+
+  const onAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!USE_REAL_API) {
+      toast({ title: "وضع تجريبي", description: "رفع الصورة يعمل فقط بعد ربط الخادم", variant: "destructive" });
+      return;
+    }
+    if (!/^image\//.test(file.type)) {
+      toast({ title: "نوع غير مدعوم", description: "اختر صورة (PNG/JPG/WEBP)", variant: "destructive" });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "الحجم كبير", description: "الحد الأقصى 2 ميجابايت", variant: "destructive" });
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const u = await uploadAvatarViaApi(file);
+      setAvatarUrl(u.avatar_url ?? undefined);
+      toast({ title: "تم الرفع", description: "تم تحديث صورتك الشخصية" });
+    } catch (err: any) {
+      const code = err?.response?.data?.error;
+      toast({
+        title: "تعذّر الرفع",
+        description:
+          code === "file_too_large" ? "الحجم أكبر من 2MB" :
+          code === "invalid_file_type" ? "نوع الملف غير مسموح" :
+          "خطأ في الاتصال بالخادم",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!USE_REAL_API || !avatarUrl) return;
+    setUploadingAvatar(true);
+    try {
+      await deleteAvatarViaApi();
+      setAvatarUrl(undefined);
+      toast({ title: "تم الحذف", description: "تمت إزالة الصورة الشخصية" });
+    } catch {
+      toast({ title: "تعذّر الحذف", variant: "destructive" });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const saveProfile = async () => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
@@ -277,11 +343,43 @@ export default function Profile() {
           <div className="h-24 gradient-primary" />
           <CardContent className="p-6 -mt-12">
             <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-              <Avatar className="w-24 h-24 ring-4 ring-background shadow-elegant">
-                <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative">
+                <Avatar className="w-24 h-24 ring-4 ring-background shadow-elegant">
+                  {avatarUrl && <AvatarImage src={resolveAvatarUrl(avatarUrl)} alt={profile.name} />}
+                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <button
+                  type="button"
+                  onClick={onPickAvatar}
+                  disabled={uploadingAvatar}
+                  className="absolute -bottom-1 -left-1 w-9 h-9 rounded-full bg-primary text-primary-foreground grid place-items-center shadow-elegant ring-2 ring-background hover:scale-105 transition disabled:opacity-60"
+                  aria-label="تغيير الصورة الشخصية"
+                  title="تغيير الصورة الشخصية"
+                >
+                  {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onAvatarSelected}
+                />
+                {avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    disabled={uploadingAvatar}
+                    className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-destructive text-destructive-foreground grid place-items-center shadow-elegant ring-2 ring-background hover:scale-105 transition disabled:opacity-60"
+                    aria-label="إزالة الصورة"
+                    title="إزالة الصورة"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <h2 className="text-2xl font-extrabold">{profile.name}</h2>
                 <p className="text-sm text-muted-foreground">{profile.role}</p>
