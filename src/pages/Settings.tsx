@@ -173,6 +173,83 @@ const Settings = () => {
   const [webhookSecret, setWebhookSecret] = useState("••••••••••");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ===== التصفير الشامل (admin فقط) =====
+  const isAdmin = getRole() === "admin";
+  const [resetScopes, setResetScopes] = useState<Record<ResetScope, boolean>>({
+    calls: true,
+    alerts: true,
+    mail: true,
+    supervisors: true,
+    stats: true,
+  });
+  const [resetting, setResetting] = useState(false);
+
+  const toggleScope = (s: ResetScope) =>
+    setResetScopes((p) => ({ ...p, [s]: !p[s] }));
+
+  const runResetAll = async () => {
+    const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
+    if (selected.length === 0) {
+      Swal.fire({ icon: "warning", title: "لم تختر شيئاً", text: "اختر نطاقاً واحداً على الأقل." });
+      return;
+    }
+    const labels: Record<ResetScope, string> = {
+      calls: "المكالمات و CDR",
+      alerts: "التنبيهات",
+      mail: "البريد الداخلي",
+      supervisors: "المشرفون والربط بالفِرق",
+      stats: "إحصائيات الموظفين (تصفير العدّادات)",
+    };
+    const r = await Swal.fire({
+      icon: "warning",
+      title: "تأكيد التصفير الشامل",
+      html:
+        `<div class="text-right text-sm leading-7">سيتم حذف نهائي للبيانات التالية:<br/>` +
+        selected.map((s) => `• ${labels[s]}`).join("<br/>") +
+        `<br/><br/><b class="text-destructive">لا يمكن التراجع عن هذا الإجراء.</b></div>`,
+      input: "text",
+      inputPlaceholder: 'اكتب RESET للتأكيد',
+      showCancelButton: true,
+      confirmButtonText: "نعم، صفّر الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+      preConfirm: (val) => {
+        if (val !== "RESET") {
+          Swal.showValidationMessage("اكتب كلمة RESET بالضبط");
+          return false;
+        }
+        return true;
+      },
+    });
+    if (!r.isConfirmed) return;
+
+    if (!USE_REAL_API) {
+      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "التصفير يحتاج تفعيل API الحقيقي." });
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const out = await adminApi.resetAll(selected);
+      const lines = Object.entries(out.summary)
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("<br/>");
+      await Swal.fire({
+        icon: "success",
+        title: "تم التصفير بنجاح",
+        html: `<div class="text-right text-xs leading-6">${lines || "لم يُحذف شيء."}</div>`,
+      });
+    } catch (e: any) {
+      Swal.fire({
+        icon: "error",
+        title: "فشل التصفير",
+        text: e?.response?.data?.error || e?.message || "خطأ غير متوقع",
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const openAdd = () => {
     setEditing(null);
     setForm({ name: "", email: "", role: "agent", active: true });
