@@ -5,12 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, LogIn, User, Lock } from "lucide-react";
-import { isAuthenticated, setSession, type Role, ROLE_LABELS } from "@/lib/auth";
+import { isAuthenticated, setSession, loginViaApi, type Role, ROLE_LABELS } from "@/lib/auth";
+import { USE_REAL_API } from "@/lib/config";
 import logo from "@/assets/logo.png";
 
-// قاعدة مستخدمين تجريبية ثابتة (للعرض فقط — لا تُستخدم في الإنتاج).
-// الدور يُحدَّد هنا بناءً على المُعرّف ولا يمكن للمستخدم اختياره.
-// عند ربط Lovable Cloud لاحقاً، يأتي الدور من قاعدة البيانات server-side.
+// قاعدة مستخدمين تجريبية ثابتة — تُستخدم فقط في وضع mock (بدون VPS)
 const DEMO_USERS: Record<string, { password: string; role: Role }> = {
   admin:      { password: "admin123",      role: "admin" },
   supervisor: { password: "supervisor123", role: "supervisor" },
@@ -29,7 +28,7 @@ const Login = () => {
     if (isAuthenticated()) navigate("/", { replace: true });
   }, [navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = identifier.trim().toLowerCase();
     const pwd = password.trim();
@@ -42,6 +41,31 @@ const Login = () => {
       return;
     }
     setLoading(true);
+
+    // ============ وضع API الحقيقي (VPS) ============
+    if (USE_REAL_API) {
+      try {
+        const user = await loginViaApi(id, pwd);
+        toast({
+          title: "أهلاً بك",
+          description: `تم تسجيل الدخول كـ ${ROLE_LABELS[user.role as Role]}`,
+        });
+        navigate("/");
+      } catch (err: any) {
+        toast({
+          title: "بيانات غير صحيحة",
+          description: err?.response?.data?.error === "invalid_credentials"
+            ? "المستخدم أو كلمة السر غير صحيحة"
+            : "تعذّر الاتصال بالخادم",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // ============ وضع Mock (افتراضي) ============
     setTimeout(() => {
       const user = DEMO_USERS[id];
       if (!user || user.password !== pwd) {

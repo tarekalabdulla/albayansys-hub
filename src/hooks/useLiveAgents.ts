@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
-import { mockSocket } from "@/lib/mockSocket";
+import { socketProvider } from "@/lib/socketProvider";
 import type { Agent } from "@/lib/mockData";
 
 // Hook موحّد لمشاركة قائمة الموظفين الحيّة بين الصفحات
+// يعمل مع mockSocket أو socket.io الحقيقي حسب VITE_USE_REAL_API
 export function useLiveAgents(): Agent[] {
-  const [agents, setAgents] = useState<Agent[]>(() => mockSocket.snapshot());
+  const [agents, setAgents] = useState<Agent[]>(() => socketProvider.snapshot());
 
   useEffect(() => {
-    mockSocket.start();
+    socketProvider.start();
 
-    const offList = mockSocket.on("agent:list", (list: Agent[]) => {
+    const offList = socketProvider.on("agent:list", (list: Agent[]) => {
       setAgents(list);
     });
-    const offUpd = mockSocket.on("agent:update", (a: Agent) => {
-      setAgents((prev) => prev.map((p) => (p.id === a.id ? a : p)));
+    const offUpd = socketProvider.on("agent:update", (a: Agent) => {
+      setAgents((prev) => {
+        const exists = prev.some((p) => p.id === a.id);
+        return exists ? prev.map((p) => (p.id === a.id ? { ...p, ...a } : p)) : [...prev, a];
+      });
     });
 
     return () => {
@@ -37,8 +41,8 @@ export function useLiveAlerts(max = 6): LiveAlert[] {
   const [alerts, setAlerts] = useState<LiveAlert[]>([]);
 
   useEffect(() => {
-    mockSocket.start();
-    const off = mockSocket.on("alert", (a: LiveAlert) => {
+    socketProvider.start();
+    const off = socketProvider.on("alert", (a: LiveAlert) => {
       setAlerts((prev) => [a, ...prev].slice(0, max));
     });
     return off;
