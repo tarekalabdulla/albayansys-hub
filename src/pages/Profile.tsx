@@ -343,11 +343,43 @@ export default function Profile() {
           <div className="h-24 gradient-primary" />
           <CardContent className="p-6 -mt-12">
             <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-              <Avatar className="w-24 h-24 ring-4 ring-background shadow-elegant">
-                <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative">
+                <Avatar className="w-24 h-24 ring-4 ring-background shadow-elegant">
+                  {avatarUrl && <AvatarImage src={resolveAvatarUrl(avatarUrl)} alt={profile.name} />}
+                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <button
+                  type="button"
+                  onClick={onPickAvatar}
+                  disabled={uploadingAvatar}
+                  className="absolute -bottom-1 -left-1 w-9 h-9 rounded-full bg-primary text-primary-foreground grid place-items-center shadow-elegant ring-2 ring-background hover:scale-105 transition disabled:opacity-60"
+                  aria-label="تغيير الصورة الشخصية"
+                  title="تغيير الصورة الشخصية"
+                >
+                  {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onAvatarSelected}
+                />
+                {avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    disabled={uploadingAvatar}
+                    className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-destructive text-destructive-foreground grid place-items-center shadow-elegant ring-2 ring-background hover:scale-105 transition disabled:opacity-60"
+                    aria-label="إزالة الصورة"
+                    title="إزالة الصورة"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <h2 className="text-2xl font-extrabold">{profile.name}</h2>
                 <p className="text-sm text-muted-foreground">{profile.role}</p>
