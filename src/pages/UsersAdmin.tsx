@@ -121,7 +121,62 @@ export default function UsersAdmin() {
       case "cannot_disable_self":return "لا يمكن تعطيل حسابك";
       case "cannot_delete_self": return "لا يمكن حذف حسابك";
       case "invalid_input":      return "تحقّق من صحة الحقول";
+      case "file_too_large":     return "الحجم أكبر من 2MB";
+      case "invalid_file_type":  return "نوع الملف غير مسموح";
+      case "no_file":            return "لم يتم اختيار ملف";
       default:                   return "خطأ في الاتصال بالخادم";
+    }
+  };
+
+  // مزامنة الصورة مع جلسة الأدمن لو عدّل صورة نفسه
+  const syncSelfSession = (u: ManagedUser) => {
+    const cur = getSession();
+    if (cur && u.identifier === cur.identifier) {
+      setSession(cur.identifier, cur.role, u.display_name ?? cur.displayName, u.avatar_url ?? undefined);
+    }
+  };
+
+  const onAvatarPick = () => avatarInputRef.current?.click();
+
+  const onAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !editing) return;
+    if (!/^image\//.test(file.type)) {
+      toast({ title: "نوع غير مدعوم", description: "اختر صورة (PNG/JPG/WEBP)", variant: "destructive" });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "الحجم كبير", description: "الحد الأقصى 2 ميجابايت", variant: "destructive" });
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const u = await uploadUserAvatar(editing.id, file);
+      setEditing(u);
+      setUsers((list) => list.map((x) => (x.id === u.id ? u : x)));
+      syncSelfSession(u);
+      toast({ title: "تم رفع الصورة", description: u.display_name || u.identifier });
+    } catch (err: any) {
+      toast({ title: "تعذّر الرفع", description: errMsg(err?.response?.data?.error), variant: "destructive" });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const onAvatarRemove = async () => {
+    if (!editing || !editing.avatar_url) return;
+    setAvatarBusy(true);
+    try {
+      const u = await deleteUserAvatar(editing.id);
+      setEditing(u);
+      setUsers((list) => list.map((x) => (x.id === u.id ? u : x)));
+      syncSelfSession(u);
+      toast({ title: "تم حذف الصورة" });
+    } catch (err: any) {
+      toast({ title: "تعذّر الحذف", description: errMsg(err?.response?.data?.error), variant: "destructive" });
+    } finally {
+      setAvatarBusy(false);
     }
   };
 
