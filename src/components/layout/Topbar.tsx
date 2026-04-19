@@ -13,6 +13,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   applyMode,
   applyTheme,
   getInitialMode,
@@ -37,6 +47,7 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const session = getSession();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   const handleLogout = () => {
     clearSession();
@@ -373,7 +384,7 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleLogout}
+            onClick={() => setLogoutOpen(true)}
             className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="تسجيل الخروج"
             title="تسجيل الخروج"
@@ -416,7 +427,10 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleLogout}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setLogoutOpen(true);
+                }}
                 className="gap-2 text-destructive focus:text-destructive"
               >
                 <LogOut className="w-4 h-4" />
@@ -426,6 +440,28 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Confirm logout dialog */}
+      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد تسجيل الخروج</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت متأكد من رغبتك في تسجيل الخروج من النظام؟ ستحتاج إلى إعادة إدخال بيانات الدخول للوصول إلى لوحة التحكم.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLogout}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <LogOut className="w-4 h-4 ml-1.5" />
+              تأكيد الخروج
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 }
