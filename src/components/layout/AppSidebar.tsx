@@ -119,11 +119,14 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
 
         <div className="absolute bottom-0 inset-x-0 p-4 border-t border-sidebar-border">
           <div className="glass rounded-xl p-3 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full gradient-primary grid place-items-center text-sm font-bold text-primary-foreground">
-              س.ع
-            </div>
+            <Avatar className="w-10 h-10">
+              {avatarSrc && <AvatarImage src={avatarSrc} alt={displayName} />}
+              <AvatarFallback className="gradient-primary text-primary-foreground text-sm font-bold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-sidebar-foreground truncate">سلمان العامر</p>
+              <p className="text-sm font-semibold text-sidebar-foreground truncate">{displayName}</p>
               <p className="text-[11px] text-sidebar-foreground/60">{roleLabel}</p>
             </div>
           </div>
