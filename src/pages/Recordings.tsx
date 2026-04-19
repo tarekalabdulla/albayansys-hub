@@ -297,6 +297,8 @@ export default function Recordings() {
           </div>
         </section>
       </div>
+        </TabsContent>
+      </Tabs>
     </AppLayout>
   );
 }
