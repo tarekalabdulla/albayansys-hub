@@ -17,6 +17,7 @@ import cdrRoutes from "./routes/cdr.js";
 import statsRoutes from "./routes/stats.js";
 import mailRoutes from "./routes/mail.js";
 import supervisorsRoutes from "./routes/supervisors.js";
+import adminRoutes from "./routes/admin.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -76,6 +77,7 @@ app.use("/api/cdr", cdrRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/mail", mailRoutes);
 app.use("/api/supervisors", supervisorsRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);

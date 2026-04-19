@@ -40,12 +40,16 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import { z } from "zod";
 import { USE_REAL_API, API_URL } from "@/lib/config";
 import { getPbxSettings, updatePbxSettings, testPbxConnection, type PbxSettings } from "@/lib/pbxApi";
 import { YeastarWebhookCard } from "@/components/settings/YeastarWebhookCard";
+import { adminApi, type ResetScope } from "@/lib/adminApi";
+import { getRole } from "@/lib/auth";
+import { Trash } from "lucide-react";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
 
@@ -168,6 +172,83 @@ const Settings = () => {
   const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
   const [webhookSecret, setWebhookSecret] = useState("••••••••••");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ===== التصفير الشامل (admin فقط) =====
+  const isAdmin = getRole() === "admin";
+  const [resetScopes, setResetScopes] = useState<Record<ResetScope, boolean>>({
+    calls: true,
+    alerts: true,
+    mail: true,
+    supervisors: true,
+    stats: true,
+  });
+  const [resetting, setResetting] = useState(false);
+
+  const toggleScope = (s: ResetScope) =>
+    setResetScopes((p) => ({ ...p, [s]: !p[s] }));
+
+  const runResetAll = async () => {
+    const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
+    if (selected.length === 0) {
+      Swal.fire({ icon: "warning", title: "لم تختر شيئاً", text: "اختر نطاقاً واحداً على الأقل." });
+      return;
+    }
+    const labels: Record<ResetScope, string> = {
+      calls: "المكالمات و CDR",
+      alerts: "التنبيهات",
+      mail: "البريد الداخلي",
+      supervisors: "المشرفون والربط بالفِرق",
+      stats: "إحصائيات الموظفين (تصفير العدّادات)",
+    };
+    const r = await Swal.fire({
+      icon: "warning",
+      title: "تأكيد التصفير الشامل",
+      html:
+        `<div class="text-right text-sm leading-7">سيتم حذف نهائي للبيانات التالية:<br/>` +
+        selected.map((s) => `• ${labels[s]}`).join("<br/>") +
+        `<br/><br/><b class="text-destructive">لا يمكن التراجع عن هذا الإجراء.</b></div>`,
+      input: "text",
+      inputPlaceholder: 'اكتب RESET للتأكيد',
+      showCancelButton: true,
+      confirmButtonText: "نعم، صفّر الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+      preConfirm: (val) => {
+        if (val !== "RESET") {
+          Swal.showValidationMessage("اكتب كلمة RESET بالضبط");
+          return false;
+        }
+        return true;
+      },
+    });
+    if (!r.isConfirmed) return;
+
+    if (!USE_REAL_API) {
+      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "التصفير يحتاج تفعيل API الحقيقي." });
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const out = await adminApi.resetAll(selected);
+      const lines = Object.entries(out.summary)
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("<br/>");
+      await Swal.fire({
+        icon: "success",
+        title: "تم التصفير بنجاح",
+        html: `<div class="text-right text-xs leading-6">${lines || "لم يُحذف شيء."}</div>`,
+      });
+    } catch (e: any) {
+      Swal.fire({
+        icon: "error",
+        title: "فشل التصفير",
+        text: e?.response?.data?.error || e?.message || "خطأ غير متوقع",
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const openAdd = () => {
     setEditing(null);
@@ -784,6 +865,73 @@ const Settings = () => {
           </div>
         </section>
       </div>
+
+      {/* ============ التصفير الشامل (admin فقط) ============ */}
+      {isAdmin && (
+        <section className="glass-card p-5 mt-5 border-destructive/30">
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <Trash className="w-4 h-4 text-destructive" />
+              <div>
+                <h3 className="text-base font-bold text-destructive">منطقة الخطر — تصفير شامل</h3>
+                <p className="text-xs text-muted-foreground">
+                  حذف نهائي للبيانات المختارة. لن تُحذف حسابات المستخدمين ولا إعدادات السنترال.
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">
+              admin فقط
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 my-4">
+            {([
+              { key: "calls", label: "المكالمات و CDR" },
+              { key: "alerts", label: "التنبيهات" },
+              { key: "mail", label: "البريد الداخلي" },
+              { key: "supervisors", label: "المشرفون والفِرق" },
+              { key: "stats", label: "إحصائيات الموظفين" },
+            ] as { key: ResetScope; label: string }[]).map((s) => (
+              <label
+                key={s.key}
+                className={cn(
+                  "flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition",
+                  resetScopes[s.key]
+                    ? "bg-destructive/5 border-destructive/40"
+                    : "bg-background/40 border-border hover:border-destructive/30",
+                )}
+              >
+                <Checkbox
+                  checked={resetScopes[s.key]}
+                  onCheckedChange={() => toggleScope(s.key)}
+                />
+                <span className="text-xs font-semibold">{s.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-[11px] text-muted-foreground mb-3">
+            <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+            <span>
+              سيُطلب منك كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
+            </span>
+          </div>
+
+          <Button
+            onClick={runResetAll}
+            disabled={resetting}
+            variant="destructive"
+            className="w-full"
+          >
+            {resetting ? (
+              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+            ) : (
+              <Trash className="w-4 h-4 ml-2" />
+            )}
+            {resetting ? "جاري التصفير..." : "تصفير شامل للنطاقات المحددة"}
+          </Button>
+        </section>
+      )}
 
       {/* User Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
