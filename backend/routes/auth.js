@@ -44,7 +44,7 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authRequired, async (req, res) => {
   const { rows } = await query(
-    `SELECT id, identifier, role, display_name, email, ext, department, phone, bio, job_title
+    `SELECT id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url
      FROM users WHERE id = $1`,
     [req.user.sub]
   );
@@ -94,7 +94,7 @@ router.patch("/me", authRequired, async (req, res) => {
   try {
     const { rows } = await query(
       `UPDATE users SET ${fields.join(", ")} WHERE id = $${i}
-       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title`,
+       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title, avatar_url`,
       values
     );
     res.json({ user: rows[0] });
