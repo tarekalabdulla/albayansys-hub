@@ -1,4 +1,4 @@
-import { Menu, Search, Bell, Sun, Moon, Palette, Check, Mail, Star, Paperclip, Inbox, AlertOctagon, AlertTriangle, Info, CheckCheck, ArrowLeft } from "lucide-react";
+import { Menu, Search, Bell, Sun, Moon, Palette, Check, Mail, Star, Paperclip, Inbox, AlertOctagon, AlertTriangle, Info, CheckCheck, ArrowLeft, LogOut, UserRound, Settings as SettingsIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -21,6 +21,8 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
+import { clearSession, getSession } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -31,8 +33,16 @@ interface TopbarProps {
 
 export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const session = getSession();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
+
+  const handleLogout = () => {
+    clearSession();
+    toast({ title: "تم تسجيل الخروج", description: "إلى اللقاء" });
+    navigate("/login", { replace: true });
+  };
 
   useEffect(() => {
     const m = getInitialMode();
@@ -359,15 +369,45 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Avatar — يفتح الملف الشخصي */}
-          <button
-            onClick={() => navigate("/profile")}
-            className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1 hover:scale-105 transition-transform"
-            aria-label="فتح الملف الشخصي"
-            title="الملف الشخصي"
-          >
-            س.ع
-          </button>
+          {/* Avatar — قائمة منسدلة (الملف الشخصي / الإعدادات / تسجيل الخروج) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="hidden sm:flex w-9 h-9 rounded-full gradient-primary items-center justify-center text-sm font-bold text-primary-foreground shadow-soft mr-1 hover:scale-105 transition-transform"
+                aria-label="قائمة المستخدم"
+                title={session?.identifier ?? "المستخدم"}
+              >
+                س.ع
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="flex flex-col gap-0.5">
+                <span className="text-sm font-bold">
+                  {session?.identifier ?? "المستخدم"}
+                </span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  مسجّل الدخول
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/profile")} className="gap-2">
+                <UserRound className="w-4 h-4" />
+                الملف الشخصي
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/settings")} className="gap-2">
+                <SettingsIcon className="w-4 h-4" />
+                الإعدادات
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="gap-2 text-destructive focus:text-destructive"
+              >
+                <LogOut className="w-4 h-4" />
+                تسجيل الخروج
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
