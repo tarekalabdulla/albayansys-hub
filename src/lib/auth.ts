@@ -67,9 +67,27 @@ export function hasRole(...roles: Role[]): boolean {
   return r !== null && roles.includes(r);
 }
 
-export function setSession(identifier: string, role: Role, displayName?: string) {
-  const session: Session = { identifier, role, ts: Date.now(), displayName };
+export function setSession(identifier: string, role: Role, displayName?: string, avatarUrl?: string) {
+  const prev = getSession();
+  const session: Session = {
+    identifier,
+    role,
+    ts: Date.now(),
+    displayName,
+    avatarUrl: avatarUrl !== undefined ? avatarUrl : prev?.avatarUrl,
+  };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // أعلم الواجهة بأي تغيير (Topbar/Sidebar)
+  try { window.dispatchEvent(new CustomEvent("session:updated")); } catch {}
+}
+
+// رابط كامل للصورة (يجمع API_URL مع المسار النسبي /uploads/...)
+export function resolveAvatarUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  if (/^https?:\/\//i.test(url)) return url;
+  // نستورد من config محلياً لتفادي circular import
+  const base = (import.meta.env.VITE_API_URL as string | undefined) || "";
+  return `${base}${url}`;
 }
 
 export function clearSession() {
