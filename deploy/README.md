@@ -158,13 +158,30 @@ curl -X POST https://api.hulul-albayan.com/api/auth/login \
 
 ## 🛠️ صيانة
 
+> **المسارات الفعلية على السيرفر:**
+> - Backend (API): `/opt/hulul-api` — اسم PM2: `hulul-api`
+> - Frontend (App): `/var/www/hulul-albayan` — اسم PM2: `hulul-app`
+
 | المهمة | الأمر |
 |---|---|
-| سجلات PM2 | `pm2 logs hulul-api` |
+| سجلات Backend | `pm2 logs hulul-api` |
+| سجلات Frontend | `pm2 logs hulul-app` |
 | إعادة تشغيل API | `pm2 restart hulul-api` |
-| تحديث الكود | `cd /opt/hulul-api && git pull && npm install && pm2 restart hulul-api` |
+| إعادة تشغيل App | `pm2 restart hulul-app` |
+| تحديث الـ Backend | `cd /opt/hulul-api && git pull && npm install && pm2 restart hulul-api` |
+| تحديث الـ Frontend | `cd /var/www/hulul-albayan && git pull && npm run build && pm2 restart hulul-app` |
+| تشغيل migrations | `cd /opt/hulul-api && node db/migrate.js` |
 | تجديد SSL تلقائي | يعمل وحده عبر cron من Certbot |
 | نسخة احتياطية DB | `pg_dump -U hulul_user hulul_db > /root/backup-$(date +%F).sql` |
+
+### اختصارات سريعة (alias)
+أضفها مرة واحدة في `~/.bashrc`:
+```bash
+echo "alias deploy-app='cd /var/www/hulul-albayan && git pull && npm run build && pm2 restart hulul-app'" >> ~/.bashrc
+echo "alias deploy-api='cd /opt/hulul-api && git pull && npm install && pm2 restart hulul-api'" >> ~/.bashrc
+source ~/.bashrc
+```
+بعدها استخدم: `deploy-app` أو `deploy-api`.
 
 ---
 
