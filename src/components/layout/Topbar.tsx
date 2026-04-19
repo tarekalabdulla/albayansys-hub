@@ -369,6 +369,19 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Logout — زر مستقل ظاهر */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
+            aria-label="تسجيل الخروج"
+            title="تسجيل الخروج"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden md:inline text-xs font-bold">خروج</span>
+          </Button>
+
           {/* Avatar — قائمة منسدلة (الملف الشخصي / الإعدادات / تسجيل الخروج) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
