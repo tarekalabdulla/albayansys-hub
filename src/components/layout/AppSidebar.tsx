@@ -11,6 +11,7 @@ import {
   PhoneCall,
   UserCog,
   User,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
@@ -28,6 +29,7 @@ const NAV: NavItem[] = [
   { to: "/live", label: "التقرير الحي", icon: Activity, roles: ["admin", "supervisor", "agent"] },
   { to: "/monitoring", label: "مراقبة الموظفين", icon: MonitorPlay, roles: ["admin", "supervisor"] },
   { to: "/performance", label: "جدول الأداء", icon: BarChart3, roles: ["admin", "supervisor"] },
+  { to: "/alerts", label: "الإشعارات التنبيهية", icon: Bell, roles: ["admin", "supervisor"] },
   { to: "/supervisors", label: "إدارة المشرفين", icon: UserCog, roles: ["admin"] },
   { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles, roles: ["admin", "supervisor"] },
   { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic, roles: ["admin", "supervisor", "agent"] },
