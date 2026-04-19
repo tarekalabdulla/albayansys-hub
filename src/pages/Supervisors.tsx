@@ -438,6 +438,44 @@ export default function Supervisors() {
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <Label>حساب المستخدم المرتبط (لتسجيل الدخول)</Label>
+                <Select
+                  value={editing.userId || "none"}
+                  onValueChange={(v) =>
+                    setEditing({ ...editing, userId: v === "none" ? null : v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر مستخدم..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— بدون ربط —</SelectItem>
+                    {users
+                      .filter((u) => u.role === "supervisor" || u.role === "admin")
+                      .map((u) => {
+                        // أخفِ المستخدمين المرتبطين بمشرف آخر
+                        const linkedToOther = supervisors.some(
+                          (s) => s.userId === u.id && s.id !== editing.id,
+                        );
+                        return (
+                          <SelectItem
+                            key={u.id}
+                            value={u.id}
+                            disabled={linkedToOther}
+                          >
+                            {u.display_name || u.identifier} ({u.identifier})
+                            {linkedToOther ? " — مرتبط" : ""}
+                          </SelectItem>
+                        );
+                      })}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  المشرف سيرى فريقه فقط عند تسجيل الدخول بهذا الحساب
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>الموظفون التابعون</Label>
