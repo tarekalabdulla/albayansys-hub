@@ -958,16 +958,57 @@ const Settings = () => {
             ))}
           </div>
 
+          {/* أزرار النسخ الاحتياطي قبل التصفير */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => downloadBackup("plain")}
+              disabled={downloadingBackup}
+              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
+            >
+              {downloadingBackup ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 ml-2" />
+              )}
+              تنزيل نسخة .sql (نص قابل للقراءة)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => downloadBackup("custom")}
+              disabled={downloadingBackup}
+              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
+            >
+              {downloadingBackup ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 ml-2" />
+              )}
+              تنزيل نسخة .dump (مضغوطة لـ pg_restore)
+            </Button>
+          </div>
+
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground mb-2">
+            <Database className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+            <span>
+              للاستعادة: <code className="px-1 bg-muted rounded" dir="ltr">psql $DATABASE_URL -f file.sql</code>
+              {" أو "}
+              <code className="px-1 bg-muted rounded" dir="ltr">pg_restore -d $DATABASE_URL --clean file.dump</code>
+            </span>
+          </div>
+
           <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-[11px] text-muted-foreground mb-3">
             <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
             <span>
-              سيُطلب منك كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
+              سيُطلب منك تنزيل نسخة احتياطية ثم كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
             </span>
           </div>
 
           <Button
             onClick={runResetAll}
-            disabled={resetting}
+            disabled={resetting || downloadingBackup}
             variant="destructive"
             className="w-full"
           >
