@@ -427,7 +427,10 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleLogout}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setLogoutOpen(true);
+                }}
                 className="gap-2 text-destructive focus:text-destructive"
               >
                 <LogOut className="w-4 h-4" />
@@ -437,6 +440,28 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Confirm logout dialog */}
+      <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد تسجيل الخروج</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت متأكد من رغبتك في تسجيل الخروج من النظام؟ ستحتاج إلى إعادة إدخال بيانات الدخول للوصول إلى لوحة التحكم.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLogout}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <LogOut className="w-4 h-4 ml-1.5" />
+              تأكيد الخروج
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 }
