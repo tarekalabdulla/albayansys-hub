@@ -14,7 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AGENTS, STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import {
   ArrowRight,
   Phone,
