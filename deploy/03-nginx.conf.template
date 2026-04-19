@@ -1,0 +1,94 @@
+# ============================================================
+# Nginx config — تطبيق "حلول البيان"
+# استبدل __DOMAIN__ بدومين الواجهة (مثل app.yourdomain.com)
+# واستبدل __API_DOMAIN__ بدومين الـ API (مثل api.yourdomain.com)
+# ============================================================
+
+# ============== الواجهة (Frontend SPA) ==============
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __DOMAIN__;
+
+    root /var/www/hulul/public;
+    index index.html;
+
+    # ضغط
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+    # كاش طويل للأصول مع hashes
+    location ~* \.(?:css|js|woff2?|ttf|otf|eot|svg|png|jpg|jpeg|gif|webp|ico)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # SPA fallback — كل المسارات ترجع index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # رؤوس أمان
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(self), geolocation=()" always;
+
+    # حد حجم الرفع (لاستعادة backup من Settings)
+    client_max_body_size 250M;
+}
+
+# ============== API + WebSocket + Uploads ==============
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __API_DOMAIN__;
+
+    client_max_body_size 250M;
+
+    # رؤوس أمان
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # WebSocket (Socket.io)
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 7d;
+        proxy_send_timeout 7d;
+    }
+
+    # ملفات المستخدمين (الصور الشخصية)
+    location /uploads/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # كاش متوسط للصور
+        proxy_cache_valid 200 7d;
+        add_header Cache-Control "public, max-age=604800";
+    }
+
+    # كل ما تبقى → Express API
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
