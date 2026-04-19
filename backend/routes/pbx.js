@@ -178,4 +178,46 @@ router.post("/test", async (req, res) => {
   res.status(ok ? 200 : 502).json({ ok, status, message: msg, elapsed_ms: elapsed });
 });
 
+// ============ Webhook secret management (admin) ============
+// POST /api/pbx/webhook-secret/regenerate — يولّد سر HMAC جديد ويُرجعه مرة واحدة فقط
+router.post("/webhook-secret/regenerate", async (req, res) => {
+  try {
+    const secret = crypto.randomBytes(32).toString("hex"); // 64 hex char
+    const enc = encryptSecret(secret);
+    await query(`UPDATE pbx_settings SET webhook_secret_enc = $1 WHERE id = 1`, [enc]);
+    res.json({
+      ok: true,
+      secret, // ⚠️ لا يُحفَظ في DB كنص خام؛ يُعرض مرة واحدة هنا فقط
+      message: "احفظ هذا السر الآن — لن يُعرض مرة أخرى",
+    });
+  } catch (e) {
+    res.status(500).json({ error: "regenerate_failed", message: e.message });
+  }
+});
+
+// DELETE /api/pbx/webhook-secret — يمسح السر (يعطّل التحقق)
+router.delete("/webhook-secret", async (_req, res) => {
+  await query(`UPDATE pbx_settings SET webhook_secret_enc = NULL WHERE id = 1`);
+  res.json({ ok: true });
+});
+
+// GET /api/pbx/live — snapshot للحالة الحية (للوحة التحكم)
+router.get("/live", async (_req, res) => {
+  const [calls, exts] = await Promise.all([
+    query(
+      `SELECT id, extension, agent_name, caller_number, callee_number, direction, status, queue_name,
+              EXTRACT(EPOCH FROM started_at) * 1000 AS "startedAt",
+              EXTRACT(EPOCH FROM answered_at) * 1000 AS "answeredAt"
+       FROM calls_live ORDER BY started_at DESC LIMIT 200`
+    ),
+    query(
+      `SELECT extension, agent_name, status, device_state,
+              EXTRACT(EPOCH FROM updated_at) * 1000 AS "updatedAt"
+       FROM ext_status ORDER BY extension`
+    ),
+  ]);
+  res.json({ calls: calls.rows, extensions: exts.rows });
+});
+
 export default router;
+
