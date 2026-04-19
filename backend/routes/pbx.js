@@ -30,13 +30,15 @@ router.use(authRequired, requireRole("admin"));
 
 const SAFE_FIELDS = `
   id, enabled, host, port, use_tls, api_username, webhook_url,
-  last_test_at, last_test_ok, last_test_msg, updated_at, updated_by
+  last_test_at, last_test_ok, last_test_msg, last_event_at, updated_at, updated_by
 `;
 
-// رجّع الإعدادات بدون السر — مع علامة has_secret
+// رجّع الإعدادات بدون السر — مع علامة has_secret / has_webhook_secret
 async function loadSafe() {
   const { rows } = await query(
-    `SELECT ${SAFE_FIELDS}, (api_secret_enc IS NOT NULL) AS has_secret
+    `SELECT ${SAFE_FIELDS},
+            (api_secret_enc IS NOT NULL) AS has_secret,
+            (webhook_secret_enc IS NOT NULL) AS has_webhook_secret
      FROM pbx_settings WHERE id = 1`
   );
   return rows[0] || null;
