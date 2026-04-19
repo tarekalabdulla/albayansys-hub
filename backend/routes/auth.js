@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { query } from "../db/pool.js";
 import { signToken, authRequired } from "../middleware/auth.js";
+import { uploadAvatar, deleteUploadedFile } from "../middleware/upload.js";
 
 const router = Router();
 
