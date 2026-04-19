@@ -1,4 +1,10 @@
-// نظام جلسة وأدوار مبني على localStorage (للعرض)
+// نظام جلسة وأدوار يدعم وضعين:
+//   - Mock (افتراضي): localStorage فقط، بيانات DEMO من Login.tsx
+//   - Real API: JWT حقيقي من backend على VPS
+// يتم التحويل عبر VITE_USE_REAL_API في .env
+import { USE_REAL_API } from "./config";
+import { api, tokenStorage } from "./api";
+
 const SESSION_KEY = "callcenter:session";
 
 export type Role = "admin" | "supervisor" | "agent";
@@ -7,6 +13,7 @@ export interface Session {
   identifier: string;
   role: Role;
   ts: number;
+  displayName?: string;
 }
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -37,7 +44,6 @@ export function getSession(): Session | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
     if (!parsed?.identifier) return null;
-    // الجلسات القديمة بدون دور تُعتبر "موظف" (الأدنى صلاحية)
     if (!parsed.role) parsed.role = "agent";
     return parsed;
   } catch {
@@ -46,6 +52,7 @@ export function getSession(): Session | null {
 }
 
 export function isAuthenticated(): boolean {
+  if (USE_REAL_API) return !!tokenStorage.get() && !!getSession();
   return getSession() !== null;
 }
 
@@ -58,11 +65,32 @@ export function hasRole(...roles: Role[]): boolean {
   return r !== null && roles.includes(r);
 }
 
-export function setSession(identifier: string, role: Role) {
-  const session: Session = { identifier, role, ts: Date.now() };
+export function setSession(identifier: string, role: Role, displayName?: string) {
+  const session: Session = { identifier, role, ts: Date.now(), displayName };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+  tokenStorage.clear();
+}
+
+// ============================================================
+// Login عبر API الحقيقي — يُستخدم فقط عند USE_REAL_API
+// ============================================================
+export async function loginViaApi(identifier: string, password: string) {
+  const { data } = await api.post("/auth/login", { identifier, password });
+  tokenStorage.set(data.token);
+  setSession(data.user.identifier, data.user.role, data.user.display_name);
+  return data.user;
+}
+
+export async function logoutViaApi() {
+  try {
+    await api.post("/auth/logout");
+  } catch {
+    /* ignore */
+  } finally {
+    clearSession();
+  }
 }
