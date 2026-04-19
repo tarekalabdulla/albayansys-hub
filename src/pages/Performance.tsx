@@ -39,6 +39,7 @@ interface Row {
 }
 
 const Performance = () => {
+  const AGENTS = useLiveAgents();
   const [from, setFrom] = useState("2025-04-01");
   const [to, setTo] = useState("2025-04-18");
   const [supervisor, setSupervisor] = useState<string>("all");
@@ -62,12 +63,12 @@ const Performance = () => {
           rate: total === 0 ? 0 : Math.round((a.answered / total) * 100),
         };
       }),
-    [],
+    [AGENTS],
   );
 
-  const supervisors = useMemo(
-    () => Array.from(new Set(AGENTS.map((a) => a.supervisor))),
-    [],
+  const supervisors = useMemo<string[]>(
+    () => Array.from(new Set(AGENTS.map((a) => a.supervisor).filter(Boolean) as string[])),
+    [AGENTS],
   );
 
   const filtered = useMemo(() => {
