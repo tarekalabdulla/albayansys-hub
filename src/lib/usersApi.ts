@@ -63,3 +63,17 @@ export async function updateUser(id: string, payload: UpdateUserPayload): Promis
 export async function deleteUser(id: string): Promise<void> {
   await api.delete(`/users/${id}`);
 }
+
+export async function uploadUserAvatar(id: string, file: File): Promise<ManagedUser> {
+  const fd = new FormData();
+  fd.append("avatar", file);
+  const { data } = await api.post(`/users/${id}/avatar`, fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.user;
+}
+
+export async function deleteUserAvatar(id: string): Promise<ManagedUser> {
+  const { data } = await api.delete(`/users/${id}/avatar`);
+  return data.user;
+}
