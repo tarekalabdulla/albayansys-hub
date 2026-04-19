@@ -6,7 +6,9 @@ import { tokenStorage } from "./api";
 import type { Agent } from "./mockData";
 import { io, Socket } from "socket.io-client";
 
-type EventName = "agent:update" | "agent:list" | "alert";
+type EventName =
+  | "agent:update" | "agent:list" | "alert"
+  | "call:status" | "ext:status" | "cdr:new" | "queue:event";
 type Listener = (payload: any) => void;
 
 interface SocketProvider {
@@ -45,6 +47,11 @@ function createRealProvider(): SocketProvider {
         emit("agent:update", a);
       });
       socket.on("alert", (a: any) => emit("alert", a));
+      // أحداث Yeastar الحية (تأتي من webhook → Socket.io)
+      socket.on("call:status", (p: any) => emit("call:status", p));
+      socket.on("ext:status",  (p: any) => emit("ext:status", p));
+      socket.on("cdr:new",     (p: any) => emit("cdr:new", p));
+      socket.on("queue:event", (p: any) => emit("queue:event", p));
       socket.on("connect_error", (e) => console.warn("[socket]", e.message));
     },
     stop() {
