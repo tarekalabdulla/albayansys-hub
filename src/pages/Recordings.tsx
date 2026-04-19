@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 const CATEGORIES = ["الكل", "استفسار", "شكوى", "دعم فني", "مبيعات", "متابعة"] as const;
 
 export default function Recordings() {
-  const [selectedId, setSelectedId] = useState<string>(RECORDINGS[0].id);
+  const [selectedId, setSelectedId] = useState<string>(RECORDINGS[0]?.id ?? "");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("الكل");
   const [currentTime, setCurrentTime] = useState(0);
@@ -51,16 +51,15 @@ export default function Recordings() {
     });
   }, [search, category]);
 
-  const selected: CallRecording =
+  const selected: CallRecording | undefined =
     filtered.find((r) => r.id === selectedId) || filtered[0] || RECORDINGS[0];
 
   const handleSeek = (time: number) => {
     setSeekTo(time);
-    // إعادة تعيين بعد لحظة كي يستجيب لطلبات seek متعددة لنفس القيمة
     setTimeout(() => setSeekTo(null), 50);
   };
 
-  const sentiment = sentimentLabel(selected.sentiment);
+  const sentiment = selected ? sentimentLabel(selected.sentiment) : { label: "—", cls: "" };
 
   return (
     <AppLayout
