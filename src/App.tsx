@@ -31,18 +31,25 @@ const App = () => (
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+
+          {/* الجميع */}
           <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
           <Route path="/live" element={<ProtectedRoute><LiveReport /></ProtectedRoute>} />
-          <Route path="/monitoring" element={<ProtectedRoute><Monitoring /></ProtectedRoute>} />
-          <Route path="/performance" element={<ProtectedRoute><Performance /></ProtectedRoute>} />
-          <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
-          <Route path="/ai" element={<ProtectedRoute><AIAnalytics /></ProtectedRoute>} />
           <Route path="/recordings" element={<ProtectedRoute><Recordings /></ProtectedRoute>} />
           <Route path="/mail" element={<ProtectedRoute><Mailbox /></ProtectedRoute>} />
-          <Route path="/supervisors" element={<ProtectedRoute><Supervisors /></ProtectedRoute>} />
-          <Route path="/supervisors/:id" element={<ProtectedRoute><SupervisorDetail /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+
+          {/* مدير + مشرف */}
+          <Route path="/monitoring" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Monitoring /></ProtectedRoute>} />
+          <Route path="/performance" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Performance /></ProtectedRoute>} />
+          <Route path="/alerts" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Alerts /></ProtectedRoute>} />
+          <Route path="/ai" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><AIAnalytics /></ProtectedRoute>} />
+          <Route path="/supervisors/:id" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><SupervisorDetail /></ProtectedRoute>} />
+
+          {/* مدير فقط */}
+          <Route path="/supervisors" element={<ProtectedRoute allowedRoles={["admin"]}><Supervisors /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
+
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

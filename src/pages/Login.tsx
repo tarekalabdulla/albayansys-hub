@@ -3,9 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, LogIn, User, Lock } from "lucide-react";
-import { isAuthenticated } from "@/lib/auth";
+import { Eye, EyeOff, LogIn, User, Lock, ShieldCheck } from "lucide-react";
+import { isAuthenticated, setSession, type Role, ROLE_LABELS } from "@/lib/auth";
 import logo from "@/assets/logo.png";
 
 const Login = () => {
@@ -13,10 +20,10 @@ const Login = () => {
   const { toast } = useToast();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("agent");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // إذا كان مسجّلاً بالفعل، أعد التوجيه للوحة الرئيسية
   useEffect(() => {
     if (isAuthenticated()) navigate("/", { replace: true });
   }, [navigate]);
@@ -33,11 +40,11 @@ const Login = () => {
     }
     setLoading(true);
     setTimeout(() => {
-      localStorage.setItem(
-        "callcenter:session",
-        JSON.stringify({ identifier, ts: Date.now() }),
-      );
-      toast({ title: "أهلاً بك", description: "تم تسجيل الدخول بنجاح" });
+      setSession(identifier, role);
+      toast({
+        title: "أهلاً بك",
+        description: `تم تسجيل الدخول كـ ${ROLE_LABELS[role]}`,
+      });
       setLoading(false);
       navigate("/");
     }, 500);
@@ -48,33 +55,19 @@ const Login = () => {
       dir="rtl"
       className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
     >
-      {/* Decorative blobs */}
       <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary/20 blur-3xl" />
       <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-accent/20 blur-3xl" />
 
       <div className="w-full max-w-md anim-scale-in relative z-10">
-        {/* Logo + title */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-24 h-24 rounded-2xl gradient-primary shadow-glow flex items-center justify-center mb-4 p-3">
-            <img
-              src={logo}
-              alt="شعار حلول البيان"
-              className="w-full h-full object-contain"
-            />
+            <img src={logo} alt="شعار حلول البيان" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-3xl font-bold text-gradient tracking-tight">
-            Hulul Abayan
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            نظام إدارة مركز الاتصال
-          </p>
+          <h1 className="text-3xl font-bold text-gradient tracking-tight">Hulul Abayan</h1>
+          <p className="text-sm text-muted-foreground mt-1">نظام إدارة مركز الاتصال</p>
         </div>
 
-        {/* Card */}
-        <form
-          onSubmit={handleSubmit}
-          className="glass-card p-7 space-y-5 shadow-elegant"
-        >
+        <form onSubmit={handleSubmit} className="glass-card p-7 space-y-5 shadow-elegant">
           <div className="space-y-2">
             <Label htmlFor="identifier" className="text-sm">
               الاسم أو رقم التحويلة
@@ -119,15 +112,29 @@ const Login = () => {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label htmlFor="role" className="text-sm flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+              الدور
+            </Label>
+            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+              <SelectTrigger id="role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">مدير — وصول كامل</SelectItem>
+                <SelectItem value="supervisor">مشرف — متابعة الفرق والأداء</SelectItem>
+                <SelectItem value="agent">موظف — لوحة شخصية</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="flex items-center justify-between text-xs">
             <label className="flex items-center gap-2 cursor-pointer text-muted-foreground">
               <input type="checkbox" className="accent-primary" />
               تذكرني
             </label>
-            <Link
-              to="/forgot-password"
-              className="text-primary hover:underline"
-            >
+            <Link to="/forgot-password" className="text-primary hover:underline">
               نسيت كلمة السر؟
             </Link>
           </div>

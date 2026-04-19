@@ -13,18 +13,27 @@ import {
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
 
-const NAV = [
-  { to: "/", label: "لوحة المعلومات", icon: LayoutDashboard, end: true },
-  { to: "/live", label: "التقرير الحي", icon: Activity },
-  { to: "/monitoring", label: "مراقبة الموظفين", icon: MonitorPlay },
-  { to: "/performance", label: "جدول الأداء", icon: BarChart3 },
-  { to: "/supervisors", label: "إدارة المشرفين", icon: UserCog },
-  { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles },
-  { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic },
-  { to: "/mail", label: "البريد الداخلي", icon: Mail },
-  { to: "/profile", label: "ملفي الشخصي", icon: User },
-  { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  end?: boolean;
+  roles: Role[];
+}
+
+const NAV: NavItem[] = [
+  { to: "/", label: "لوحة المعلومات", icon: LayoutDashboard, end: true, roles: ["admin", "supervisor", "agent"] },
+  { to: "/live", label: "التقرير الحي", icon: Activity, roles: ["admin", "supervisor", "agent"] },
+  { to: "/monitoring", label: "مراقبة الموظفين", icon: MonitorPlay, roles: ["admin", "supervisor"] },
+  { to: "/performance", label: "جدول الأداء", icon: BarChart3, roles: ["admin", "supervisor"] },
+  { to: "/supervisors", label: "إدارة المشرفين", icon: UserCog, roles: ["admin"] },
+  { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles, roles: ["admin", "supervisor"] },
+  { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic, roles: ["admin", "supervisor", "agent"] },
+  { to: "/mail", label: "البريد الداخلي", icon: Mail, roles: ["admin", "supervisor", "agent"] },
+  { to: "/profile", label: "ملفي الشخصي", icon: User, roles: ["admin", "supervisor", "agent"] },
+  { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings, roles: ["admin"] },
 ];
 
 interface AppSidebarProps {
@@ -33,9 +42,12 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ open, onClose }: AppSidebarProps) {
+  const role = getRole();
+  const visibleNav = NAV.filter((item) => role && item.roles.includes(role));
+  const roleLabel = role ? ROLE_LABELS[role] : "زائر";
+
   return (
     <>
-      {/* Mobile backdrop */}
       <div
         onClick={onClose}
         className={cn(
@@ -53,7 +65,6 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           open ? "translate-x-0" : "translate-x-full lg:translate-x-0",
         )}
       >
-        {/* Brand */}
         <div className="flex items-center gap-3 px-6 py-6 border-b border-sidebar-border">
           <div className="w-11 h-11 rounded-xl gradient-primary grid place-items-center shadow-glow">
             <PhoneCall className="w-5 h-5 text-primary-foreground" />
@@ -64,12 +75,11 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="px-3 py-4 space-y-1 overflow-y-auto h-[calc(100vh-180px)]">
           <p className="px-3 mb-2 text-[10px] font-bold tracking-wider text-sidebar-foreground/40">
             القائمة الرئيسية
           </p>
-          {NAV.map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -91,7 +101,6 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
           ))}
         </nav>
 
-        {/* Footer */}
         <div className="absolute bottom-0 inset-x-0 p-4 border-t border-sidebar-border">
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full gradient-primary grid place-items-center text-sm font-bold text-primary-foreground">
@@ -99,7 +108,7 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-sidebar-foreground truncate">سلمان العامر</p>
-              <p className="text-[11px] text-sidebar-foreground/60">مدير النظام</p>
+              <p className="text-[11px] text-sidebar-foreground/60">{roleLabel}</p>
             </div>
           </div>
         </div>
