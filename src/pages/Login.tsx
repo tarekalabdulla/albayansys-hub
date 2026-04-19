@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,18 +118,12 @@ const Login = () => {
               <input type="checkbox" className="accent-primary" />
               تذكرني
             </label>
-            <button
-              type="button"
+            <Link
+              to="/forgot-password"
               className="text-primary hover:underline"
-              onClick={() =>
-                toast({
-                  title: "نسيت كلمة السر",
-                  description: "تواصل مع المشرف لإعادة التعيين",
-                })
-              }
             >
               نسيت كلمة السر؟
-            </button>
+            </Link>
           </div>
 
           <Button
