@@ -15,6 +15,7 @@ import Mailbox from "./pages/Mailbox";
 import Settings from "./pages/Settings";
 import Supervisors from "./pages/Supervisors";
 import SupervisorDetail from "./pages/SupervisorDetail";
+import UsersAdmin from "./pages/UsersAdmin";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -48,6 +49,7 @@ const App = () => (
 
           {/* مدير فقط */}
           <Route path="/supervisors" element={<ProtectedRoute allowedRoles={["admin"]}><Supervisors /></ProtectedRoute>} />
+          <Route path="/users" element={<ProtectedRoute allowedRoles={["admin"]}><UsersAdmin /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

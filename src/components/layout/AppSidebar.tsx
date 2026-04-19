@@ -12,6 +12,7 @@ import {
   UserCog,
   User,
   Bell,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
@@ -31,11 +32,12 @@ const NAV: NavItem[] = [
   { to: "/performance", label: "جدول الأداء", icon: BarChart3, roles: ["admin", "supervisor"] },
   { to: "/alerts", label: "الإشعارات التنبيهية", icon: Bell, roles: ["admin", "supervisor"] },
   { to: "/supervisors", label: "إدارة المشرفين", icon: UserCog, roles: ["admin"] },
+  { to: "/users", label: "إدارة المستخدمين", icon: Users, roles: ["admin"] },
   { to: "/ai", label: "تحليل الذكاء الاصطناعي", icon: Sparkles, roles: ["admin", "supervisor"] },
   { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic, roles: ["admin", "supervisor", "agent"] },
   { to: "/mail", label: "البريد الداخلي", icon: Mail, roles: ["admin", "supervisor", "agent"] },
   { to: "/profile", label: "ملفي الشخصي", icon: User, roles: ["admin", "supervisor", "agent"] },
-  { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings, roles: ["admin"] },
+  { to: "/settings", label: "الإعدادات", icon: Settings, roles: ["admin"] },
 ];
 
 interface AppSidebarProps {
