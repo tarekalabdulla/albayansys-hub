@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -24,6 +24,7 @@ import {
   Users,
   Activity,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -40,14 +41,21 @@ import {
   LineChart,
   Line,
 } from "recharts";
-
-import { loadSupervisors } from "@/lib/supervisorsData";
+import { supervisorsApi, type Supervisor } from "@/lib/supervisorsApi";
 
 export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
-  const supervisors = loadSupervisors();
-  const supervisor = supervisors.find((s) => s.id === id);
+  const [supervisor, setSupervisor] = useState<Supervisor | null>(null);
+  const [loading, setLoading] = useState(true);
   const AGENTS = useLiveAgents();
+
+  useEffect(() => {
+    if (!id) return;
+    supervisorsApi.get(id).then((s) => {
+      setSupervisor(s);
+      setLoading(false);
+    });
+  }, [id]);
 
   type Range = "day" | "week" | "month";
   const [range, setRange] = useState<Range>("week");
