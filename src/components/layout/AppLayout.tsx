@@ -5,7 +5,6 @@ import { Topbar } from "./Topbar";
 import { useIdleTimeout } from "@/hooks/useIdleTimeout";
 import { clearSession } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import type { ToasterToast } from "@/hooks/use-toast";
 
 interface AppLayoutProps {
   children: ReactNode;
