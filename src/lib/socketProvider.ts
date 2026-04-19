@@ -1,7 +1,6 @@
-// مزوّد socket موحّد — يختار بين mockSocket و socket.io الحقيقي
-// حسب VITE_USE_REAL_API. واجهة موحّدة على نفس shape الذي يستخدمه useLiveAgents.
-import { USE_REAL_API, API_URL } from "./config";
-import { mockSocket } from "./mockSocket";
+// مزوّد socket حقيقي عبر socket.io متصل بـ backend على VPS.
+// واجهة موحّدة على نفس shape الذي يستخدمه useLiveAgents.
+import { API_URL } from "./config";
 import { tokenStorage } from "./api";
 import type { Agent } from "./mockData";
 import { io, Socket } from "socket.io-client";
@@ -18,7 +17,6 @@ interface SocketProvider {
   snapshot: () => Agent[];
 }
 
-// ============== Real Socket.io provider ==============
 function createRealProvider(): SocketProvider {
   let socket: Socket | null = null;
   let started = false;
@@ -70,6 +68,4 @@ function createRealProvider(): SocketProvider {
   };
 }
 
-export const socketProvider: SocketProvider = USE_REAL_API
-  ? createRealProvider()
-  : mockSocket;
+export const socketProvider: SocketProvider = createRealProvider();
