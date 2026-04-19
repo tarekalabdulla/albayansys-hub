@@ -83,8 +83,14 @@ router.get("/", async (req, res) => {
     return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
   }
   const p = parsed.data;
+
+  // فلترة حسب الدور
+  const exts = await allowedExtensions(req.user);
+  if (exts !== null && exts.length === 0) {
+    return res.json({ page: p.page, pageSize: p.page_size, total: 0, items: [] });
+  }
+
   try {
-    // مرجع Yeastar P-Series: GET /openapi/v1.0/cdr/list
     const data = await yeastarFetch("/openapi/v1.0/cdr/list", {
       query: {
         page: p.page,
@@ -97,8 +103,18 @@ router.get("/", async (req, res) => {
         call_status: p.call_status,
       },
     });
-    const list = data?.data || data?.cdr_list || data?.list || [];
-    const total = data?.total_number ?? data?.total ?? list.length;
+    let list = data?.data || data?.cdr_list || data?.list || [];
+
+    // فلترة بعدية حسب extensions المسموحة
+    if (exts !== null) {
+      const set = new Set(exts.map(String));
+      list = list.filter((r) => {
+        const ext = String(r.ext || r.extension || r.dst_ext || r.src_ext || "");
+        return set.has(ext);
+      });
+    }
+
+    const total = exts !== null ? list.length : (data?.total_number ?? data?.total ?? list.length);
     res.json({
       page: p.page,
       pageSize: p.page_size,
