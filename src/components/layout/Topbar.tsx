@@ -21,7 +21,7 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
-import { clearSession, getSession } from "@/lib/auth";
+import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -381,13 +381,16 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="flex flex-col gap-0.5">
+              <DropdownMenuLabel className="flex flex-col gap-1">
                 <span className="text-sm font-bold">
                   {session?.identifier ?? "المستخدم"}
                 </span>
-                <span className="text-[10px] text-muted-foreground font-normal">
-                  مسجّل الدخول
-                </span>
+                <Badge
+                  variant="outline"
+                  className="self-start text-[10px] h-5 px-2 bg-primary/10 text-primary border-primary/30 font-bold"
+                >
+                  {session ? ROLE_LABELS[session.role] : "زائر"}
+                </Badge>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/profile")} className="gap-2">
