@@ -311,6 +311,7 @@ export default function UsersAdmin() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="text-right w-[60px]">الصورة</TableHead>
                       <TableHead className="text-right">الاسم</TableHead>
                       <TableHead className="text-right">اسم الدخول</TableHead>
                       <TableHead className="text-right">الدور</TableHead>
@@ -324,15 +325,25 @@ export default function UsersAdmin() {
                   <TableBody>
                     {filtered.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-10 text-sm text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-10 text-sm text-muted-foreground">
                           لا توجد نتائج
                         </TableCell>
                       </TableRow>
                     )}
                     {filtered.map((u) => {
                       const isMe = u.id === session?.identifier || u.identifier === session?.identifier;
+                      const initials = (u.display_name || u.identifier || "?")
+                        .split(" ").map((s) => s[0]).join("").slice(0, 2);
                       return (
                         <TableRow key={u.id}>
+                          <TableCell>
+                            <Avatar className="w-9 h-9">
+                              {u.avatar_url && <AvatarImage src={resolveAvatarUrl(u.avatar_url)} alt={u.display_name || u.identifier} />}
+                              <AvatarFallback className="gradient-primary text-primary-foreground text-[10px] font-bold">
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                          </TableCell>
                           <TableCell className="font-medium">
                             {u.display_name || "—"}
                             {isMe && <Badge variant="secondary" className="mr-2 text-[10px]">أنت</Badge>}
