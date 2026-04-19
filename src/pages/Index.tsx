@@ -7,6 +7,7 @@ import {
   RecentCallsList,
   SupervisorList,
 } from "@/components/dashboard/SidePanels";
+import { LiveCallsPanel, LiveExtensionsPanel } from "@/components/dashboard/LivePanels";
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
 } from "lucide-react";
@@ -63,6 +64,12 @@ const Index = () => {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 mb-6">
         <div className="lg:col-span-1"><StatusDoughnut /></div>
         <div className="lg:col-span-2"><CallsTrendChart /></div>
+      </section>
+
+      {/* Live Yeastar panels */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mb-6">
+        <LiveCallsPanel />
+        <LiveExtensionsPanel />
       </section>
 
       {/* Side panels */}
