@@ -55,13 +55,13 @@ const PROFILE_KEY = "callcenter:profile";
 const TASKS_KEY = "callcenter:profile:tasks";
 
 const defaultProfile: ProfileData = {
-  name: "سلمان العامر",
-  email: "salman@bayan.sa",
-  ext: "1001",
-  role: "مدير النظام",
-  department: "العمليات",
-  phone: "+966500000000",
-  bio: "مسؤول عن الإشراف على فِرَق الدعم الفني وضمان جودة المكالمات.",
+  name: "",
+  email: "",
+  ext: "",
+  role: "",
+  department: "",
+  phone: "",
+  bio: "",
 };
 
 const defaultTasks: Task[] = [
