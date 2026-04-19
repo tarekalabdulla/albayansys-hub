@@ -132,6 +132,18 @@ export default function SupervisorDetail() {
     }));
   }, [range, team]);
 
+  if (loading) {
+    return (
+      <AppLayout title="جارٍ التحميل...">
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Loader2 className="w-6 h-6 animate-spin inline text-primary" />
+          </CardContent>
+        </Card>
+      </AppLayout>
+    );
+  }
+
   if (!supervisor) {
     return (
       <AppLayout title="مشرف غير موجود">
