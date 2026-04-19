@@ -216,6 +216,111 @@ const Settings = () => {
     }
   };
 
+  // ===== استعادة من نسخة احتياطية (admin فقط) — تأكيد مزدوج =====
+  const handleRestoreClick = () => {
+    if (!USE_REAL_API) {
+      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "الاستعادة تحتاج تفعيل API الحقيقي." });
+      return;
+    }
+    restoreFileRef.current?.click();
+  };
+
+  const onRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // أعد التعيين للسماح برفع نفس الملف لاحقاً
+    if (!file) return;
+
+    const ext = file.name.toLowerCase().split(".").pop();
+    if (ext !== "sql" && ext !== "dump") {
+      Swal.fire({ icon: "error", title: "نوع ملف غير مدعوم", text: "اختر ملف .sql أو .dump فقط." });
+      return;
+    }
+    if (file.size > 200 * 1024 * 1024) {
+      Swal.fire({ icon: "error", title: "الملف كبير جداً", text: "الحد الأقصى 200MB." });
+      return;
+    }
+
+    const sizeKB = (file.size / 1024).toFixed(1);
+
+    // التأكيد الأول: تحذير صريح
+    const first = await Swal.fire({
+      icon: "warning",
+      title: "استعادة قاعدة البيانات",
+      html: `<div class="text-right text-sm leading-7">
+        <b>سيتم استبدال محتوى قاعدة البيانات الحالية بالكامل</b> ببيانات الملف:<br/>
+        <code class="px-1 bg-muted rounded text-xs" dir="ltr">${file.name}</code> (${sizeKB} KB)<br/><br/>
+        <b class="text-destructive">جميع البيانات الحالية ستُحذف ولا يمكن التراجع.</b><br/>
+        ننصح بشدّة بتنزيل نسخة احتياطية حالية أولاً.
+      </div>`,
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: "نزّل نسخة احتياطية أولاً ثم تابع",
+      denyButtonText: "تابع بدون نسخة (خطِر)",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(217 91% 60%)",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (first.dismiss) return;
+    if (first.isConfirmed) {
+      const ok = await downloadBackup("plain");
+      if (!ok) return;
+    }
+
+    // التأكيد الثاني: كتابة RESTORE
+    const second = await Swal.fire({
+      icon: "warning",
+      title: "تأكيد نهائي",
+      html: `<div class="text-right text-sm leading-7">
+        لتنفيذ الاستعادة من <code class="px-1 bg-muted rounded text-xs" dir="ltr">${file.name}</code><br/>
+        اكتب كلمة <b>RESTORE</b> بالضبط:
+      </div>`,
+      input: "text",
+      inputPlaceholder: "اكتب RESTORE",
+      showCancelButton: true,
+      confirmButtonText: "نفّذ الاستعادة الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+      preConfirm: (val) => {
+        if (val !== "RESTORE") {
+          Swal.showValidationMessage("اكتب كلمة RESTORE بالضبط");
+          return false;
+        }
+        return true;
+      },
+    });
+    if (!second.isConfirmed) return;
+
+    setRestoring(true);
+    Swal.fire({
+      title: "جاري الاستعادة...",
+      html: "قد تستغرق العملية عدة دقائق حسب حجم الملف. لا تغلق الصفحة.",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      didOpen: () => Swal.showLoading(),
+    });
+
+    try {
+      const out = await adminApi.restoreBackup(file);
+      await Swal.fire({
+        icon: "success",
+        title: "تمت الاستعادة بنجاح",
+        html: `<div class="text-right text-xs leading-6">
+          الأداة: <code class="px-1 bg-muted rounded">${out.tool}</code><br/>
+          ${out.warnings ? `<details class="mt-2"><summary class="cursor-pointer">تحذيرات</summary><pre class="text-[10px] text-right mt-1 max-h-40 overflow-auto bg-muted/40 p-2 rounded" dir="ltr">${out.warnings}</pre></details>` : ""}
+          <br/><b>سجّل خروج وادخل من جديد لتحميل البيانات الجديدة.</b>
+        </div>`,
+      });
+    } catch (e: any) {
+      Swal.fire({
+        icon: "error",
+        title: "فشلت الاستعادة",
+        html: `<div class="text-right text-xs leading-6"><pre class="text-[10px] text-right max-h-60 overflow-auto bg-muted/40 p-2 rounded" dir="ltr">${e?.message || "خطأ غير متوقع"}</pre></div>`,
+      });
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const runResetAll = async () => {
     const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
     if (selected.length === 0) {
