@@ -15,6 +15,7 @@ import alertsRoutes from "./routes/alerts.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
+import { PATHS } from "./middleware/upload.js";
 
 const app = express();
 const server = http.createServer(app);
