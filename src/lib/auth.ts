@@ -94,3 +94,18 @@ export async function logoutViaApi() {
     clearSession();
   }
 }
+
+// تحديث بيانات الملف الشخصي على الخادم
+export async function updateProfileViaApi(payload: { display_name?: string }) {
+  const { data } = await api.patch("/auth/me", payload);
+  const current = getSession();
+  if (current) {
+    setSession(current.identifier, current.role, data.user.display_name);
+  }
+  return data.user;
+}
+
+// تغيير كلمة السر على الخادم
+export async function changePasswordViaApi(current_password: string, new_password: string) {
+  await api.post("/auth/change-password", { current_password, new_password });
+}

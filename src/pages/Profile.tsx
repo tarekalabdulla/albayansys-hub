@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { USE_REAL_API } from "@/lib/config";
+import {
+  getSession,
+  updateProfileViaApi,
+  changePasswordViaApi,
+  ROLE_LABELS,
+  type Role,
+} from "@/lib/auth";
 import {
   User,
   KeyRound,
@@ -47,13 +55,13 @@ const PROFILE_KEY = "callcenter:profile";
 const TASKS_KEY = "callcenter:profile:tasks";
 
 const defaultProfile: ProfileData = {
-  name: "سلمان العامر",
-  email: "salman@bayan.sa",
-  ext: "1001",
-  role: "مدير النظام",
-  department: "العمليات",
-  phone: "+966500000000",
-  bio: "مسؤول عن الإشراف على فِرَق الدعم الفني وضمان جودة المكالمات.",
+  name: "",
+  email: "",
+  ext: "",
+  role: "",
+  department: "",
+  phone: "",
+  bio: "",
 };
 
 const defaultTasks: Task[] = [
@@ -73,30 +81,63 @@ function load<T>(key: string, fallback: T): T {
 
 export default function Profile() {
   const { toast } = useToast();
-  const [profile, setProfile] = useState<ProfileData>(() =>
-    load(PROFILE_KEY, defaultProfile),
-  );
+  const session = getSession();
+
+  const [profile, setProfile] = useState<ProfileData>(() => {
+    const local = load<Partial<ProfileData>>(PROFILE_KEY, {});
+    return {
+      ...defaultProfile,
+      ...local,
+      name: session?.displayName || local.name || session?.identifier || "",
+      role: session ? ROLE_LABELS[session.role as Role] : (local.role || ""),
+    };
+  });
+
+  useEffect(() => {
+    const s = getSession();
+    if (s?.displayName) {
+      setProfile((p) => ({ ...p, name: s.displayName!, role: ROLE_LABELS[s.role] }));
+    }
+  }, []);
+
   const [tasks, setTasks] = useState<Task[]>(() => load(TASKS_KEY, defaultTasks));
   const [newTask, setNewTask] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPwd, setSavingPwd] = useState(false);
 
-  // password
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [showPwd, setShowPwd] = useState(false);
 
-  const initials = profile.name
+  const initials = (profile.name || "?")
     .split(" ")
     .map((p) => p[0])
     .join("")
     .slice(0, 2);
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    if (USE_REAL_API) {
+      setSavingProfile(true);
+      try {
+        await updateProfileViaApi({ display_name: profile.name });
+        toast({ title: "تم الحفظ", description: "تم تحديث بياناتك على الخادم" });
+      } catch (err: any) {
+        toast({
+          title: "تعذّر الحفظ",
+          description: err?.response?.data?.error || "خطأ في الاتصال بالخادم",
+          variant: "destructive",
+        });
+      } finally {
+        setSavingProfile(false);
+      }
+      return;
+    }
     toast({ title: "تم الحفظ", description: "تم تحديث بياناتك الشخصية" });
   };
 
-  const changePassword = () => {
+  const changePassword = async () => {
     if (!oldPwd || !newPwd || !confirmPwd) {
       toast({
         title: "حقول ناقصة",
@@ -121,12 +162,39 @@ export default function Profile() {
       });
       return;
     }
+
+    if (USE_REAL_API) {
+      setSavingPwd(true);
+      try {
+        await changePasswordViaApi(oldPwd, newPwd);
+        setOldPwd("");
+        setNewPwd("");
+        setConfirmPwd("");
+        toast({ title: "تم التغيير", description: "تم تحديث كلمة المرور بنجاح" });
+      } catch (err: any) {
+        const code = err?.response?.data?.error;
+        toast({
+          title: "تعذّر التحديث",
+          description:
+            code === "wrong_current_password"
+              ? "كلمة المرور الحالية غير صحيحة"
+              : code === "invalid_input"
+              ? "كلمة المرور الجديدة قصيرة جداً"
+              : "خطأ في الاتصال بالخادم",
+          variant: "destructive",
+        });
+      } finally {
+        setSavingPwd(false);
+      }
+      return;
+    }
+
     setOldPwd("");
     setNewPwd("");
     setConfirmPwd("");
     toast({
-      title: "تم التغيير",
-      description: "تم تحديث كلمة المرور بنجاح",
+      title: "وضع تجريبي",
+      description: "تغيير كلمة السر يعمل فقط بعد ربط الخادم",
     });
   };
 
@@ -300,9 +368,9 @@ export default function Profile() {
                   />
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={saveProfile} className="gap-1.5">
+                  <Button onClick={saveProfile} disabled={savingProfile} className="gap-1.5">
                     <Save className="w-4 h-4" />
-                    حفظ التغييرات
+                    {savingProfile ? "جاري الحفظ..." : "حفظ التغييرات"}
                   </Button>
                 </div>
               </CardContent>
@@ -354,9 +422,9 @@ export default function Profile() {
                   />
                 </div>
                 <div className="flex justify-end pt-2">
-                  <Button onClick={changePassword} className="gap-1.5">
+                  <Button onClick={changePassword} disabled={savingPwd} className="gap-1.5">
                     <KeyRound className="w-4 h-4" />
-                    تحديث كلمة المرور
+                    {savingPwd ? "جاري التحديث..." : "تحديث كلمة المرور"}
                   </Button>
                 </div>
               </CardContent>
