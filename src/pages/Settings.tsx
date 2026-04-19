@@ -133,13 +133,20 @@ const Settings = () => {
     name: "", email: "", role: "agent", active: true,
   });
 
-  // Yeastar P-Series (P560)
+  // Yeastar P-Series (P560) — مرتبط بالخادم لو USE_REAL_API
   const [pHost, setPHost] = useState("192.168.1.50");
   const [pPort, setPPort] = useState("8088");
   const [pApiUser, setPApiUser] = useState("apiuser");
   const [pApiSecret, setPApiSecret] = useState("");
   const [pUseTLS, setPUseTLS] = useState(true);
   const [pEnabled, setPEnabled] = useState(true);
+  const [pHasStoredSecret, setPHasStoredSecret] = useState(false);
+  const [pLastTest, setPLastTest] = useState<{ at: string | null; ok: boolean | null; msg: string | null }>({
+    at: null, ok: null, msg: null,
+  });
+  const [pLoading, setPLoading] = useState(false);
+  const [pSaving, setPSaving] = useState(false);
+  const [pTesting, setPTesting] = useState(false);
 
   // Yeastar S-Series (S20)
   const [sHost, setSHost] = useState("192.168.1.60");
