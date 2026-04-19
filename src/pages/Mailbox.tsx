@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,25 +25,26 @@ import {
   Trash2,
   Edit3,
   Search,
-  Paperclip,
   Reply,
   Forward,
   Archive,
   ChevronLeft,
   Mail,
-  AlertCircle,
   CornerUpLeft,
+  Loader2,
 } from "lucide-react";
-import { AGENTS } from "@/lib/mockData";
 import {
-  MAILS,
-  CURRENT_USER,
+  mailApi,
   formatMailDate,
   priorityMeta,
-  type InternalMail,
+  initialsOf,
+  type MailItem,
   type MailFolder,
   type MailPriority,
-} from "@/lib/mailData";
+  type MailRecipient,
+  type MailCounts,
+} from "@/lib/mailApi";
+import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 
@@ -51,75 +52,115 @@ const FOLDERS: { id: MailFolder; label: string; icon: any }[] = [
   { id: "inbox",   label: "الوارد", icon: Inbox },
   { id: "starred", label: "المميزة", icon: Star },
   { id: "sent",    label: "الصادر", icon: Send },
-  { id: "drafts",  label: "المسودات", icon: Edit3 },
   { id: "trash",   label: "المحذوفة", icon: Trash2 },
 ];
 
 export default function Mailbox() {
-  const [mails, setMails] = useState<InternalMail[]>(MAILS);
+  const session = getSession();
+  const currentName = session?.displayName || session?.identifier || "أنا";
+
+  const [mails, setMails] = useState<MailItem[]>([]);
+  const [counts, setCounts] = useState<MailCounts>({ inbox: 0, sent: 0, trash: 0, starred: 0 });
+  const [recipients, setRecipients] = useState<MailRecipient[]>([]);
+  const [loading, setLoading] = useState(false);
+
   const [folder, setFolder] = useState<MailFolder>("inbox");
-  const [selectedId, setSelectedId] = useState<string | null>(MAILS[0]?.id || null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   // Compose state
-  const [toExt, setToExt] = useState("");
+  const [toUserId, setToUserId] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState<MailPriority>("normal");
+  const [sending, setSending] = useState(false);
 
-  const folderMails = useMemo(() => {
-    return mails.filter((m) => {
-      if (folder === "starred") return m.starred && m.folder !== "trash";
-      return m.folder === folder;
-    });
-  }, [mails, folder]);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [items, c] = await Promise.all([mailApi.list(folder), mailApi.counts()]);
+      setMails(items);
+      setCounts(c);
+      if (items.length && !items.some((m) => m.id === selectedId)) {
+        setSelectedId(items[0].id);
+      } else if (!items.length) {
+        setSelectedId(null);
+      }
+    } catch (e: any) {
+      console.error("[mail] load error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [folder, selectedId]);
+
+  useEffect(() => { reload(); }, [folder]);
+
+  useEffect(() => {
+    mailApi.recipients().then(setRecipients).catch(() => {});
+  }, []);
 
   const filteredMails = useMemo(() => {
-    if (!search) return folderMails;
+    if (!search) return mails;
     const q = search.toLowerCase();
-    return folderMails.filter(
+    return mails.filter(
       (m) =>
         m.subject.toLowerCase().includes(q) ||
-        m.from.name.toLowerCase().includes(q) ||
-        m.to.name.toLowerCase().includes(q) ||
+        m.from_name.toLowerCase().includes(q) ||
+        m.to_name.toLowerCase().includes(q) ||
         m.body.toLowerCase().includes(q),
     );
-  }, [folderMails, search]);
+  }, [mails, search]);
 
   const selected = useMemo(
     () => mails.find((m) => m.id === selectedId) || null,
     [mails, selectedId],
   );
 
-  const counts = useMemo(() => ({
-    inbox:   mails.filter((m) => m.folder === "inbox" && !m.read).length,
-    sent:    mails.filter((m) => m.folder === "sent").length,
-    starred: mails.filter((m) => m.starred && m.folder !== "trash").length,
-    drafts:  0,
-    trash:   mails.filter((m) => m.folder === "trash").length,
-  }), [mails]);
-
-  const openMail = (id: string) => {
+  const openMail = async (id: string) => {
     setSelectedId(id);
     setMobileView("detail");
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, read: true } : m)));
+    const m = mails.find((x) => x.id === id);
+    if (m && !m.read) {
+      try {
+        await mailApi.patch(id, { is_read: true });
+        setMails((prev) => prev.map((x) => (x.id === id ? { ...x, read: true } : x)));
+        const c = await mailApi.counts();
+        setCounts(c);
+      } catch {}
+    }
   };
 
-  const toggleStar = (id: string) => {
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, starred: !m.starred } : m)));
+  const toggleStar = async (id: string) => {
+    const m = mails.find((x) => x.id === id);
+    if (!m) return;
+    const next = !m.starred;
+    setMails((prev) => prev.map((x) => (x.id === id ? { ...x, starred: next } : x)));
+    try {
+      await mailApi.patch(id, { starred: next });
+      const c = await mailApi.counts();
+      setCounts(c);
+    } catch {
+      setMails((prev) => prev.map((x) => (x.id === id ? { ...x, starred: !next } : x)));
+    }
   };
 
-  const moveToTrash = (id: string) => {
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "trash" } : m)));
-    setSelectedId(null);
-    setMobileView("list");
+  const moveToTrash = async (id: string) => {
+    try {
+      await mailApi.remove(id);
+      setMails((prev) => prev.filter((x) => x.id !== id));
+      setSelectedId(null);
+      setMobileView("list");
+      const c = await mailApi.counts();
+      setCounts(c);
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "تعذر الحذف", text: e?.response?.data?.error || "" });
+    }
   };
 
-  const sendMail = () => {
-    const target = AGENTS.find((a) => a.ext === toExt);
-    if (!target || !subject.trim() || !body.trim()) {
+  const sendMail = async () => {
+    if (!toUserId || !subject.trim() || !body.trim()) {
       Swal.fire({
         icon: "warning",
         title: "بيانات ناقصة",
@@ -128,39 +169,45 @@ export default function Mailbox() {
       });
       return;
     }
-    const newMail: InternalMail = {
-      id: `M-${Date.now()}`,
-      from: { name: CURRENT_USER.name, avatar: CURRENT_USER.avatar, ext: CURRENT_USER.ext },
-      to: { name: target.name, avatar: target.avatar, ext: target.ext },
-      subject,
-      body,
-      date: new Date().toISOString(),
-      read: true,
-      starred: false,
-      priority,
-      folder: "sent",
-      ownerExt: CURRENT_USER.ext,
-    };
-    setMails((prev) => [newMail, ...prev]);
-    setComposeOpen(false);
-    setToExt(""); setSubject(""); setBody(""); setPriority("normal");
-    setFolder("sent");
-    setSelectedId(newMail.id);
-    Swal.fire({
-      icon: "success",
-      title: "تم الإرسال",
-      text: `تم إرسال الرسالة إلى ${target.name}`,
-      confirmButtonColor: "hsl(var(--primary))",
-      timer: 1800,
-    });
+    setSending(true);
+    try {
+      await mailApi.send({ to_user_id: toUserId, subject, body, priority });
+      const target = recipients.find((r) => r.id === toUserId);
+      setComposeOpen(false);
+      setToUserId(""); setSubject(""); setBody(""); setPriority("normal");
+      setFolder("sent");
+      Swal.fire({
+        icon: "success",
+        title: "تم الإرسال",
+        text: target ? `تم إرسال الرسالة إلى ${target.name}` : "تم إرسال الرسالة",
+        confirmButtonColor: "hsl(var(--primary))",
+        timer: 1800,
+      });
+    } catch (e: any) {
+      Swal.fire({
+        icon: "error",
+        title: "تعذر الإرسال",
+        text: e?.response?.data?.error || "حاول مرة أخرى",
+      });
+    } finally {
+      setSending(false);
+    }
   };
 
-  const replyTo = (m: InternalMail) => {
-    setToExt(m.from.ext);
+  const replyTo = (m: MailItem) => {
+    setToUserId(m.from_id);
     setSubject(m.subject.startsWith("Re:") ? m.subject : `Re: ${m.subject}`);
-    setBody(`\n\n---\nرد على رسالة من ${m.from.name}:\n${m.body.split("\n").map((l) => "> " + l).join("\n")}`);
+    setBody(`\n\n---\nرد على رسالة من ${m.from_name}:\n${m.body.split("\n").map((l) => "> " + l).join("\n")}`);
     setPriority(m.priority);
     setComposeOpen(true);
+  };
+
+  const folderCount = (id: MailFolder): number => {
+    if (id === "inbox") return counts.inbox;
+    if (id === "starred") return counts.starred;
+    if (id === "sent") return counts.sent;
+    if (id === "trash") return counts.trash;
+    return 0;
   };
 
   return (
@@ -177,7 +224,7 @@ export default function Mailbox() {
 
           <nav className="rounded-2xl border border-border bg-card p-2 shadow-card">
             {FOLDERS.map((f) => {
-              const count = counts[f.id];
+              const count = folderCount(f.id);
               const active = folder === f.id;
               return (
                 <button
@@ -209,11 +256,11 @@ export default function Mailbox() {
           <div className="rounded-2xl border border-border bg-card p-3 shadow-card hidden lg:block">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-full gradient-primary grid place-items-center text-[11px] font-bold text-primary-foreground">
-                {CURRENT_USER.avatar}
+                {initialsOf(currentName)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold truncate">{CURRENT_USER.name}</p>
-                <p className="text-[10px] text-muted-foreground">تحويلة {CURRENT_USER.ext}</p>
+                <p className="text-xs font-bold truncate">{currentName}</p>
+                <p className="text-[10px] text-muted-foreground">{session?.identifier}</p>
               </div>
             </div>
           </div>
@@ -239,15 +286,22 @@ export default function Mailbox() {
           </div>
 
           <div className="flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
-            {filteredMails.length === 0 && (
+            {loading && (
+              <div className="text-center py-12 text-sm text-muted-foreground">
+                <Loader2 className="w-6 h-6 mx-auto mb-2 animate-spin" />
+                جارٍ التحميل...
+              </div>
+            )}
+            {!loading && filteredMails.length === 0 && (
               <div className="text-center py-12 text-sm text-muted-foreground">
                 <Mail className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 لا توجد رسائل
               </div>
             )}
-            {filteredMails.map((m) => {
+            {!loading && filteredMails.map((m) => {
               const isSent = m.folder === "sent";
-              const person = isSent ? m.to : m.from;
+              const personName = isSent ? m.to_name : m.from_name;
+              const personAvatar = initialsOf(personName);
               const active = m.id === selectedId;
               const prio = priorityMeta(m.priority);
               return (
@@ -261,7 +315,7 @@ export default function Mailbox() {
                   )}
                 >
                   <div className="w-10 h-10 rounded-full gradient-primary grid place-items-center text-[11px] font-bold text-primary-foreground shrink-0">
-                    {person.avatar}
+                    {personAvatar}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-0.5">
@@ -269,7 +323,7 @@ export default function Mailbox() {
                         "text-sm truncate",
                         !m.read && !isSent ? "font-extrabold" : "font-semibold",
                       )}>
-                        {isSent ? `إلى: ${person.name}` : person.name}
+                        {isSent ? `إلى: ${personName}` : personName}
                       </p>
                       <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
                         {formatMailDate(m.date)}
@@ -287,9 +341,6 @@ export default function Mailbox() {
                       )}
                       {m.starred && (
                         <Star className="w-3 h-3 fill-warning text-warning" />
-                      )}
-                      {m.attachments && m.attachments.length > 0 && (
-                        <Paperclip className="w-3 h-3 text-muted-foreground" />
                       )}
                       <Badge variant="outline" className={cn("text-[9px] h-4 px-1.5", prio.cls)}>
                         {prio.label}
@@ -346,14 +397,14 @@ export default function Mailbox() {
 
                 <div className="flex items-start gap-3">
                   <div className="w-11 h-11 rounded-full gradient-primary grid place-items-center text-xs font-bold text-primary-foreground shrink-0">
-                    {selected.from.avatar}
+                    {initialsOf(selected.from_name)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div>
-                        <p className="text-sm font-bold">{selected.from.name}</p>
+                        <p className="text-sm font-bold">{selected.from_name}</p>
                         <p className="text-[11px] text-muted-foreground">
-                          من: تحويلة {selected.from.ext} → إلى: {selected.to.name} (تحويلة {selected.to.ext})
+                          من: {selected.from_ext} → إلى: {selected.to_name} ({selected.to_ext})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -376,27 +427,6 @@ export default function Mailbox() {
                 <div className="prose prose-sm max-w-none text-foreground/90 whitespace-pre-wrap text-sm leading-relaxed">
                   {selected.body}
                 </div>
-
-                {selected.attachments && selected.attachments.length > 0 && (
-                  <div className="mt-6 pt-4 border-t border-border">
-                    <p className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <Paperclip className="w-3.5 h-3.5" />
-                      المرفقات ({selected.attachments.length})
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {selected.attachments.map((a) => (
-                        <button
-                          key={a.name}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted transition-colors text-xs"
-                        >
-                          <Paperclip className="w-3.5 h-3.5 text-primary" />
-                          <span className="font-semibold">{a.name}</span>
-                          <span className="text-muted-foreground">({a.size})</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="p-3 border-t border-border flex items-center gap-2">
@@ -432,64 +462,71 @@ export default function Mailbox() {
           <div className="space-y-3">
             <div>
               <label className="text-xs font-bold text-muted-foreground mb-1 block">
-                إلى (الموظف)
+                إلى (المستلم)
               </label>
-              <Select value={toExt} onValueChange={setToExt}>
+              <Select value={toUserId} onValueChange={setToUserId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="اختر الموظف المستلم..." />
+                  <SelectValue placeholder="اختر مستلم..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {AGENTS.map((a) => (
-                    <SelectItem key={a.id} value={a.ext}>
-                      {a.name} — تحويلة {a.ext}
+                  {recipients.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name} {r.ext && `(${r.ext})`}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
-                <label className="text-xs font-bold text-muted-foreground mb-1 block">الموضوع</label>
-                <Input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="عنوان الرسالة..."
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-muted-foreground mb-1 block">الأولوية</label>
-                <Select value={priority} onValueChange={(v) => setPriority(v as MailPriority)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="high">
-                      <span className="flex items-center gap-2">
-                        <AlertCircle className="w-3.5 h-3.5 text-destructive" /> عاجل
-                      </span>
-                    </SelectItem>
-                    <SelectItem value="normal">عادي</SelectItem>
-                    <SelectItem value="low">منخفض</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div>
+              <label className="text-xs font-bold text-muted-foreground mb-1 block">
+                الأولوية
+              </label>
+              <Select value={priority} onValueChange={(v) => setPriority(v as MailPriority)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">عاجل</SelectItem>
+                  <SelectItem value="normal">عادي</SelectItem>
+                  <SelectItem value="low">منخفض</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
-              <label className="text-xs font-bold text-muted-foreground mb-1 block">المحتوى</label>
+              <label className="text-xs font-bold text-muted-foreground mb-1 block">
+                الموضوع
+              </label>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="عنوان الرسالة..."
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-muted-foreground mb-1 block">
+                المحتوى
+              </label>
               <Textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 placeholder="اكتب رسالتك هنا..."
                 rows={8}
-                className="resize-none"
               />
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setComposeOpen(false)}>إلغاء</Button>
-            <Button onClick={sendMail} className="gradient-primary text-primary-foreground">
-              <Send className="w-4 h-4 ms-2" /> إرسال
+            <Button
+              onClick={sendMail}
+              disabled={sending}
+              className="gradient-primary text-primary-foreground"
+            >
+              {sending ? <Loader2 className="w-4 h-4 ms-2 animate-spin" /> : <Send className="w-4 h-4 ms-2" />}
+              إرسال
             </Button>
           </DialogFooter>
         </DialogContent>
