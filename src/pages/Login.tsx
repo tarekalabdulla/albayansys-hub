@@ -3,24 +3,25 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, LogIn, User, Lock, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, LogIn, User, Lock } from "lucide-react";
 import { isAuthenticated, setSession, type Role, ROLE_LABELS } from "@/lib/auth";
 import logo from "@/assets/logo.png";
+
+// قاعدة مستخدمين تجريبية ثابتة (للعرض فقط — لا تُستخدم في الإنتاج).
+// الدور يُحدَّد هنا بناءً على المُعرّف ولا يمكن للمستخدم اختياره.
+// عند ربط Lovable Cloud لاحقاً، يأتي الدور من قاعدة البيانات server-side.
+const DEMO_USERS: Record<string, { password: string; role: Role }> = {
+  admin:      { password: "admin123",      role: "admin" },
+  supervisor: { password: "supervisor123", role: "supervisor" },
+  agent:      { password: "agent123",      role: "agent" },
+};
 
 const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("agent");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -30,7 +31,9 @@ const Login = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!identifier.trim() || !password.trim()) {
+    const id = identifier.trim().toLowerCase();
+    const pwd = password.trim();
+    if (!id || !pwd) {
       toast({
         title: "حقول ناقصة",
         description: "أدخل الاسم/التحويلة وكلمة السر",
@@ -40,10 +43,20 @@ const Login = () => {
     }
     setLoading(true);
     setTimeout(() => {
-      setSession(identifier, role);
+      const user = DEMO_USERS[id];
+      if (!user || user.password !== pwd) {
+        setLoading(false);
+        toast({
+          title: "بيانات غير صحيحة",
+          description: "المستخدم أو كلمة السر غير صحيحة",
+          variant: "destructive",
+        });
+        return;
+      }
+      setSession(id, user.role);
       toast({
         title: "أهلاً بك",
-        description: `تم تسجيل الدخول كـ ${ROLE_LABELS[role]}`,
+        description: `تم تسجيل الدخول كـ ${ROLE_LABELS[user.role]}`,
       });
       setLoading(false);
       navigate("/");
@@ -77,7 +90,7 @@ const Login = () => {
               <Input
                 id="identifier"
                 type="text"
-                placeholder="مثال: أحمد أو 1023"
+                placeholder="admin / supervisor / agent"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 className="pr-10"
@@ -112,23 +125,6 @@ const Login = () => {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="role" className="text-sm flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-primary" />
-              الدور
-            </Label>
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
-              <SelectTrigger id="role">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">مدير — وصول كامل</SelectItem>
-                <SelectItem value="supervisor">مشرف — متابعة الفرق والأداء</SelectItem>
-                <SelectItem value="agent">موظف — لوحة شخصية</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="flex items-center justify-between text-xs">
             <label className="flex items-center gap-2 cursor-pointer text-muted-foreground">
               <input type="checkbox" className="accent-primary" />
@@ -147,6 +143,10 @@ const Login = () => {
             <LogIn className="w-4 h-4 ml-2" />
             {loading ? "جاري الدخول..." : "تسجيل الدخول"}
           </Button>
+
+          <p className="text-[11px] text-muted-foreground text-center leading-relaxed pt-2 border-t border-border/40">
+            بيانات تجريبية: <span dir="ltr">admin / supervisor / agent</span> — كلمة السر = اسم المستخدم + 123
+          </p>
         </form>
 
         <p className="text-center text-xs text-muted-foreground mt-6">

@@ -38,8 +38,56 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
+import { z } from "zod";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
+
+// ===== مخطط التحقق لاستيراد JSON (zod) =====
+// يمنع استبدال بيانات التطبيق ببيانات مشوّهة أو خبيثة من ملف غير موثوق.
+const ROLE_VALUES = ["admin", "supervisor", "agent", "viewer"] as const;
+
+const userSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(255),
+  role: z.enum(ROLE_VALUES),
+  active: z.boolean(),
+});
+
+// مضيف: IP أو hostname بسيط — يمنع روابط/مخططات غير متوقعة (SSRF).
+const hostSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(253)
+  .regex(/^[a-zA-Z0-9.\-_]+$/, "host غير صالح");
+
+const portSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,5}$/, "port غير صالح");
+
+// رابط webhook: https فقط
+const httpsUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .url()
+  .refine((u) => u.startsWith("https://"), "يجب أن يبدأ الرابط بـ https://");
+
+const importSchema = z.object({
+  users: z.array(userSchema).max(1000).optional(),
+  pbx: z
+    .object({
+      pSeries: z
+        .object({ host: hostSchema.optional(), port: portSchema.optional() })
+        .optional(),
+      sSeries: z
+        .object({ host: hostSchema.optional() }).optional(),
+    })
+    .optional(),
+  webhook: z.object({ url: httpsUrlSchema.optional() }).optional(),
+});
 
 interface User {
   id: string;
@@ -154,15 +202,18 @@ const Settings = () => {
   };
 
   const exportJSON = () => {
+    // ⚠️ لا نُصدِّر أي أسرار (API secrets، AMI secrets، webhook secrets، Google AI key).
+    // كذلك نتفادى تصدير تفاصيل البنية التحتية الحسّاسة (المنافذ، أسماء المستخدمين، CDR URL).
     const data = {
       exportedAt: new Date().toISOString(),
-      users,
+      users: users.map((u) => ({
+        id: u.id, name: u.name, email: u.email, role: u.role, active: u.active,
+      })),
       pbx: {
-        pSeries: { enabled: pEnabled, host: pHost, port: pPort, apiUser: pApiUser, useTLS: pUseTLS },
-        sSeries: { enabled: sEnabled, host: sHost, amiPort: sAmiPort, amiUser: sAmiUser, cdrUrl: sCdrUrl },
+        pSeries: { enabled: pEnabled, useTLS: pUseTLS },
+        sSeries: { enabled: sEnabled },
       },
       googleAi: { enabled: googleAiEnabled, model: googleAiModel },
-      webhook: { url: webhookUrl },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -171,22 +222,46 @@ const Settings = () => {
     link.download = `hulul-albayan-backup-${Date.now()}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    Swal.fire({ icon: "success", title: "تم تصدير النسخة الاحتياطية", timer: 1800, showConfirmButton: false });
+    Swal.fire({
+      icon: "success",
+      title: "تم تصدير النسخة الاحتياطية",
+      text: "لم تُضمَّن الأسرار أو بيانات الاتصال بالسنترال لأسباب أمنية.",
+      timer: 2200,
+      showConfirmButton: false,
+    });
   };
 
   const importJSON = async (file: File) => {
+    // حد حجم الملف: 1MB لمنع DoS/abuse
+    if (file.size > 1024 * 1024) {
+      Swal.fire({ icon: "error", title: "الملف كبير جداً", text: "الحد الأقصى 1MB." });
+      return;
+    }
+    let parsed: unknown;
     try {
       const text = await file.text();
-      const data = JSON.parse(text);
-      if (Array.isArray(data.users)) setUsers(data.users);
-      if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
-      if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
-      if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
-      if (data.webhook?.url) setWebhookUrl(data.webhook.url);
-      Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
+      parsed = JSON.parse(text);
     } catch {
       Swal.fire({ icon: "error", title: "ملف غير صالح", text: "تعذّر قراءة JSON." });
+      return;
     }
+    const result = importSchema.safeParse(parsed);
+    if (!result.success) {
+      const firstIssue = result.error.issues[0];
+      Swal.fire({
+        icon: "error",
+        title: "ملف الاستيراد غير صالح",
+        text: firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "البنية لا تطابق المخطط.",
+      });
+      return;
+    }
+    const data = result.data;
+    if (data.users) setUsers(data.users);
+    if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
+    if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
+    if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
+    if (data.webhook?.url) setWebhookUrl(data.webhook.url);
+    Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
   };
 
   const savePbx = (kind: "P560" | "S20") => {
