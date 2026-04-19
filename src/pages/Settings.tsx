@@ -521,6 +521,38 @@ const Settings = () => {
 
           {/* P-Series */}
           <TabsContent value="p560" className="space-y-4 mt-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {USE_REAL_API ? (
+                <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px]">
+                  مرتبط بالخادم
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[10px]">
+                  وضع تجريبي — فعّل API لحفظ الإعدادات
+                </Badge>
+              )}
+              {pLoading && (
+                <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> جاري التحميل...
+                </span>
+              )}
+              {pLastTest.at && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-[10px] gap-1",
+                    pLastTest.ok
+                      ? "bg-success/10 text-success border-success/30"
+                      : "bg-destructive/10 text-destructive border-destructive/30",
+                  )}
+                  title={pLastTest.msg || ""}
+                >
+                  {pLastTest.ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                  آخر اختبار: {pLastTest.ok ? "ناجح" : "فاشل"} — {new Date(pLastTest.at).toLocaleString("ar-SA")}
+                </Badge>
+              )}
+            </div>
+
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className={cn("w-4 h-4", pEnabled ? "text-success" : "text-muted-foreground")} />
@@ -531,19 +563,43 @@ const Settings = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
-                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="192.168.1.50" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
-                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="8088" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
                 <Input value={pApiUser} onChange={(e) => setPApiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Secret</label>
-                <Input value={pApiSecret} onChange={(e) => setPApiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="••••••••" />
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center justify-between">
+                  <span>API Secret</span>
+                  {pHasStoredSecret && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-success font-bold">
+                      <KeyRound className="w-3 h-3" /> محفوظ ومشفّر
+                    </span>
+                  )}
+                </label>
+                <Input
+                  value={pApiSecret}
+                  onChange={(e) => setPApiSecret(e.target.value)}
+                  type="password"
+                  dir="ltr"
+                  className="bg-background/60"
+                  disabled={!pEnabled}
+                  placeholder={pHasStoredSecret ? "اتركه فارغاً للإبقاء على المحفوظ" : "أدخل API Secret"}
+                />
+                {pHasStoredSecret && USE_REAL_API && (
+                  <button
+                    type="button"
+                    onClick={clearStoredSecret}
+                    className="mt-1 text-[10px] text-destructive hover:underline"
+                  >
+                    مسح السر المحفوظ
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
@@ -553,12 +609,23 @@ const Settings = () => {
               </div>
               <Switch checked={pUseTLS} onCheckedChange={setPUseTLS} disabled={!pEnabled} />
             </div>
+            {USE_REAL_API && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground">
+                <AlertCircle className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+                <span>
+                  يتم إصدار التوكن عبر <code className="px-1 bg-muted rounded">POST /openapi/v1.0/get_token</code> من Yeastar P-Series.
+                  تأكد من تفعيل Open API في لوحة Yeastar وإضافة IP الخادم للقائمة المسموحة.
+                </span>
+              </div>
+            )}
             <div className="flex gap-2">
-              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled}>
-                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
+              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled || pSaving}>
+                {pSaving ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <Save className="w-4 h-4 ml-2" />}
+                {pSaving ? "جاري الحفظ..." : "حفظ إعدادات P560"}
               </Button>
-              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled}>
-                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
+              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled || pTesting}>
+                {pTesting ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <Wifi className="w-4 h-4 ml-2" />}
+                {pTesting ? "جاري الاختبار..." : "اختبار الاتصال"}
               </Button>
             </div>
           </TabsContent>
