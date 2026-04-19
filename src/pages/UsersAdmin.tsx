@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -21,13 +22,14 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { USE_REAL_API } from "@/lib/config";
-import { ROLE_LABELS, getSession, type Role } from "@/lib/auth";
+import { ROLE_LABELS, getSession, resolveAvatarUrl, setSession, type Role } from "@/lib/auth";
 import {
   listUsers, createUser, updateUser, deleteUser,
+  uploadUserAvatar, deleteUserAvatar,
   type ManagedUser, type CreateUserPayload,
 } from "@/lib/usersApi";
 import {
-  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2,
+  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2, Camera,
 } from "lucide-react";
 
 const ROLE_BADGE: Record<Role, string> = {
@@ -61,6 +63,8 @@ export default function UsersAdmin() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ManagedUser | null>(null);
   const [form, setForm] = useState<CreateUserPayload & { newPassword?: string }>(EMPTY_FORM);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   // delete confirm
   const [toDelete, setToDelete] = useState<ManagedUser | null>(null);
@@ -117,7 +121,62 @@ export default function UsersAdmin() {
       case "cannot_disable_self":return "لا يمكن تعطيل حسابك";
       case "cannot_delete_self": return "لا يمكن حذف حسابك";
       case "invalid_input":      return "تحقّق من صحة الحقول";
+      case "file_too_large":     return "الحجم أكبر من 2MB";
+      case "invalid_file_type":  return "نوع الملف غير مسموح";
+      case "no_file":            return "لم يتم اختيار ملف";
       default:                   return "خطأ في الاتصال بالخادم";
+    }
+  };
+
+  // مزامنة الصورة مع جلسة الأدمن لو عدّل صورة نفسه
+  const syncSelfSession = (u: ManagedUser) => {
+    const cur = getSession();
+    if (cur && u.identifier === cur.identifier) {
+      setSession(cur.identifier, cur.role, u.display_name ?? cur.displayName, u.avatar_url ?? undefined);
+    }
+  };
+
+  const onAvatarPick = () => avatarInputRef.current?.click();
+
+  const onAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !editing) return;
+    if (!/^image\//.test(file.type)) {
+      toast({ title: "نوع غير مدعوم", description: "اختر صورة (PNG/JPG/WEBP)", variant: "destructive" });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "الحجم كبير", description: "الحد الأقصى 2 ميجابايت", variant: "destructive" });
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const u = await uploadUserAvatar(editing.id, file);
+      setEditing(u);
+      setUsers((list) => list.map((x) => (x.id === u.id ? u : x)));
+      syncSelfSession(u);
+      toast({ title: "تم رفع الصورة", description: u.display_name || u.identifier });
+    } catch (err: any) {
+      toast({ title: "تعذّر الرفع", description: errMsg(err?.response?.data?.error), variant: "destructive" });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const onAvatarRemove = async () => {
+    if (!editing || !editing.avatar_url) return;
+    setAvatarBusy(true);
+    try {
+      const u = await deleteUserAvatar(editing.id);
+      setEditing(u);
+      setUsers((list) => list.map((x) => (x.id === u.id ? u : x)));
+      syncSelfSession(u);
+      toast({ title: "تم حذف الصورة" });
+    } catch (err: any) {
+      toast({ title: "تعذّر الحذف", description: errMsg(err?.response?.data?.error), variant: "destructive" });
+    } finally {
+      setAvatarBusy(false);
     }
   };
 
@@ -252,6 +311,7 @@ export default function UsersAdmin() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="text-right w-[60px]">الصورة</TableHead>
                       <TableHead className="text-right">الاسم</TableHead>
                       <TableHead className="text-right">اسم الدخول</TableHead>
                       <TableHead className="text-right">الدور</TableHead>
@@ -265,15 +325,25 @@ export default function UsersAdmin() {
                   <TableBody>
                     {filtered.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-10 text-sm text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-10 text-sm text-muted-foreground">
                           لا توجد نتائج
                         </TableCell>
                       </TableRow>
                     )}
                     {filtered.map((u) => {
                       const isMe = u.id === session?.identifier || u.identifier === session?.identifier;
+                      const initials = (u.display_name || u.identifier || "?")
+                        .split(" ").map((s) => s[0]).join("").slice(0, 2);
                       return (
                         <TableRow key={u.id}>
+                          <TableCell>
+                            <Avatar className="w-9 h-9">
+                              {u.avatar_url && <AvatarImage src={resolveAvatarUrl(u.avatar_url)} alt={u.display_name || u.identifier} />}
+                              <AvatarFallback className="gradient-primary text-primary-foreground text-[10px] font-bold">
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                          </TableCell>
                           <TableCell className="font-medium">
                             {u.display_name || "—"}
                             {isMe && <Badge variant="secondary" className="mr-2 text-[10px]">أنت</Badge>}
@@ -338,6 +408,56 @@ export default function UsersAdmin() {
           <DialogHeader>
             <DialogTitle>{editing ? "تعديل مستخدم" : "إضافة مستخدم جديد"}</DialogTitle>
           </DialogHeader>
+
+          {editing && (
+            <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30">
+              <div className="relative">
+                <Avatar className="w-16 h-16 ring-2 ring-background shadow-soft">
+                  {editing.avatar_url && (
+                    <AvatarImage src={resolveAvatarUrl(editing.avatar_url)} alt={editing.display_name || editing.identifier} />
+                  )}
+                  <AvatarFallback className="gradient-primary text-primary-foreground text-base font-bold">
+                    {(editing.display_name || editing.identifier || "?").split(" ").map((s) => s[0]).join("").slice(0, 2)}
+                  </AvatarFallback>
+                </Avatar>
+                {avatarBusy && (
+                  <div className="absolute inset-0 rounded-full grid place-items-center bg-background/70">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-sm font-bold">الصورة الشخصية</p>
+                <p className="text-xs text-muted-foreground">PNG/JPG/WEBP — حد أقصى 2MB</p>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" size="sm" variant="outline" onClick={onAvatarPick} disabled={avatarBusy} className="gap-1.5">
+                    <Camera className="w-3.5 h-3.5" />
+                    {editing.avatar_url ? "تغيير" : "رفع"}
+                  </Button>
+                  {editing.avatar_url && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={onAvatarRemove}
+                      disabled={avatarBusy}
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      حذف
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onAvatarFile}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <div className="space-y-1.5">

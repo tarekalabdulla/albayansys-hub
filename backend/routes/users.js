@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { query } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
+import { uploadAvatar, deleteUploadedFile } from "../middleware/upload.js";
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.use(authRequired, requireRole("admin"));
 
 const SELECT_FIELDS = `
   id, identifier, role, display_name, email, ext, department, phone,
-  bio, job_title, is_active, created_at, updated_at
+  bio, job_title, avatar_url, is_active, created_at, updated_at
 `;
 
 // قائمة المستخدمين
@@ -144,9 +145,60 @@ router.delete("/:id", async (req, res) => {
   if (req.params.id === req.user.sub) {
     return res.status(400).json({ error: "cannot_delete_self" });
   }
+  // اجلب الـ avatar أولاً لحذف ملفه من القرص
+  const { rows: prev } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.params.id]);
+  if (!prev[0]) return res.status(404).json({ error: "not_found" });
+
   const { rowCount } = await query("DELETE FROM users WHERE id = $1", [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: "not_found" });
+
+  if (prev[0].avatar_url) deleteUploadedFile(prev[0].avatar_url);
   res.json({ ok: true });
+});
+
+// رفع صورة شخصية لمستخدم محدد (أدمن)
+router.post(
+  "/:id/avatar",
+  (req, res, next) => {
+    uploadAvatar.single("avatar")(req, res, (err) => {
+      if (!err) return next();
+      if (err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "file_too_large" });
+      if (err.message === "invalid_file_type") return res.status(415).json({ error: "invalid_file_type" });
+      return res.status(400).json({ error: "upload_failed" });
+    });
+  },
+  async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "no_file" });
+    const publicUrl = `/uploads/avatars/${req.file.filename}`;
+
+    const { rows: prev } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.params.id]);
+    if (!prev[0]) {
+      // المستخدم غير موجود — احذف الملف الجديد لتجنّب اليتامى
+      deleteUploadedFile(publicUrl);
+      return res.status(404).json({ error: "not_found" });
+    }
+    const prevUrl = prev[0].avatar_url;
+
+    const { rows } = await query(
+      `UPDATE users SET avatar_url = $1 WHERE id = $2 RETURNING ${SELECT_FIELDS}`,
+      [publicUrl, req.params.id]
+    );
+    if (prevUrl && prevUrl !== publicUrl) deleteUploadedFile(prevUrl);
+    res.json({ user: rows[0] });
+  }
+);
+
+// حذف صورة شخصية لمستخدم محدد (أدمن)
+router.delete("/:id/avatar", async (req, res) => {
+  const { rows: prev } = await query("SELECT avatar_url FROM users WHERE id = $1", [req.params.id]);
+  if (!prev[0]) return res.status(404).json({ error: "not_found" });
+  const prevUrl = prev[0].avatar_url;
+  const { rows } = await query(
+    `UPDATE users SET avatar_url = NULL WHERE id = $1 RETURNING ${SELECT_FIELDS}`,
+    [req.params.id]
+  );
+  if (prevUrl) deleteUploadedFile(prevUrl);
+  res.json({ user: rows[0] });
 });
 
 export default router;
