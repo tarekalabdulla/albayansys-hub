@@ -368,9 +368,9 @@ export default function Profile() {
                   />
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={saveProfile} className="gap-1.5">
+                  <Button onClick={saveProfile} disabled={savingProfile} className="gap-1.5">
                     <Save className="w-4 h-4" />
-                    حفظ التغييرات
+                    {savingProfile ? "جاري الحفظ..." : "حفظ التغييرات"}
                   </Button>
                 </div>
               </CardContent>
