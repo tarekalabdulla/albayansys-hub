@@ -67,6 +67,11 @@ export default function UsersAdmin() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
+  // agent linking
+  const [agentsList, setAgentsList] = useState<AgentLite[]>([]);
+  const [linkedAgentId, setLinkedAgentId] = useState<string>("none");
+  const [linkBusy, setLinkBusy] = useState(false);
+
   // delete confirm
   const [toDelete, setToDelete] = useState<ManagedUser | null>(null);
 
@@ -97,7 +102,7 @@ export default function UsersAdmin() {
     setOpen(true);
   };
 
-  const openEdit = (u: ManagedUser) => {
+  const openEdit = async (u: ManagedUser) => {
     setEditing(u);
     setForm({
       identifier: u.identifier,
@@ -112,6 +117,48 @@ export default function UsersAdmin() {
       is_active: u.is_active,
     });
     setOpen(true);
+
+    // حمّل قائمة الموظفين لاختيار الربط
+    try {
+      const ags = await listAgentsForLink();
+      setAgentsList(ags);
+      const linked = ags.find((a) => a.userId === u.id);
+      setLinkedAgentId(linked?.id || "none");
+    } catch {
+      setAgentsList([]);
+      setLinkedAgentId("none");
+    }
+  };
+
+  const onLinkAgent = async (newAgentId: string) => {
+    if (!editing) return;
+    setLinkBusy(true);
+    try {
+      // أولاً: فك الربط القديم
+      const prev = agentsList.find((a) => a.userId === editing.id);
+      if (prev && prev.id !== newAgentId) {
+        await linkAgentToUser(prev.id, null);
+      }
+      // ربط جديد
+      if (newAgentId !== "none") {
+        await linkAgentToUser(newAgentId, editing.id);
+      }
+      setLinkedAgentId(newAgentId);
+      // أعد تحميل القائمة
+      const ags = await listAgentsForLink();
+      setAgentsList(ags);
+      toast({ title: "تم الربط", description: newAgentId === "none" ? "تم فك الربط" : "حساب مربوط بموظف" });
+    } catch (err: any) {
+      toast({
+        title: "تعذر الربط",
+        description:
+          err?.response?.data?.message ||
+          errMsg(err?.response?.data?.error),
+        variant: "destructive",
+      });
+    } finally {
+      setLinkBusy(false);
+    }
   };
 
   const errMsg = (code?: string) => {
