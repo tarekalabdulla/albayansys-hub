@@ -94,11 +94,30 @@ export default function Profile() {
     };
   });
 
+  // جلب الملف الشخصي من الخادم عند فتح الصفحة
   useEffect(() => {
     const s = getSession();
     if (s?.displayName) {
       setProfile((p) => ({ ...p, name: s.displayName!, role: ROLE_LABELS[s.role] }));
     }
+    if (!USE_REAL_API) return;
+    (async () => {
+      try {
+        const u = await fetchProfileViaApi();
+        setProfile((p) => ({
+          ...p,
+          name: u.display_name || u.identifier,
+          email: u.email || "",
+          ext: u.ext || "",
+          department: u.department || "",
+          phone: u.phone || "",
+          bio: u.bio || "",
+          role: u.job_title || ROLE_LABELS[u.role],
+        }));
+      } catch {
+        /* ignore — fallback to local */
+      }
+    })();
   }, []);
 
   const [tasks, setTasks] = useState<Task[]>(() => load(TASKS_KEY, defaultTasks));
@@ -122,12 +141,26 @@ export default function Profile() {
     if (USE_REAL_API) {
       setSavingProfile(true);
       try {
-        await updateProfileViaApi({ display_name: profile.name });
+        await updateProfileViaApi({
+          display_name: profile.name,
+          email: profile.email,
+          ext: profile.ext,
+          department: profile.department,
+          phone: profile.phone,
+          bio: profile.bio,
+          job_title: profile.role,
+        });
         toast({ title: "تم الحفظ", description: "تم تحديث بياناتك على الخادم" });
       } catch (err: any) {
+        const code = err?.response?.data?.error;
         toast({
           title: "تعذّر الحفظ",
-          description: err?.response?.data?.error || "خطأ في الاتصال بالخادم",
+          description:
+            code === "email_taken"
+              ? "هذا البريد مستخدم لحساب آخر"
+              : code === "invalid_input"
+              ? "تحقق من صحة الحقول (البريد، الأطوال...)"
+              : "خطأ في الاتصال بالخادم",
           variant: "destructive",
         });
       } finally {
