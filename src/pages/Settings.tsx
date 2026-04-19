@@ -40,12 +40,16 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import { z } from "zod";
 import { USE_REAL_API, API_URL } from "@/lib/config";
 import { getPbxSettings, updatePbxSettings, testPbxConnection, type PbxSettings } from "@/lib/pbxApi";
 import { YeastarWebhookCard } from "@/components/settings/YeastarWebhookCard";
+import { adminApi, type ResetScope } from "@/lib/adminApi";
+import { getRole } from "@/lib/auth";
+import { Trash } from "lucide-react";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
 
