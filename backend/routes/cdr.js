@@ -5,9 +5,33 @@ import { Router } from "express";
 import { z } from "zod";
 import { authRequired } from "../middleware/auth.js";
 import { getYeastarToken, yeastarFetch } from "../lib/yeastar.js";
+import { query } from "../db/pool.js";
 
 const router = Router();
 router.use(authRequired);
+
+// أداة: جلب extensions المسموحة للمستخدم (admin → null = الكل)
+async function allowedExtensions(user) {
+  if (user.role === "admin") return null;
+  if (user.role === "supervisor") {
+    const { rows } = await query(
+      `SELECT a.ext FROM supervisors s
+       JOIN supervisor_agents sa ON sa.supervisor_id = s.id
+       JOIN agents a ON a.id = sa.agent_id
+       WHERE s.user_id = $1 AND a.ext IS NOT NULL`,
+      [user.sub]
+    );
+    return rows.map((r) => r.ext);
+  }
+  // agent
+  const { rows } = await query(
+    `SELECT a.ext FROM agents a WHERE a.user_id = $1 AND a.ext IS NOT NULL
+     UNION
+     SELECT u.ext FROM users u WHERE u.id = $1 AND u.ext IS NOT NULL`,
+    [user.sub]
+  );
+  return rows.map((r) => r.ext).filter(Boolean);
+}
 
 const listSchema = z.object({
   page:        z.coerce.number().int().min(1).max(1000).optional().default(1),
