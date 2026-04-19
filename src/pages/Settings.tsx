@@ -184,6 +184,8 @@ const Settings = () => {
   });
   const [resetting, setResetting] = useState(false);
   const [downloadingBackup, setDownloadingBackup] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const restoreFileRef = useRef<HTMLInputElement>(null);
 
   const toggleScope = (s: ResetScope) =>
     setResetScopes((p) => ({ ...p, [s]: !p[s] }));
