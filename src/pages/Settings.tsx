@@ -43,8 +43,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import { z } from "zod";
-import { USE_REAL_API } from "@/lib/config";
+import { USE_REAL_API, API_URL } from "@/lib/config";
 import { getPbxSettings, updatePbxSettings, testPbxConnection, type PbxSettings } from "@/lib/pbxApi";
+import { YeastarWebhookCard } from "@/components/settings/YeastarWebhookCard";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
 
@@ -141,12 +142,15 @@ const Settings = () => {
   const [pUseTLS, setPUseTLS] = useState(true);
   const [pEnabled, setPEnabled] = useState(true);
   const [pHasStoredSecret, setPHasStoredSecret] = useState(false);
+  const [pHasWebhookSecret, setPHasWebhookSecret] = useState(false);
+  const [pLastEventAt, setPLastEventAt] = useState<string | null>(null);
   const [pLastTest, setPLastTest] = useState<{ at: string | null; ok: boolean | null; msg: string | null }>({
     at: null, ok: null, msg: null,
   });
   const [pLoading, setPLoading] = useState(false);
   const [pSaving, setPSaving] = useState(false);
   const [pTesting, setPTesting] = useState(false);
+  const pPublicWebhookUrl = `${API_URL}/api/pbx/webhook`;
 
   // Yeastar S-Series (S20)
   const [sHost, setSHost] = useState("192.168.1.60");
@@ -291,6 +295,8 @@ const Settings = () => {
         setPUseTLS(!!s.use_tls);
         if (s.api_username) setPApiUser(s.api_username);
         setPHasStoredSecret(!!s.has_secret);
+        setPHasWebhookSecret(!!s.has_webhook_secret);
+        setPLastEventAt(s.last_event_at);
         setPLastTest({ at: s.last_test_at, ok: s.last_test_ok, msg: s.last_test_msg });
       })
       .catch(() => { /* ignore — اعرض الافتراضيات */ })
