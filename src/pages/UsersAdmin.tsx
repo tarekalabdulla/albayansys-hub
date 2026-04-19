@@ -605,6 +605,40 @@ export default function UsersAdmin() {
             </div>
           </div>
 
+          {/* ربط بسجل موظف (Agent Record) — لـ role=agent فقط */}
+          {editing && form.role === "agent" && (
+            <div className="space-y-1.5 pt-2 border-t border-border">
+              <Label className="flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-primary" />
+                ربط بسجل موظف
+              </Label>
+              <Select
+                value={linkedAgentId}
+                onValueChange={onLinkAgent}
+                disabled={linkBusy}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر موظف..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— بدون ربط —</SelectItem>
+                  {agentsList.map((a) => {
+                    const linkedToOther = a.userId && a.userId !== editing.id;
+                    return (
+                      <SelectItem key={a.id} value={a.id} disabled={!!linkedToOther}>
+                        {a.name} (تحويلة {a.ext})
+                        {linkedToOther ? " — مرتبط" : ""}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                عند الربط، الموظف سيرى فقط مكالماته وإحصائياته عند تسجيل الدخول
+              </p>
+            </div>
+          )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
               إلغاء
