@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff, LogIn, User, Lock } from "lucide-react";
+import { isAuthenticated } from "@/lib/auth";
 import logo from "@/assets/logo.png";
 
 const Login = () => {
@@ -14,6 +15,11 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // إذا كان مسجّلاً بالفعل، أعد التوجيه للوحة الرئيسية
+  useEffect(() => {
+    if (isAuthenticated()) navigate("/", { replace: true });
+  }, [navigate]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
