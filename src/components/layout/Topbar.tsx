@@ -45,10 +45,20 @@ interface TopbarProps {
 export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const session = getSession();
+  const [session, setSessionState] = useState(getSession());
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
   const [logoutOpen, setLogoutOpen] = useState(false);
+
+  useEffect(() => {
+    const onUpd = () => setSessionState(getSession());
+    window.addEventListener("session:updated", onUpd);
+    return () => window.removeEventListener("session:updated", onUpd);
+  }, []);
+
+  const initials = (session?.displayName || session?.identifier || "?")
+    .split(" ").map((s) => s[0]).join("").slice(0, 2);
+  const avatarSrc = resolveAvatarUrl(session?.avatarUrl);
 
   const handleLogout = () => {
     clearSession();
