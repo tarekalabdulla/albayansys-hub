@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -31,8 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { type Agent } from "@/lib/mockData";
-import { useLiveAgents } from "@/hooks/useLiveAgents";
+import { AGENTS, type Agent } from "@/lib/mockData";
 import {
   UserCog,
   Users,
@@ -42,46 +42,26 @@ import {
   Search,
   ShieldCheck,
   Phone,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supervisorsApi, type Supervisor } from "@/lib/supervisorsApi";
-import { listUsers, type ManagedUser } from "@/lib/usersApi";
+
+import {
+  loadSupervisors,
+  saveSupervisors,
+  type Supervisor,
+} from "@/lib/supervisorsData";
 
 export default function Supervisors() {
   const { toast } = useToast();
-  const AGENTS = useLiveAgents();
-  const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
-  const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [supervisors, setSupervisors] = useState<Supervisor[]>(loadSupervisors);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Supervisor | null>(null);
   const [open, setOpen] = useState(false);
 
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [list, us] = await Promise.all([
-        supervisorsApi.list(),
-        listUsers().catch(() => [] as ManagedUser[]),
-      ]);
-      setSupervisors(list);
-      setUsers(us);
-    } catch (e: any) {
-      toast({
-        title: "تعذر التحميل",
-        description: e?.response?.data?.error || "فشل الاتصال بالخادم",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
+  const persist = (list: Supervisor[]) => {
+    setSupervisors(list);
+    saveSupervisors(list);
   };
-
-  useEffect(() => {
-    fetchAll();
-  }, []);
 
   const filtered = useMemo(
     () =>
@@ -100,18 +80,17 @@ export default function Supervisors() {
     return {
       supervisors: supervisors.length,
       assigned: assignedIds.size,
-      unassigned: Math.max(0, totalAgents - assignedIds.size),
+      unassigned: totalAgents - assignedIds.size,
     };
-  }, [supervisors, AGENTS]);
+  }, [supervisors]);
 
   const openNew = () => {
     setEditing({
-      id: "",
+      id: `S-${Date.now()}`,
       name: "",
       email: "",
       ext: "",
       role: "مشرف",
-      userId: null,
       agentIds: [],
     });
     setOpen(true);
@@ -122,64 +101,31 @@ export default function Supervisors() {
     setOpen(true);
   };
 
-  const remove = async (id: string) => {
-    try {
-      await supervisorsApi.remove(id);
-      setSupervisors((prev) => prev.filter((s) => s.id !== id));
-      toast({ title: "تم الحذف", description: "تم حذف المشرف بنجاح" });
-    } catch (e: any) {
-      toast({
-        title: "تعذر الحذف",
-        description: e?.response?.data?.error || "حدث خطأ",
-        variant: "destructive",
-      });
-    }
+  const remove = (id: string) => {
+    persist(supervisors.filter((s) => s.id !== id));
+    toast({ title: "تم الحذف", description: "تم حذف المشرف بنجاح" });
   };
 
-  const save = async () => {
+  const save = () => {
     if (!editing) return;
-    if (!editing.name.trim() || !editing.email.trim() || !editing.ext.trim()) {
+    if (!editing.name.trim() || !editing.email.trim()) {
       toast({
         title: "بيانات ناقصة",
-        description: "الاسم والبريد والتحويلة مطلوبة",
+        description: "الاسم والبريد مطلوبان",
         variant: "destructive",
       });
       return;
     }
-    setSaving(true);
-    try {
-      const isUpdate = supervisors.some((s) => s.id === editing.id);
-      const payload = {
-        name: editing.name,
-        email: editing.email,
-        ext: editing.ext,
-        role: editing.role,
-        userId: editing.userId || null,
-        agentIds: editing.agentIds,
-      };
-      if (isUpdate) {
-        await supervisorsApi.update(editing.id, payload);
-      } else {
-        await supervisorsApi.create(payload);
-      }
-      await fetchAll();
-      setOpen(false);
-      toast({
-        title: isUpdate ? "تم التحديث" : "تم الإضافة",
-        description: `${editing.name} - ${editing.agentIds.length} موظف`,
-      });
-    } catch (e: any) {
-      toast({
-        title: "تعذر الحفظ",
-        description:
-          e?.response?.data?.message ||
-          e?.response?.data?.error ||
-          "حدث خطأ",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
+    const exists = supervisors.some((s) => s.id === editing.id);
+    const next = exists
+      ? supervisors.map((s) => (s.id === editing.id ? editing : s))
+      : [...supervisors, editing];
+    persist(next);
+    setOpen(false);
+    toast({
+      title: exists ? "تم التحديث" : "تم الإضافة",
+      description: `${editing.name} - ${editing.agentIds.length} موظف`,
+    });
   };
 
   const toggleAgent = (agentId: string) => {
@@ -269,100 +215,92 @@ export default function Supervisors() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
-                        <Loader2 className="w-5 h-5 animate-spin inline" />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filtered.map((s) => {
-                      const team = getAgentsOf(s);
-                      return (
-                        <TableRow key={s.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <Avatar className="w-9 h-9">
-                                <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold">
-                                  {s.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <Link
-                                  to={`/supervisors/${s.id}`}
-                                  className="text-sm font-bold hover:text-primary hover:underline transition-colors"
+                  {filtered.map((s) => {
+                    const team = getAgentsOf(s);
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-9 h-9">
+                              <AvatarFallback className="bg-primary/15 text-primary text-xs font-bold">
+                                {s.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <Link
+                                to={`/supervisors/${s.id}`}
+                                className="text-sm font-bold hover:text-primary hover:underline transition-colors"
+                              >
+                                {s.name}
+                              </Link>
+                              <p className="text-[11px] text-muted-foreground">
+                                {s.email}
+                              </p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-info/10 text-info border-info/30">
+                            {s.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="tabular-nums font-mono text-sm">
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="w-3.5 h-3.5 text-muted-foreground" />
+                            {s.ext}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <div className="flex -space-x-2 -space-x-reverse">
+                              {team.slice(0, 4).map((a) => (
+                                <Avatar
+                                  key={a.id}
+                                  className="w-7 h-7 ring-2 ring-background"
+                                  title={a.name}
                                 >
-                                  {s.name}
-                                </Link>
-                                <p className="text-[11px] text-muted-foreground">
-                                  {s.email}
-                                </p>
-                              </div>
+                                  <AvatarFallback className="bg-muted text-[10px] font-bold">
+                                    {a.avatar}
+                                  </AvatarFallback>
+                                </Avatar>
+                              ))}
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="bg-info/10 text-info border-info/30">
-                              {s.role}
+                            <Badge variant="secondary" className="mr-2">
+                              {team.length} موظف
                             </Badge>
-                          </TableCell>
-                          <TableCell className="tabular-nums font-mono text-sm">
-                            <span className="inline-flex items-center gap-1">
-                              <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-                              {s.ext}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <div className="flex -space-x-2 -space-x-reverse">
-                                {team.slice(0, 4).map((a) => (
-                                  <Avatar
-                                    key={a.id}
-                                    className="w-7 h-7 ring-2 ring-background"
-                                    title={a.name}
-                                  >
-                                    <AvatarFallback className="bg-muted text-[10px] font-bold">
-                                      {a.avatar}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                ))}
-                              </div>
-                              <Badge variant="secondary" className="mr-2">
-                                {team.length} موظف
-                              </Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openEdit(s)}
-                                aria-label="تعديل"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => remove(s.id)}
-                                aria-label="حذف"
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                  {!loading && filtered.length === 0 && (
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEdit(s)}
+                              aria-label="تعديل"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => remove(s.id)}
+                              aria-label="حذف"
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {filtered.length === 0 && (
                     <TableRow>
                       <TableCell
                         colSpan={5}
                         className="text-center py-8 text-muted-foreground text-sm"
                       >
-                        لا يوجد مشرفون — اضغط "مشرف جديد" للبدء
+                        لا يوجد مشرفون مطابقون للبحث
                       </TableCell>
                     </TableRow>
                   )}
@@ -423,7 +361,7 @@ export default function Supervisors() {
                   <Select
                     value={editing.role}
                     onValueChange={(v) =>
-                      setEditing({ ...editing, role: v })
+                      setEditing({ ...editing, role: v as Supervisor["role"] })
                     }
                   >
                     <SelectTrigger>
@@ -438,44 +376,6 @@ export default function Supervisors() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>حساب المستخدم المرتبط (لتسجيل الدخول)</Label>
-                <Select
-                  value={editing.userId || "none"}
-                  onValueChange={(v) =>
-                    setEditing({ ...editing, userId: v === "none" ? null : v })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="اختر مستخدم..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— بدون ربط —</SelectItem>
-                    {users
-                      .filter((u) => u.role === "supervisor" || u.role === "admin")
-                      .map((u) => {
-                        // أخفِ المستخدمين المرتبطين بمشرف آخر
-                        const linkedToOther = supervisors.some(
-                          (s) => s.userId === u.id && s.id !== editing.id,
-                        );
-                        return (
-                          <SelectItem
-                            key={u.id}
-                            value={u.id}
-                            disabled={linkedToOther}
-                          >
-                            {u.display_name || u.identifier} ({u.identifier})
-                            {linkedToOther ? " — مرتبط" : ""}
-                          </SelectItem>
-                        );
-                      })}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  المشرف سيرى فريقه فقط عند تسجيل الدخول بهذا الحساب
-                </p>
-              </div>
-
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label>الموظفون التابعون</Label>
@@ -484,11 +384,6 @@ export default function Supervisors() {
                   </Badge>
                 </div>
                 <div className="rounded-lg border border-border max-h-64 overflow-y-auto divide-y divide-border">
-                  {AGENTS.length === 0 && (
-                    <p className="p-4 text-center text-xs text-muted-foreground">
-                      لا يوجد موظفون متاحون
-                    </p>
-                  )}
                   {AGENTS.map((a) => {
                     const checked = editing.agentIds.includes(a.id);
                     return (
@@ -523,13 +418,10 @@ export default function Supervisors() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+            <Button variant="outline" onClick={() => setOpen(false)}>
               إلغاء
             </Button>
-            <Button onClick={save} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-              حفظ
-            </Button>
+            <Button onClick={save}>حفظ</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { AgentDetailModal } from "@/components/performance/AgentDetailModal";
-import { LiveExtensionsGrid } from "@/components/monitoring/LiveExtensionsGrid";
 
 const STATUS_FILTERS: Array<{ id: "all" | AgentStatus; label: string }> = [
   { id: "all", label: "الكل" },
@@ -172,9 +171,6 @@ const Monitoring = () => {
       title="مراقبة الموظفين"
       subtitle="تحديثات حية كل بضع ثوانٍ"
     >
-      {/* Live Yeastar extensions grid */}
-      <LiveExtensionsGrid />
-
       {/* Smart Alerts */}
       <section className="space-y-2 mb-5">
         {visibleAlerts.length === 0 ? (

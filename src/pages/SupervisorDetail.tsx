@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -14,8 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
-import { useLiveAgents } from "@/hooks/useLiveAgents";
+import { AGENTS, STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
 import {
   ArrowRight,
   Phone,
@@ -24,7 +23,6 @@ import {
   Users,
   Activity,
   TrendingUp,
-  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -41,21 +39,13 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import { supervisorsApi, type Supervisor } from "@/lib/supervisorsApi";
+
+import { loadSupervisors } from "@/lib/supervisorsData";
 
 export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
-  const [supervisor, setSupervisor] = useState<Supervisor | null>(null);
-  const [loading, setLoading] = useState(true);
-  const AGENTS = useLiveAgents();
-
-  useEffect(() => {
-    if (!id) return;
-    supervisorsApi.get(id).then((s) => {
-      setSupervisor(s);
-      setLoading(false);
-    });
-  }, [id]);
+  const supervisors = loadSupervisors();
+  const supervisor = supervisors.find((s) => s.id === id);
 
   type Range = "day" | "week" | "month";
   const [range, setRange] = useState<Range>("week");
@@ -131,18 +121,6 @@ export default function SupervisorDetail() {
       missed: Math.floor(Math.random() * 20),
     }));
   }, [range, team]);
-
-  if (loading) {
-    return (
-      <AppLayout title="جارٍ التحميل...">
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Loader2 className="w-6 h-6 animate-spin inline text-primary" />
-          </CardContent>
-        </Card>
-      </AppLayout>
-    );
-  }
 
   if (!supervisor) {
     return (

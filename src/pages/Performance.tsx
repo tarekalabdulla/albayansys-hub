@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { formatDuration } from "@/lib/mockData";
-import { useLiveAgents } from "@/hooks/useLiveAgents";
+import { AGENTS, formatDuration } from "@/lib/mockData";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -39,7 +38,6 @@ interface Row {
 }
 
 const Performance = () => {
-  const AGENTS = useLiveAgents();
   const [from, setFrom] = useState("2025-04-01");
   const [to, setTo] = useState("2025-04-18");
   const [supervisor, setSupervisor] = useState<string>("all");
@@ -63,12 +61,12 @@ const Performance = () => {
           rate: total === 0 ? 0 : Math.round((a.answered / total) * 100),
         };
       }),
-    [AGENTS],
+    [],
   );
 
-  const supervisors = useMemo<string[]>(
-    () => Array.from(new Set(AGENTS.map((a) => a.supervisor).filter(Boolean) as string[])),
-    [AGENTS],
+  const supervisors = useMemo(
+    () => Array.from(new Set(AGENTS.map((a) => a.supervisor))),
+    [],
   );
 
   const filtered = useMemo(() => {

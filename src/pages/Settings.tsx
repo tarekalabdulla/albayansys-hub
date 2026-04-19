@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -35,21 +34,11 @@ import {
   Wifi,
   KeyRound,
   CheckCircle2,
-  XCircle,
-  Loader2,
-  AlertCircle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import { z } from "zod";
-import { USE_REAL_API, API_URL } from "@/lib/config";
-import { getPbxSettings, updatePbxSettings, testPbxConnection, type PbxSettings } from "@/lib/pbxApi";
-import { YeastarWebhookCard } from "@/components/settings/YeastarWebhookCard";
-import { adminApi, type ResetScope } from "@/lib/adminApi";
-import { getRole } from "@/lib/auth";
-import { Trash } from "lucide-react";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
 
@@ -138,23 +127,13 @@ const Settings = () => {
     name: "", email: "", role: "agent", active: true,
   });
 
-  // Yeastar P-Series (P560) — مرتبط بالخادم لو USE_REAL_API
+  // Yeastar P-Series (P560)
   const [pHost, setPHost] = useState("192.168.1.50");
   const [pPort, setPPort] = useState("8088");
   const [pApiUser, setPApiUser] = useState("apiuser");
   const [pApiSecret, setPApiSecret] = useState("");
   const [pUseTLS, setPUseTLS] = useState(true);
   const [pEnabled, setPEnabled] = useState(true);
-  const [pHasStoredSecret, setPHasStoredSecret] = useState(false);
-  const [pHasWebhookSecret, setPHasWebhookSecret] = useState(false);
-  const [pLastEventAt, setPLastEventAt] = useState<string | null>(null);
-  const [pLastTest, setPLastTest] = useState<{ at: string | null; ok: boolean | null; msg: string | null }>({
-    at: null, ok: null, msg: null,
-  });
-  const [pLoading, setPLoading] = useState(false);
-  const [pSaving, setPSaving] = useState(false);
-  const [pTesting, setPTesting] = useState(false);
-  const pPublicWebhookUrl = `${API_URL}/api/pbx/webhook`;
 
   // Yeastar S-Series (S20)
   const [sHost, setSHost] = useState("192.168.1.60");
@@ -172,238 +151,6 @@ const Settings = () => {
   const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
   const [webhookSecret, setWebhookSecret] = useState("••••••••••");
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // ===== التصفير الشامل (admin فقط) =====
-  const isAdmin = getRole() === "admin";
-  const [resetScopes, setResetScopes] = useState<Record<ResetScope, boolean>>({
-    calls: true,
-    alerts: true,
-    mail: true,
-    supervisors: true,
-    stats: true,
-  });
-  const [resetting, setResetting] = useState(false);
-  const [downloadingBackup, setDownloadingBackup] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const restoreFileRef = useRef<HTMLInputElement>(null);
-
-  const toggleScope = (s: ResetScope) =>
-    setResetScopes((p) => ({ ...p, [s]: !p[s] }));
-
-  const downloadBackup = async (format: "plain" | "custom" = "plain") => {
-    if (!USE_REAL_API) {
-      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "تنزيل النسخة الاحتياطية يحتاج تفعيل API الحقيقي." });
-      return false;
-    }
-    setDownloadingBackup(true);
-    try {
-      await adminApi.downloadBackup(format);
-      Swal.fire({
-        icon: "success",
-        title: "تم تنزيل النسخة الاحتياطية",
-        text: format === "custom"
-          ? "ملف .dump جاهز للاستعادة عبر pg_restore."
-          : "ملف .sql جاهز للاستعادة عبر psql -f.",
-        timer: 2200,
-        showConfirmButton: false,
-      });
-      return true;
-    } catch (e: any) {
-      Swal.fire({ icon: "error", title: "فشل التنزيل", text: e?.message || "خطأ غير متوقع" });
-      return false;
-    } finally {
-      setDownloadingBackup(false);
-    }
-  };
-
-  // ===== استعادة من نسخة احتياطية (admin فقط) — تأكيد مزدوج =====
-  const handleRestoreClick = () => {
-    if (!USE_REAL_API) {
-      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "الاستعادة تحتاج تفعيل API الحقيقي." });
-      return;
-    }
-    restoreFileRef.current?.click();
-  };
-
-  const onRestoreFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // أعد التعيين للسماح برفع نفس الملف لاحقاً
-    if (!file) return;
-
-    const ext = file.name.toLowerCase().split(".").pop();
-    if (ext !== "sql" && ext !== "dump") {
-      Swal.fire({ icon: "error", title: "نوع ملف غير مدعوم", text: "اختر ملف .sql أو .dump فقط." });
-      return;
-    }
-    if (file.size > 200 * 1024 * 1024) {
-      Swal.fire({ icon: "error", title: "الملف كبير جداً", text: "الحد الأقصى 200MB." });
-      return;
-    }
-
-    const sizeKB = (file.size / 1024).toFixed(1);
-
-    // التأكيد الأول: تحذير صريح
-    const first = await Swal.fire({
-      icon: "warning",
-      title: "استعادة قاعدة البيانات",
-      html: `<div class="text-right text-sm leading-7">
-        <b>سيتم استبدال محتوى قاعدة البيانات الحالية بالكامل</b> ببيانات الملف:<br/>
-        <code class="px-1 bg-muted rounded text-xs" dir="ltr">${file.name}</code> (${sizeKB} KB)<br/><br/>
-        <b class="text-destructive">جميع البيانات الحالية ستُحذف ولا يمكن التراجع.</b><br/>
-        ننصح بشدّة بتنزيل نسخة احتياطية حالية أولاً.
-      </div>`,
-      showCancelButton: true,
-      showDenyButton: true,
-      confirmButtonText: "نزّل نسخة احتياطية أولاً ثم تابع",
-      denyButtonText: "تابع بدون نسخة (خطِر)",
-      cancelButtonText: "إلغاء",
-      confirmButtonColor: "hsl(217 91% 60%)",
-      denyButtonColor: "hsl(0 78% 56%)",
-    });
-    if (first.dismiss) return;
-    if (first.isConfirmed) {
-      const ok = await downloadBackup("plain");
-      if (!ok) return;
-    }
-
-    // التأكيد الثاني: كتابة RESTORE
-    const second = await Swal.fire({
-      icon: "warning",
-      title: "تأكيد نهائي",
-      html: `<div class="text-right text-sm leading-7">
-        لتنفيذ الاستعادة من <code class="px-1 bg-muted rounded text-xs" dir="ltr">${file.name}</code><br/>
-        اكتب كلمة <b>RESTORE</b> بالضبط:
-      </div>`,
-      input: "text",
-      inputPlaceholder: "اكتب RESTORE",
-      showCancelButton: true,
-      confirmButtonText: "نفّذ الاستعادة الآن",
-      cancelButtonText: "إلغاء",
-      confirmButtonColor: "hsl(0 78% 56%)",
-      preConfirm: (val) => {
-        if (val !== "RESTORE") {
-          Swal.showValidationMessage("اكتب كلمة RESTORE بالضبط");
-          return false;
-        }
-        return true;
-      },
-    });
-    if (!second.isConfirmed) return;
-
-    setRestoring(true);
-    Swal.fire({
-      title: "جاري الاستعادة...",
-      html: "قد تستغرق العملية عدة دقائق حسب حجم الملف. لا تغلق الصفحة.",
-      allowOutsideClick: false,
-      allowEscapeKey: false,
-      didOpen: () => Swal.showLoading(),
-    });
-
-    try {
-      const out = await adminApi.restoreBackup(file);
-      await Swal.fire({
-        icon: "success",
-        title: "تمت الاستعادة بنجاح",
-        html: `<div class="text-right text-xs leading-6">
-          الأداة: <code class="px-1 bg-muted rounded">${out.tool}</code><br/>
-          ${out.warnings ? `<details class="mt-2"><summary class="cursor-pointer">تحذيرات</summary><pre class="text-[10px] text-right mt-1 max-h-40 overflow-auto bg-muted/40 p-2 rounded" dir="ltr">${out.warnings}</pre></details>` : ""}
-          <br/><b>سجّل خروج وادخل من جديد لتحميل البيانات الجديدة.</b>
-        </div>`,
-      });
-    } catch (e: any) {
-      Swal.fire({
-        icon: "error",
-        title: "فشلت الاستعادة",
-        html: `<div class="text-right text-xs leading-6"><pre class="text-[10px] text-right max-h-60 overflow-auto bg-muted/40 p-2 rounded" dir="ltr">${e?.message || "خطأ غير متوقع"}</pre></div>`,
-      });
-    } finally {
-      setRestoring(false);
-    }
-  };
-
-  const runResetAll = async () => {
-    const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
-    if (selected.length === 0) {
-      Swal.fire({ icon: "warning", title: "لم تختر شيئاً", text: "اختر نطاقاً واحداً على الأقل." });
-      return;
-    }
-    const labels: Record<ResetScope, string> = {
-      calls: "المكالمات و CDR",
-      alerts: "التنبيهات",
-      mail: "البريد الداخلي",
-      supervisors: "المشرفون والربط بالفِرق",
-      stats: "إحصائيات الموظفين (تصفير العدّادات)",
-    };
-    // إجبار تنزيل نسخة احتياطية قبل التصفير
-    const pre = await Swal.fire({
-      icon: "question",
-      title: "نزّل نسخة احتياطية أولاً",
-      html: `<div class="text-right text-sm leading-7">
-        ننصح بشدّة بتنزيل نسخة احتياطية كاملة قبل التصفير حتى يمكن الاستعادة عند الحاجة.
-      </div>`,
-      showCancelButton: true,
-      showDenyButton: true,
-      confirmButtonText: "نزّل ثم تابع",
-      denyButtonText: "تابع بدون نسخة (خطِر)",
-      cancelButtonText: "إلغاء",
-      confirmButtonColor: "hsl(217 91% 60%)",
-      denyButtonColor: "hsl(0 78% 56%)",
-    });
-    if (pre.dismiss) return;
-    if (pre.isConfirmed) {
-      const ok = await downloadBackup("plain");
-      if (!ok) return; // فشل التنزيل = ألغِ التصفير
-    }
-
-    const r = await Swal.fire({
-      icon: "warning",
-      title: "تأكيد التصفير الشامل",
-      html:
-        `<div class="text-right text-sm leading-7">سيتم حذف نهائي للبيانات التالية:<br/>` +
-        selected.map((s) => `• ${labels[s]}`).join("<br/>") +
-        `<br/><br/><b class="text-destructive">لا يمكن التراجع عن هذا الإجراء.</b></div>`,
-      input: "text",
-      inputPlaceholder: 'اكتب RESET للتأكيد',
-      showCancelButton: true,
-      confirmButtonText: "نعم، صفّر الآن",
-      cancelButtonText: "إلغاء",
-      confirmButtonColor: "hsl(0 78% 56%)",
-      preConfirm: (val) => {
-        if (val !== "RESET") {
-          Swal.showValidationMessage("اكتب كلمة RESET بالضبط");
-          return false;
-        }
-        return true;
-      },
-    });
-    if (!r.isConfirmed) return;
-
-    if (!USE_REAL_API) {
-      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "التصفير يحتاج تفعيل API الحقيقي." });
-      return;
-    }
-
-    setResetting(true);
-    try {
-      const out = await adminApi.resetAll(selected);
-      const lines = Object.entries(out.summary)
-        .map(([k, v]) => `• ${k}: ${v}`)
-        .join("<br/>");
-      await Swal.fire({
-        icon: "success",
-        title: "تم التصفير بنجاح",
-        html: `<div class="text-right text-xs leading-6">${lines || "لم يُحذف شيء."}</div>`,
-      });
-    } catch (e: any) {
-      Swal.fire({
-        icon: "error",
-        title: "فشل التصفير",
-        text: e?.response?.data?.error || e?.message || "خطأ غير متوقع",
-      });
-    } finally {
-      setResetting(false);
-    }
-  };
 
   const openAdd = () => {
     setEditing(null);
@@ -517,148 +264,31 @@ const Settings = () => {
     Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
   };
 
-  // ===== Yeastar P-Series — جلب من الخادم =====
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    let alive = true;
-    setPLoading(true);
-    getPbxSettings()
-      .then((s) => {
-        if (!alive || !s) return;
-        setPEnabled(!!s.enabled);
-        if (s.host) setPHost(s.host);
-        if (s.port) setPPort(String(s.port));
-        setPUseTLS(!!s.use_tls);
-        if (s.api_username) setPApiUser(s.api_username);
-        setPHasStoredSecret(!!s.has_secret);
-        setPHasWebhookSecret(!!s.has_webhook_secret);
-        setPLastEventAt(s.last_event_at);
-        setPLastTest({ at: s.last_test_at, ok: s.last_test_ok, msg: s.last_test_msg });
-      })
-      .catch(() => { /* ignore — اعرض الافتراضيات */ })
-      .finally(() => { if (alive) setPLoading(false); });
-    return () => { alive = false; };
-  }, []);
-
-  const savePbx = async (kind: "P560" | "S20") => {
-    // S20 يبقى محلياً (لا يدعمه الخادم بعد)
-    if (kind === "S20" || !USE_REAL_API) {
-      Swal.fire({
-        icon: "success",
-        title: `تم حفظ إعدادات Yeastar ${kind}`,
-        text: USE_REAL_API
-          ? "ملاحظة: حفظ S-Series يتم محلياً فقط حالياً."
-          : "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
-        timer: 1800,
-        showConfirmButton: false,
-      });
-      return;
-    }
-
-    setPSaving(true);
-    try {
-      const port = parseInt(pPort, 10);
-      if (isNaN(port) || port < 1 || port > 65535) {
-        throw new Error("منفذ غير صالح (1-65535)");
-      }
-      const payload: any = {
-        enabled: pEnabled,
-        host: pHost.trim(),
-        port,
-        use_tls: pUseTLS,
-        api_username: pApiUser.trim(),
-      };
-      // أرسل السر فقط لو المستخدم كتبه (تجنّب مسح المحفوظ)
-      if (pApiSecret.trim()) payload.api_secret = pApiSecret;
-
-      const s = await updatePbxSettings(payload);
-      setPHasStoredSecret(!!s.has_secret);
-      setPApiSecret(""); // امسح الحقل للأمان
-      Swal.fire({
-        icon: "success",
-        title: "تم حفظ إعدادات Yeastar P560",
-        text: "تم تخزين الإعدادات بشكل مشفّر على الخادم.",
-        timer: 1800,
-        showConfirmButton: false,
-      });
-    } catch (err: any) {
-      const msg = err?.response?.data?.error || err?.message || "خطأ غير متوقع";
-      Swal.fire({ icon: "error", title: "تعذّر الحفظ", text: msg });
-    } finally {
-      setPSaving(false);
-    }
-  };
-
-  const clearStoredSecret = async () => {
-    if (!USE_REAL_API) return;
-    const r = await Swal.fire({
-      icon: "warning",
-      title: "مسح السر المحفوظ؟",
-      text: "سيُحذف API Secret من الخادم نهائياً.",
-      showCancelButton: true,
-      confirmButtonText: "نعم، امسح",
-      cancelButtonText: "إلغاء",
-      confirmButtonColor: "hsl(0 78% 56%)",
-    });
-    if (!r.isConfirmed) return;
-    try {
-      const s = await updatePbxSettings({ clear_secret: true });
-      setPHasStoredSecret(!!s.has_secret);
-      Swal.fire({ icon: "success", title: "تم المسح", timer: 1200, showConfirmButton: false });
-    } catch {
-      Swal.fire({ icon: "error", title: "تعذّر المسح" });
-    }
-  };
-
-  const testPbx = async (kind: "P560" | "S20") => {
-    if (kind === "S20" || !USE_REAL_API) {
-      Swal.fire({
-        title: `اختبار اتصال Yeastar ${kind}`,
-        html: '<div class="text-sm">جاري المحاولة...</div>',
-        timer: 1200,
-        showConfirmButton: false,
-      }).then(() => {
-        Swal.fire({
-          icon: "success",
-          title: "نجح الاتصال ✓",
-          text: `تم التحقق من سنترال ${kind} بنجاح. (وضع تجريبي)`,
-          timer: 1800,
-          showConfirmButton: false,
-        });
-      });
-      return;
-    }
-
-    setPTesting(true);
+  const savePbx = (kind: "P560" | "S20") => {
     Swal.fire({
-      title: "اختبار اتصال Yeastar P560",
-      html: '<div class="text-sm">جاري الاتصال بالسنترال...</div>',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading(),
+      icon: "success",
+      title: `تم حفظ إعدادات Yeastar ${kind}`,
+      text: "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
+      timer: 1800,
+      showConfirmButton: false,
     });
-    try {
-      const port = parseInt(pPort, 10);
-      const payload: any = {
-        host: pHost.trim() || undefined,
-        port: isNaN(port) ? undefined : port,
-        use_tls: pUseTLS,
-        api_username: pApiUser.trim() || undefined,
-      };
-      if (pApiSecret.trim()) payload.api_secret = pApiSecret;
+  };
 
-      const r = await testPbxConnection(payload);
-      // حدّث آخر اختبار في الواجهة
-      setPLastTest({ at: new Date().toISOString(), ok: r.ok, msg: r.message });
+  const testPbx = (kind: "P560" | "S20") => {
+    Swal.fire({
+      title: `اختبار اتصال Yeastar ${kind}`,
+      html: '<div class="text-sm">جاري المحاولة...</div>',
+      timer: 1200,
+      showConfirmButton: false,
+    }).then(() => {
       Swal.fire({
-        icon: r.ok ? "success" : "error",
-        title: r.ok ? "نجح الاتصال ✓" : "فشل الاتصال",
-        text: `${r.message}${r.elapsed_ms ? ` (${r.elapsed_ms}ms)` : ""}`,
-        timer: r.ok ? 2200 : undefined,
-        showConfirmButton: !r.ok,
+        icon: "success",
+        title: "نجح الاتصال ✓",
+        text: `تم التحقق من سنترال ${kind} بنجاح.`,
+        timer: 1800,
+        showConfirmButton: false,
       });
-    } finally {
-      setPTesting(false);
-    }
+    });
   };
 
   const saveGoogleAi = () => {
@@ -763,38 +393,6 @@ const Settings = () => {
 
           {/* P-Series */}
           <TabsContent value="p560" className="space-y-4 mt-0">
-            <div className="flex flex-wrap items-center gap-2">
-              {USE_REAL_API ? (
-                <Badge variant="outline" className="bg-success/10 text-success border-success/30 text-[10px]">
-                  مرتبط بالخادم
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30 text-[10px]">
-                  وضع تجريبي — فعّل API لحفظ الإعدادات
-                </Badge>
-              )}
-              {pLoading && (
-                <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" /> جاري التحميل...
-                </span>
-              )}
-              {pLastTest.at && (
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-[10px] gap-1",
-                    pLastTest.ok
-                      ? "bg-success/10 text-success border-success/30"
-                      : "bg-destructive/10 text-destructive border-destructive/30",
-                  )}
-                  title={pLastTest.msg || ""}
-                >
-                  {pLastTest.ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                  آخر اختبار: {pLastTest.ok ? "ناجح" : "فاشل"} — {new Date(pLastTest.at).toLocaleString("ar-SA")}
-                </Badge>
-              )}
-            </div>
-
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className={cn("w-4 h-4", pEnabled ? "text-success" : "text-muted-foreground")} />
@@ -805,43 +403,19 @@ const Settings = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
-                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="192.168.1.50" />
+                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
-                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="8088" />
+                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
                 <Input value={pApiUser} onChange={(e) => setPApiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center justify-between">
-                  <span>API Secret</span>
-                  {pHasStoredSecret && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-success font-bold">
-                      <KeyRound className="w-3 h-3" /> محفوظ ومشفّر
-                    </span>
-                  )}
-                </label>
-                <Input
-                  value={pApiSecret}
-                  onChange={(e) => setPApiSecret(e.target.value)}
-                  type="password"
-                  dir="ltr"
-                  className="bg-background/60"
-                  disabled={!pEnabled}
-                  placeholder={pHasStoredSecret ? "اتركه فارغاً للإبقاء على المحفوظ" : "أدخل API Secret"}
-                />
-                {pHasStoredSecret && USE_REAL_API && (
-                  <button
-                    type="button"
-                    onClick={clearStoredSecret}
-                    className="mt-1 text-[10px] text-destructive hover:underline"
-                  >
-                    مسح السر المحفوظ
-                  </button>
-                )}
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Secret</label>
+                <Input value={pApiSecret} onChange={(e) => setPApiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="••••••••" />
               </div>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
@@ -851,34 +425,17 @@ const Settings = () => {
               </div>
               <Switch checked={pUseTLS} onCheckedChange={setPUseTLS} disabled={!pEnabled} />
             </div>
-            {USE_REAL_API && (
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground">
-                <AlertCircle className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
-                <span>
-                  يتم إصدار التوكن عبر <code className="px-1 bg-muted rounded">POST /openapi/v1.0/get_token</code> من Yeastar P-Series.
-                  تأكد من تفعيل Open API في لوحة Yeastar وإضافة IP الخادم للقائمة المسموحة.
-                </span>
-              </div>
-            )}
             <div className="flex gap-2">
-              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled || pSaving}>
-                {pSaving ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <Save className="w-4 h-4 ml-2" />}
-                {pSaving ? "جاري الحفظ..." : "حفظ إعدادات P560"}
+              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled}>
+                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
               </Button>
-              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled || pTesting}>
-                {pTesting ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <Wifi className="w-4 h-4 ml-2" />}
-                {pTesting ? "جاري الاختبار..." : "اختبار الاتصال"}
+              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled}>
+                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
               </Button>
             </div>
-
-            {/* ============ Webhook للأحداث الحية ============ */}
-            <YeastarWebhookCard
-              hasSecret={pHasWebhookSecret}
-              webhookUrl={pPublicWebhookUrl}
-              lastEventAt={pLastEventAt}
-              onChange={(s) => setPHasWebhookSecret(s)}
-            />
           </TabsContent>
+
+          {/* S-Series */}
           <TabsContent value="s20" className="space-y-4 mt-0">
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
@@ -1020,139 +577,6 @@ const Settings = () => {
           </div>
         </section>
       </div>
-
-      {/* ============ التصفير الشامل (admin فقط) ============ */}
-      {isAdmin && (
-        <section className="glass-card p-5 mt-5 border-destructive/30">
-          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
-            <div className="flex items-center gap-2">
-              <Trash className="w-4 h-4 text-destructive" />
-              <div>
-                <h3 className="text-base font-bold text-destructive">منطقة الخطر — تصفير شامل</h3>
-                <p className="text-xs text-muted-foreground">
-                  حذف نهائي للبيانات المختارة. لن تُحذف حسابات المستخدمين ولا إعدادات السنترال.
-                </p>
-              </div>
-            </div>
-            <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30 text-[10px]">
-              admin فقط
-            </Badge>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 my-4">
-            {([
-              { key: "calls", label: "المكالمات و CDR" },
-              { key: "alerts", label: "التنبيهات" },
-              { key: "mail", label: "البريد الداخلي" },
-              { key: "supervisors", label: "المشرفون والفِرق" },
-              { key: "stats", label: "إحصائيات الموظفين" },
-            ] as { key: ResetScope; label: string }[]).map((s) => (
-              <label
-                key={s.key}
-                className={cn(
-                  "flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition",
-                  resetScopes[s.key]
-                    ? "bg-destructive/5 border-destructive/40"
-                    : "bg-background/40 border-border hover:border-destructive/30",
-                )}
-              >
-                <Checkbox
-                  checked={resetScopes[s.key]}
-                  onCheckedChange={() => toggleScope(s.key)}
-                />
-                <span className="text-xs font-semibold">{s.label}</span>
-              </label>
-            ))}
-          </div>
-
-          {/* أزرار النسخ الاحتياطي قبل التصفير */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => downloadBackup("plain")}
-              disabled={downloadingBackup}
-              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
-            >
-              {downloadingBackup ? (
-                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 ml-2" />
-              )}
-              تنزيل نسخة .sql (نص قابل للقراءة)
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => downloadBackup("custom")}
-              disabled={downloadingBackup}
-              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
-            >
-              {downloadingBackup ? (
-                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 ml-2" />
-              )}
-              تنزيل نسخة .dump (مضغوطة لـ pg_restore)
-            </Button>
-          </div>
-
-          {/* زر الاستعادة من نسخة احتياطية */}
-          <div className="mb-3">
-            <input
-              ref={restoreFileRef}
-              type="file"
-              accept=".sql,.dump"
-              className="hidden"
-              onChange={onRestoreFileSelected}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleRestoreClick}
-              disabled={restoring || downloadingBackup || resetting}
-              className="w-full border-warning/40 text-warning hover:bg-warning/10 hover:text-warning"
-            >
-              {restoring ? (
-                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4 ml-2" />
-              )}
-              {restoring ? "جاري الاستعادة..." : "استعادة من نسخة احتياطية (.sql / .dump)"}
-            </Button>
-          </div>
-
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground mb-2">
-            <Database className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
-            <span>
-              للاستعادة: <code className="px-1 bg-muted rounded" dir="ltr">psql $DATABASE_URL -f file.sql</code>
-              {" أو "}
-              <code className="px-1 bg-muted rounded" dir="ltr">pg_restore -d $DATABASE_URL --clean file.dump</code>
-            </span>
-          </div>
-
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-[11px] text-muted-foreground mb-3">
-            <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
-            <span>
-              سيُطلب منك تنزيل نسخة احتياطية ثم كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
-            </span>
-          </div>
-
-          <Button
-            onClick={runResetAll}
-            disabled={resetting || downloadingBackup}
-            variant="destructive"
-            className="w-full"
-          >
-            {resetting ? (
-              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-            ) : (
-              <Trash className="w-4 h-4 ml-2" />
-            )}
-            {resetting ? "جاري التصفير..." : "تصفير شامل للنطاقات المحددة"}
-          </Button>
-        </section>
-      )}
 
       {/* User Modal */}
       <Dialog open={open} onOpenChange={setOpen}>

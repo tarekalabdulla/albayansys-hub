@@ -7,17 +7,18 @@ import {
   RecentCallsList,
   SupervisorList,
 } from "@/components/dashboard/SidePanels";
-import { LiveCallsPanel, LiveExtensionsPanel } from "@/components/dashboard/LivePanels";
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
 } from "lucide-react";
-import { useStats } from "@/hooks/useStats";
+import { AGENTS } from "@/lib/mockData";
 
 const Index = () => {
-  const stats = useStats();
-  const { totals } = stats;
-  const avgM = Math.floor(totals.avgDuration / 60);
-  const avgS = totals.avgDuration % 60;
+  const total = AGENTS.length;
+  const inCall = AGENTS.filter((a) => a.status === "in_call").length;
+  const answered = AGENTS.reduce((s, a) => s + a.answered, 0);
+  const missed = AGENTS.reduce((s, a) => s + a.missed, 0);
+  const avg = Math.round(AGENTS.reduce((s, a) => s + a.avgDuration, 0) / AGENTS.length);
+  const avgM = Math.floor(avg / 60), avgS = avg % 60;
 
   return (
     <AppLayout
@@ -50,29 +51,23 @@ const Index = () => {
 
       {/* Stats */}
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
-        <StatCard label="إجمالي الموظفين" value={totals.agents} icon={Users} accent="info" />
-        <StatCard label="في مكالمة الآن" value={totals.inCall} icon={PhoneCall} accent="primary" />
-        <StatCard label="مكالمات مجابة" value={totals.answered} icon={PhoneIncoming} accent="success" />
-        <StatCard label="مكالمات فائتة" value={totals.missed} icon={PhoneMissed} accent="destructive" />
+        <StatCard label="إجمالي الموظفين" value={total} icon={Users} accent="info" trend={{ value: 5, positive: true }} />
+        <StatCard label="في مكالمة الآن" value={inCall} icon={PhoneCall} accent="primary" />
+        <StatCard label="مكالمات مجابة" value={answered} icon={PhoneIncoming} accent="success" trend={{ value: 12, positive: true }} />
+        <StatCard label="مكالمات فائتة" value={missed} icon={PhoneMissed} accent="destructive" trend={{ value: 3, positive: false }} />
         <StatCard label="متوسط المدة" value={`${avgM}:${String(avgS).padStart(2, "0")}`} icon={Timer} accent="warning" />
-        <StatCard label="نسبة SLA" value={`${totals.sla}%`} icon={Gauge} accent="success" />
+        <StatCard label="نسبة SLA" value="92%" icon={Gauge} accent="success" trend={{ value: 2, positive: true }} />
       </section>
 
       {/* Charts */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 mb-6">
-        <div className="lg:col-span-1"><StatusDoughnut counts={stats.statusCounts} total={totals.agents} /></div>
-        <div className="lg:col-span-2"><CallsTrendChart trend={stats.trend} /></div>
-      </section>
-
-      {/* Live Yeastar panels */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mb-6">
-        <LiveCallsPanel />
-        <LiveExtensionsPanel />
+        <div className="lg:col-span-1"><StatusDoughnut /></div>
+        <div className="lg:col-span-2"><CallsTrendChart /></div>
       </section>
 
       {/* Side panels */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-        <SupervisorList supervisors={stats.supervisors} />
+        <SupervisorList />
         <RecentCallsList />
         <ActivityList />
       </section>

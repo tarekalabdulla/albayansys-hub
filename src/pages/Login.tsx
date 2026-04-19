@@ -168,6 +168,9 @@ const Login = () => {
             {loading ? "جاري الدخول..." : "تسجيل الدخول"}
           </Button>
 
+          <p className="text-[11px] text-muted-foreground text-center leading-relaxed pt-2 border-t border-border/40">
+            بيانات تجريبية: <span dir="ltr">admin / supervisor / agent</span> — كلمة السر = اسم المستخدم + 123
+          </p>
         </form>
 
         <p className="text-center text-xs text-muted-foreground mt-6">

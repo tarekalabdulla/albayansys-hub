@@ -1,13 +1,12 @@
-// مزوّد socket حقيقي عبر socket.io متصل بـ backend على VPS.
-// واجهة موحّدة على نفس shape الذي يستخدمه useLiveAgents.
-import { API_URL } from "./config";
+// مزوّد socket موحّد — يختار بين mockSocket و socket.io الحقيقي
+// حسب VITE_USE_REAL_API. واجهة موحّدة على نفس shape الذي يستخدمه useLiveAgents.
+import { USE_REAL_API, API_URL } from "./config";
+import { mockSocket } from "./mockSocket";
 import { tokenStorage } from "./api";
 import type { Agent } from "./mockData";
 import { io, Socket } from "socket.io-client";
 
-type EventName =
-  | "agent:update" | "agent:list" | "alert"
-  | "call:status" | "ext:status" | "cdr:new" | "queue:event";
+type EventName = "agent:update" | "agent:list" | "alert";
 type Listener = (payload: any) => void;
 
 interface SocketProvider {
@@ -17,6 +16,7 @@ interface SocketProvider {
   snapshot: () => Agent[];
 }
 
+// ============== Real Socket.io provider ==============
 function createRealProvider(): SocketProvider {
   let socket: Socket | null = null;
   let started = false;
@@ -45,11 +45,6 @@ function createRealProvider(): SocketProvider {
         emit("agent:update", a);
       });
       socket.on("alert", (a: any) => emit("alert", a));
-      // أحداث Yeastar الحية (تأتي من webhook → Socket.io)
-      socket.on("call:status", (p: any) => emit("call:status", p));
-      socket.on("ext:status",  (p: any) => emit("ext:status", p));
-      socket.on("cdr:new",     (p: any) => emit("cdr:new", p));
-      socket.on("queue:event", (p: any) => emit("queue:event", p));
       socket.on("connect_error", (e) => console.warn("[socket]", e.message));
     },
     stop() {
@@ -68,4 +63,6 @@ function createRealProvider(): SocketProvider {
   };
 }
 
-export const socketProvider: SocketProvider = createRealProvider();
+export const socketProvider: SocketProvider = USE_REAL_API
+  ? createRealProvider()
+  : mockSocket;
