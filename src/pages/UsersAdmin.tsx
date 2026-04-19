@@ -63,6 +63,8 @@ export default function UsersAdmin() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ManagedUser | null>(null);
   const [form, setForm] = useState<CreateUserPayload & { newPassword?: string }>(EMPTY_FORM);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   // delete confirm
   const [toDelete, setToDelete] = useState<ManagedUser | null>(null);
