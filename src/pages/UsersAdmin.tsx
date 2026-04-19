@@ -409,6 +409,56 @@ export default function UsersAdmin() {
             <DialogTitle>{editing ? "تعديل مستخدم" : "إضافة مستخدم جديد"}</DialogTitle>
           </DialogHeader>
 
+          {editing && (
+            <div className="flex items-center gap-4 p-4 rounded-lg border border-border bg-muted/30">
+              <div className="relative">
+                <Avatar className="w-16 h-16 ring-2 ring-background shadow-soft">
+                  {editing.avatar_url && (
+                    <AvatarImage src={resolveAvatarUrl(editing.avatar_url)} alt={editing.display_name || editing.identifier} />
+                  )}
+                  <AvatarFallback className="gradient-primary text-primary-foreground text-base font-bold">
+                    {(editing.display_name || editing.identifier || "?").split(" ").map((s) => s[0]).join("").slice(0, 2)}
+                  </AvatarFallback>
+                </Avatar>
+                {avatarBusy && (
+                  <div className="absolute inset-0 rounded-full grid place-items-center bg-background/70">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-sm font-bold">الصورة الشخصية</p>
+                <p className="text-xs text-muted-foreground">PNG/JPG/WEBP — حد أقصى 2MB</p>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" size="sm" variant="outline" onClick={onAvatarPick} disabled={avatarBusy} className="gap-1.5">
+                    <Camera className="w-3.5 h-3.5" />
+                    {editing.avatar_url ? "تغيير" : "رفع"}
+                  </Button>
+                  {editing.avatar_url && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={onAvatarRemove}
+                      disabled={avatarBusy}
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      حذف
+                    </Button>
+                  )}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onAvatarFile}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
             <div className="space-y-1.5">
               <Label>اسم الدخول *</Label>
