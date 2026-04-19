@@ -16,6 +16,7 @@ import Settings from "./pages/Settings";
 import Supervisors from "./pages/Supervisors";
 import SupervisorDetail from "./pages/SupervisorDetail";
 import Profile from "./pages/Profile";
+import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<Login />} />
           <Route path="/" element={<Index />} />
           <Route path="/live" element={<LiveReport />} />
           <Route path="/monitoring" element={<Monitoring />} />
