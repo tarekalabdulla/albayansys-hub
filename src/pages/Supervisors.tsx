@@ -32,7 +32,8 @@ import {
 } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { AGENTS, type Agent } from "@/lib/mockData";
+import { type Agent } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import {
   UserCog,
   Users,
@@ -53,6 +54,7 @@ import {
 
 export default function Supervisors() {
   const { toast } = useToast();
+  const AGENTS = useLiveAgents();
   const [supervisors, setSupervisors] = useState<Supervisor[]>(loadSupervisors);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Supervisor | null>(null);
@@ -80,9 +82,9 @@ export default function Supervisors() {
     return {
       supervisors: supervisors.length,
       assigned: assignedIds.size,
-      unassigned: totalAgents - assignedIds.size,
+      unassigned: Math.max(0, totalAgents - assignedIds.size),
     };
-  }, [supervisors]);
+  }, [supervisors, AGENTS]);
 
   const openNew = () => {
     setEditing({

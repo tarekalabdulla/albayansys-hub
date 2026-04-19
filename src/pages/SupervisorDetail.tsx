@@ -14,7 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AGENTS, STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import {
   ArrowRight,
   Phone,
@@ -46,6 +47,7 @@ export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
   const supervisors = loadSupervisors();
   const supervisor = supervisors.find((s) => s.id === id);
+  const AGENTS = useLiveAgents();
 
   type Range = "day" | "week" | "month";
   const [range, setRange] = useState<Range>("week");
