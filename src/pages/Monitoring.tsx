@@ -32,13 +32,13 @@ const STATUS_FILTERS: Array<{ id: "all" | AgentStatus; label: string }> = [
   { id: "offline", label: "غير متصل" },
 ];
 
-// لون حافة البطاقة حسب الحالة
-const BORDER_BY_STATUS: Record<AgentStatus, string> = {
-  online:  "border-success/60 shadow-[0_0_0_1px_hsl(var(--success)/0.3)]",
-  in_call: "border-primary/60 shadow-[0_0_0_1px_hsl(var(--primary)/0.35)]",
-  idle:    "border-warning/60 shadow-[0_0_0_1px_hsl(var(--warning)/0.35)]",
-  break:   "border-info/60 shadow-[0_0_0_1px_hsl(var(--info)/0.35)]",
-  offline: "border-border",
+// توهج نابض + خلفية مُلوّنة حسب الحالة (يستخدم semantic tokens فقط)
+const GLOW_BY_STATUS: Record<AgentStatus, string> = {
+  online:  "border-success/60 bg-success/5 animate-glow-success",
+  in_call: "border-primary/70 bg-primary/10 animate-glow-primary",
+  idle:    "border-warning/60 bg-warning/5 animate-glow-warning",
+  break:   "border-info/60 bg-info/5 animate-glow-info",
+  offline: "border-border bg-muted/30 opacity-80",
 };
 
 const DOT_BY_STATUS: Record<AgentStatus, string> = {
@@ -69,7 +69,7 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
     <div
       className={cn(
         "glass-card p-4 border-2 transition-all hover:-translate-y-0.5",
-        BORDER_BY_STATUS[agent.status],
+        GLOW_BY_STATUS[agent.status],
       )}
     >
       <div className="flex items-start gap-3">
