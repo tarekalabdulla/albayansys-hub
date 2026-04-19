@@ -119,12 +119,70 @@ CREATE TABLE IF NOT EXISTS pbx_settings (
   updated_by      UUID REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- إضافة آمنة لسر التوقيع HMAC للـ Webhook
+ALTER TABLE pbx_settings ADD COLUMN IF NOT EXISTS webhook_secret_enc TEXT;
+ALTER TABLE pbx_settings ADD COLUMN IF NOT EXISTS last_event_at TIMESTAMPTZ;
+
 -- صف افتراضي
 INSERT INTO pbx_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 DROP TRIGGER IF EXISTS pbx_settings_updated_at ON pbx_settings;
 CREATE TRIGGER pbx_settings_updated_at BEFORE UPDATE ON pbx_settings
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================
+-- المكالمات الحية (snapshot للوحة التحكم)
+-- ============================================
+CREATE TABLE IF NOT EXISTS calls_live (
+  id            VARCHAR(64) PRIMARY KEY,        -- call_id من Yeastar
+  extension     VARCHAR(16),
+  agent_name    VARCHAR(128),
+  caller_number VARCHAR(32),
+  callee_number VARCHAR(32),
+  direction     VARCHAR(16),                    -- inbound/outbound/internal
+  status        VARCHAR(32),                    -- ringing/answered/hold/...
+  queue_name    VARCHAR(128),
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  answered_at   TIMESTAMPTZ,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_calls_live_ext ON calls_live(extension);
+CREATE INDEX IF NOT EXISTS idx_calls_live_status ON calls_live(status);
+
+-- ============================================
+-- كاش CDR محلي (يُحدَّث من Webhook عند انتهاء المكالمة)
+-- ============================================
+CREATE TABLE IF NOT EXISTS calls_cdr (
+  id            VARCHAR(64) PRIMARY KEY,
+  extension     VARCHAR(16),
+  agent_name    VARCHAR(128),
+  caller_number VARCHAR(32),
+  callee_number VARCHAR(32),
+  direction     VARCHAR(16),
+  status        VARCHAR(32),
+  duration      INT NOT NULL DEFAULT 0,
+  billsec       INT NOT NULL DEFAULT 0,
+  queue_name    VARCHAR(128),
+  recording_file VARCHAR(512),
+  started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at      TIMESTAMPTZ,
+  raw           JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_calls_cdr_started ON calls_cdr(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calls_cdr_ext ON calls_cdr(extension);
+
+-- ============================================
+-- حالة التحويلات (Extensions) لحظياً
+-- ============================================
+CREATE TABLE IF NOT EXISTS ext_status (
+  extension     VARCHAR(16) PRIMARY KEY,
+  agent_name    VARCHAR(128),
+  status        VARCHAR(32),                    -- available/busy/dnd/offline/ringing/...
+  device_state  VARCHAR(32),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ext_status_status ON ext_status(status);
+
 
 -- ============================================
 -- trigger لتحديث updated_at تلقائياً
