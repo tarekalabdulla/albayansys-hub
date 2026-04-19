@@ -1,10 +1,39 @@
 import { Router } from "express";
 import { spawn } from "child_process";
+import multer from "multer";
+import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+import crypto from "node:crypto";
 import { pool } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 router.use(authRequired, requireRole("admin"));
+
+// تخزين مؤقّت لملفات الاستعادة (.sql / .dump) — حد 200MB
+const RESTORE_TMP_DIR = path.join(os.tmpdir(), "hulul-restore");
+fs.mkdirSync(RESTORE_TMP_DIR, { recursive: true });
+
+const restoreUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, RESTORE_TMP_DIR),
+    filename: (_req, file, cb) => {
+      const ext = (path.extname(file.originalname) || "").toLowerCase();
+      const safeExt = ext === ".dump" ? ".dump" : ".sql";
+      const rand = crypto.randomBytes(8).toString("hex");
+      cb(null, `restore-${Date.now()}-${rand}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+  fileFilter: (_req, file, cb) => {
+    const ext = (path.extname(file.originalname) || "").toLowerCase();
+    if (ext !== ".sql" && ext !== ".dump") {
+      return cb(new Error("نوع ملف غير مدعوم — استخدم .sql أو .dump فقط"));
+    }
+    cb(null, true);
+  },
+});
 
 // GET /api/admin/backup — تنزيل SQL dump كامل لقاعدة البيانات
 // يستخدم pg_dump المثبّت على الخادم. يدعم plain أو custom format.
