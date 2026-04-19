@@ -17,6 +17,7 @@ import Supervisors from "./pages/Supervisors";
 import SupervisorDetail from "./pages/SupervisorDetail";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/" element={<Index />} />
           <Route path="/live" element={<LiveReport />} />
           <Route path="/monitoring" element={<Monitoring />} />
