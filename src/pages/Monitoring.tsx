@@ -69,7 +69,7 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
     <div
       className={cn(
         "glass-card p-4 border-2 transition-all hover:-translate-y-0.5",
-        BORDER_BY_STATUS[agent.status],
+        GLOW_BY_STATUS[agent.status],
       )}
     >
       <div className="flex items-start gap-3">
