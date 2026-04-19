@@ -1,193 +1,260 @@
-# 🚀 دليل نشر Backend على VPS Namecheap
+# 🚀 دليل النشر على VPS — حلول البيان
 
-> **VPS:** Ubuntu 24.04 — `184.94.215.64` — `hulul-albayan.com`
-> **API Subdomain:** `api.hulul-albayan.com`
-
----
-
-## 📋 قبل البدء — DNS
-
-أضف A record عند مزود الدومين:
-
-| Type | Host | Value | TTL |
-|------|------|-------|-----|
-| A | `api` | `184.94.215.64` | Automatic |
-
-تحقق بعد ~10 دقائق:
-```bash
-dig +short api.hulul-albayan.com
-# يجب أن يُرجع: 184.94.215.64
-```
+دليل عملي خطوة بخطوة لنشر التطبيق على VPS بنظام **Ubuntu 22.04 / 24.04**
+عبر سيناريو هجين: **FileZilla للـ frontend + SSH للـ backend**.
 
 ---
 
-## 1️⃣ الاتصال بالسيرفر
+## 📋 المتطلبات
 
-من جهازك:
-```bash
-ssh root@184.94.215.64
+- **VPS** Ubuntu 22.04 أو 24.04 (مع صلاحيات root أو sudo)
+- **دومين** موجّه (A record) إلى IP السيرفر — مثلاً `app.yourdomain.com` و `api.yourdomain.com`
+- **FileZilla** مثبّت على جهازك للرفع
+- **PuTTY** (ويندوز) أو Terminal (Mac/Linux) للوصول SSH
+- **Node.js 20+** على جهازك المحلي لبناء الـ frontend
+
+---
+
+## 🗺️ الخطة العامة
+
+```
+[جهازك المحلي]                    [VPS — Ubuntu]
+   ├─ npm run build               ├─ /var/www/hulul/public      ← frontend (FileZilla)
+   │      ↓                       ├─ /var/www/hulul/backend     ← backend  (git/SSH)
+   │   dist/                      ├─ /var/www/hulul/uploads     ← ملفات المستخدمين
+   │      ↓                       ├─ /var/www/hulul/backups     ← نسخ احتياطية
+   │   FileZilla → /var/www/hulul/public
+   │
+   └─ git push origin main → GitHub → git pull على VPS
 ```
 
 ---
 
-## 2️⃣ تنصيب البيئة (Node + Postgres + Nginx)
+## 1️⃣ تجهيز السيرفر (مرة واحدة فقط)
 
-ارفع مجلد `deploy/` للسيرفر، ثم:
+### (أ) ادخل بـ SSH
 ```bash
-cd /root/deploy
-chmod +x 01-server-setup.sh 03-ssl.sh
-bash 01-server-setup.sh
+ssh root@YOUR_VPS_IP
 ```
 
-السكربت رح يثبّت:
-- Node.js 20 LTS + PM2
-- PostgreSQL 16 + ينشئ DB اسمها `hulul_db`
-- Nginx + UFW (firewall) + fail2ban
-- Certbot لـ SSL
+### (ب) ارفع سكربت `01-server-setup.sh` إلى السيرفر
+عبر FileZilla أو SCP:
+```bash
+scp deploy/01-server-setup.sh root@YOUR_VPS_IP:/tmp/
+```
 
-✅ **مهم:** بيانات قاعدة البيانات تُحفظ في `/root/db_credentials.txt`
+### (ج) شغّل السكربت على السيرفر
+```bash
+ssh root@YOUR_VPS_IP
+bash /tmp/01-server-setup.sh
+```
+
+السكربت سيقوم بـ:
+- تحديث النظام
+- تثبيت Node.js 20 LTS، PostgreSQL 16، Nginx، PM2، Certbot، unzip، git، ufw
+- إنشاء مستخدم نظام `hulul` (بدون root)
+- إنشاء قاعدة بيانات `hulul` ومستخدم `hulul_app` بكلمة مرور عشوائية
+- إنشاء المجلدات: `/var/www/hulul/{public,backend,uploads,backups}`
+- ضبط ufw firewall (22, 80, 443)
+- حفظ بيانات الاعتماد في `/root/hulul-credentials.txt`
+
+📌 **مهم**: بعد انتهاء السكربت، شوف المخرجات — راح تطبع لك:
+- `DATABASE_URL` — تحتاجها لـ backend `.env`
+- مسار `JWT_SECRET` — مولّد عشوائياً
+- بيانات قاعدة البيانات
 
 ---
 
-## 3️⃣ نشر كود الـ Backend
+## 2️⃣ نشر الـ backend (عبر SSH + git)
 
-من جهازك (نسخ مجلد `backend/`):
+### (أ) على السيرفر، استنسخ المشروع
 ```bash
-scp -r backend/ root@184.94.215.64:/opt/hulul-api
+sudo -u hulul git clone https://github.com/YOUR_USER/YOUR_REPO.git /tmp/hulul-source
+sudo cp -r /tmp/hulul-source/backend/* /var/www/hulul/backend/
+sudo chown -R hulul:hulul /var/www/hulul/backend
 ```
 
-أو من السيرفر مع git:
+### (ب) أنشئ ملف `.env` للـ backend
 ```bash
-cd /opt && git clone <repo-url> hulul-api && cd hulul-api/backend
+sudo nano /var/www/hulul/backend/.env
 ```
 
-ثم على السيرفر:
-```bash
-cd /opt/hulul-api
-cp .env.example .env
-nano .env
-```
-
-في `.env` ضع:
-- `DATABASE_URL` من `/root/db_credentials.txt`
-- `JWT_SECRET` — أنشئه بـ:
-  ```bash
-  node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
-  ```
-- `CORS_ORIGIN` — دومين الفرونت (مثلاً Lovable preview URL + الدومين النهائي)
+الصق المحتوى من `deploy/.env.example` بعد تعبئة القيم الفعلية (انظر `/root/hulul-credentials.txt`).
 
 ثم:
 ```bash
-npm install --production
-npm run migrate    # إنشاء الجداول
-npm run seed       # إدخال admin/supervisor/agent + 12 موظف
+sudo chown hulul:hulul /var/www/hulul/backend/.env
+sudo chmod 600 /var/www/hulul/backend/.env
 ```
 
-اختبار محلي:
+### (ج) ثبّت الحزم وشغّل migrations
 ```bash
-node server.js
-# في terminal آخر:
+cd /var/www/hulul/backend
+sudo -u hulul npm ci --omit=dev
+sudo -u hulul node db/migrate.js
+```
+
+### (د) شغّل backend بـ PM2
+```bash
+sudo -u hulul pm2 start ecosystem.config.cjs --env production
+sudo -u hulul pm2 save
+sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u hulul --hp /home/hulul
+```
+
+تحقق:
+```bash
+sudo -u hulul pm2 status
+sudo -u hulul pm2 logs --lines 30
 curl http://localhost:4000/api/health
 ```
 
 ---
 
-## 4️⃣ تشغيل دائم بـ PM2
+## 3️⃣ بناء ورفع الـ frontend (من جهازك المحلي + FileZilla)
 
+### (أ) أنشئ ملف `.env` على جهازك المحلي
+في جذر المشروع:
+```env
+VITE_API_URL=https://api.yourdomain.com
+```
+
+### (ب) ابنِ الـ frontend
 ```bash
-mkdir -p logs
-pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup systemd     # نفّذ الأمر الذي يطبعه
-pm2 status
-pm2 logs hulul-api
+npm ci
+npm run build
+```
+
+سيتولّد مجلد `dist/` بكل الملفات الجاهزة للرفع.
+
+### (ج) افتح FileZilla واتصل بسيرفرك
+- Host: `sftp://YOUR_VPS_IP`
+- Username: `root` (أو user مع sudo)
+- Port: `22`
+
+### (د) ارفع محتوى `dist/`
+1. في الجانب الأيمن (Remote)، انتقل إلى `/var/www/hulul/public/`
+2. **احذف كل المحتوى القديم هناك** (Right-click → Delete)
+3. في الجانب الأيسر (Local)، افتح مجلد `dist/`
+4. اختر كل الملفات داخل `dist/` (Ctrl+A) واسحبها للجانب الأيمن
+
+### (هـ) اضبط الصلاحيات (عبر SSH)
+```bash
+sudo chown -R www-data:www-data /var/www/hulul/public
+sudo find /var/www/hulul/public -type d -exec chmod 755 {} \;
+sudo find /var/www/hulul/public -type f -exec chmod 644 {} \;
 ```
 
 ---
 
-## 5️⃣ ربط Nginx
+## 4️⃣ إعداد Nginx + SSL
 
+### (أ) ارفع ملف Nginx config
 ```bash
-cp /root/deploy/02-nginx.conf /etc/nginx/sites-available/hulul-api
-ln -s /etc/nginx/sites-available/hulul-api /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+scp deploy/03-nginx.conf.template root@YOUR_VPS_IP:/tmp/
 ```
 
-اختبار HTTP (قبل SSL):
+### (ب) على السيرفر، استبدل الدومين وفعّل
 ```bash
-curl http://api.hulul-albayan.com/api/health
+DOMAIN=app.yourdomain.com
+API_DOMAIN=api.yourdomain.com
+sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__API_DOMAIN__/$API_DOMAIN/g" \
+  /tmp/03-nginx.conf.template > /etc/nginx/sites-available/hulul.conf
+
+sudo ln -sf /etc/nginx/sites-available/hulul.conf /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### (ج) فعّل HTTPS عبر Let's Encrypt
+```bash
+sudo certbot --nginx -d app.yourdomain.com -d api.yourdomain.com \
+  --non-interactive --agree-tos -m you@yourdomain.com --redirect
+```
+
+certbot يجدّد تلقائياً عبر cron.
+
+---
+
+## 5️⃣ التحقق النهائي
+
+افتح في المتصفح:
+- 🌐 https://app.yourdomain.com → يجب أن يفتح تسجيل الدخول
+- 🔌 https://api.yourdomain.com/api/health → `{"ok":true,"db":"up",...}`
+
+سجّل دخول كأدمن (أنشئ المستخدم الأول عبر psql):
+```bash
+sudo -u postgres psql hulul -c "
+INSERT INTO users (id, name, email, password_hash, role, active)
+VALUES (gen_random_uuid(), 'Admin', 'admin@yourdomain.com',
+  crypt('CHANGE_ME_STRONG_PASSWORD', gen_salt('bf')), 'admin', true);"
 ```
 
 ---
 
-## 6️⃣ تركيب SSL
+## 🔄 التحديثات اللاحقة
 
+### تحديث الـ backend فقط
 ```bash
-bash /root/deploy/03-ssl.sh
+ssh root@YOUR_VPS_IP
+cd /tmp/hulul-source && sudo -u hulul git pull
+sudo cp -r /tmp/hulul-source/backend/* /var/www/hulul/backend/
+sudo chown -R hulul:hulul /var/www/hulul/backend
+cd /var/www/hulul/backend
+sudo -u hulul npm ci --omit=dev
+sudo -u hulul node db/migrate.js   # لو في migrations جديدة
+sudo -u hulul pm2 restart all
 ```
 
-اختبار HTTPS:
+### تحديث الـ frontend فقط
+على جهازك:
 ```bash
-curl https://api.hulul-albayan.com/api/health
-# {"ok":true,"db":"up",...}
+git pull
+npm run build
 ```
-
-اختبار تسجيل الدخول:
-```bash
-curl -X POST https://api.hulul-albayan.com/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"identifier":"admin","password":"admin123"}'
-```
-
-يجب أن يُرجع `{ "token": "...", "user": {...} }`.
+ثم FileZilla → احذف محتوى `/var/www/hulul/public` → ارفع `dist/*`.
 
 ---
 
-## 7️⃣ ربط Frontend (Lovable)
+## 💾 النسخ الاحتياطية
 
-في Lovable (نفس مشروعك):
-1. أنشئ متغير بيئة في `.env` (لو ما عندك):
-   ```
-   VITE_USE_REAL_API=true
-   VITE_API_URL=https://api.hulul-albayan.com
-   ```
-2. أعد بناء المشروع — رح يستخدم API الحقيقي تلقائياً.
+شغّل سكربت `backup-cron.sh` يومياً عبر cron:
+```bash
+sudo crontab -e
+# أضف:
+0 3 * * * /var/www/hulul/backend/backup-cron.sh >> /var/log/hulul-backup.log 2>&1
+```
+
+السكربت يحفظ `pg_dump` يومي في `/var/www/hulul/backups/` ويحذف ما هو أقدم من 7 أيام.
 
 ---
 
-## 🛠️ صيانة
+## 🆘 استكشاف الأخطاء
 
-> **المسارات الفعلية على السيرفر:**
-> - Backend (API): `/opt/hulul-api` — اسم PM2: `hulul-api`
-> - Frontend (App): `/var/www/hulul-albayan` — اسم PM2: `hulul-app`
-
-| المهمة | الأمر |
+| المشكلة | الحل |
 |---|---|
-| سجلات Backend | `pm2 logs hulul-api` |
-| سجلات Frontend | `pm2 logs hulul-app` |
-| إعادة تشغيل API | `pm2 restart hulul-api` |
-| إعادة تشغيل App | `pm2 restart hulul-app` |
-| تحديث الـ Backend | `cd /opt/hulul-api && git pull && npm install && pm2 restart hulul-api` |
-| تحديث الـ Frontend | `cd /var/www/hulul-albayan && git pull && npm run build && pm2 restart hulul-app` |
-| تشغيل migrations | `cd /opt/hulul-api && node db/migrate.js` |
-| تجديد SSL تلقائي | يعمل وحده عبر cron من Certbot |
-| نسخة احتياطية DB | `pg_dump -U hulul_user hulul_db > /root/backup-$(date +%F).sql` |
+| `502 Bad Gateway` | backend ميت — `sudo -u hulul pm2 logs` ثم `pm2 restart all` |
+| `CORS blocked` | تأكد من `CORS_ORIGIN` في `.env` يحتوي `https://app.yourdomain.com` |
+| WebSocket لا يعمل | تأكد من Nginx config فيه `proxy_set_header Upgrade $http_upgrade` |
+| تسجيل الدخول يفشل | `sudo -u postgres psql hulul -c "SELECT email FROM users"` للتحقق من المستخدمين |
+| الصور لا تظهر | تأكد `chown -R hulul:hulul /var/www/hulul/uploads` |
 
-### اختصارات سريعة (alias)
-أضفها مرة واحدة في `~/.bashrc`:
+تحقق من logs:
 ```bash
-echo "alias deploy-app='cd /var/www/hulul-albayan && git pull && npm run build && pm2 restart hulul-app'" >> ~/.bashrc
-echo "alias deploy-api='cd /opt/hulul-api && git pull && npm install && pm2 restart hulul-api'" >> ~/.bashrc
-source ~/.bashrc
+sudo -u hulul pm2 logs                    # backend
+sudo tail -f /var/log/nginx/error.log     # nginx
+sudo journalctl -u postgresql -n 50       # postgres
 ```
-بعدها استخدم: `deploy-app` أو `deploy-api`.
 
 ---
 
-## 🔐 ملاحظات أمان
+## 📦 ملفات هذا المجلد
 
-- ✅ غيّر كلمات السر التجريبية فور أول دخول (admin123 → كلمة قوية)
-- ✅ افتح أداة Postgres على localhost فقط (الافتراضي — لا تغيّر `pg_hba.conf` لقبول الخارج)
-- ✅ JWT_SECRET لازم يكون عشوائي وطويل (64+ حرف)
-- ✅ راقب `fail2ban` لمحاولات SSH الفاشلة
+| الملف | الوظيفة |
+|---|---|
+| `01-server-setup.sh` | تجهيز السيرفر (Node, Postgres, Nginx, PM2, ufw) |
+| `03-nginx.conf.template` | قالب Nginx — استبدل `__DOMAIN__` و `__API_DOMAIN__` |
+| `.env.example` | قالب متغيرات البيئة للـ backend |
+| `backup-cron.sh` | نسخة احتياطية يومية تلقائية |
+| `update-backend.sh` | اختصار لتحديث backend بأمر واحد |
+
+✅ كل الباقي موجود في `backend/` (الكود) و `dist/` (بعد البناء).
