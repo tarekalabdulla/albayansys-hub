@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -34,11 +35,16 @@ import {
   Wifi,
   KeyRound,
   CheckCircle2,
+  XCircle,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import { z } from "zod";
+import { USE_REAL_API } from "@/lib/config";
+import { getPbxSettings, updatePbxSettings, testPbxConnection, type PbxSettings } from "@/lib/pbxApi";
 
 type Role = "admin" | "supervisor" | "agent" | "viewer";
 
