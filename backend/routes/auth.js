@@ -43,7 +43,8 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authRequired, async (req, res) => {
   const { rows } = await query(
-    "SELECT id, identifier, role, display_name FROM users WHERE id = $1",
+    `SELECT id, identifier, role, display_name, email, ext, department, phone, bio, job_title
+     FROM users WHERE id = $1`,
     [req.user.sub]
   );
   if (!rows[0]) return res.status(404).json({ error: "not_found" });
@@ -56,33 +57,52 @@ router.post("/logout", authRequired, (_req, res) => {
 });
 
 // ============================================================
-// تحديث الملف الشخصي (الاسم وغيره)
+// تحديث الملف الشخصي
 // ============================================================
 const updateProfileSchema = z.object({
-  display_name: z.string().min(1).max(128).optional(),
+  display_name: z.string().trim().min(1).max(128).optional(),
+  email:        z.string().trim().email().max(255).optional().or(z.literal("")),
+  ext:          z.string().trim().max(16).optional().or(z.literal("")),
+  department:   z.string().trim().max(128).optional().or(z.literal("")),
+  phone:        z.string().trim().max(32).optional().or(z.literal("")),
+  bio:          z.string().trim().max(1000).optional().or(z.literal("")),
+  job_title:    z.string().trim().max(128).optional().or(z.literal("")),
 });
+
+const ALLOWED_FIELDS = ["display_name", "email", "ext", "department", "phone", "bio", "job_title"];
 
 router.patch("/me", authRequired, async (req, res) => {
   const parsed = updateProfileSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+  }
 
-  const { display_name } = parsed.data;
   const fields = [];
   const values = [];
   let i = 1;
-  if (display_name !== undefined) {
-    fields.push(`display_name = $${i++}`);
-    values.push(display_name);
+  for (const key of ALLOWED_FIELDS) {
+    if (parsed.data[key] !== undefined) {
+      fields.push(`${key} = $${i++}`);
+      // فرّغ السلسلة الفارغة إلى NULL لحقول غير display_name
+      values.push(parsed.data[key] === "" && key !== "display_name" ? null : parsed.data[key]);
+    }
   }
   if (!fields.length) return res.status(400).json({ error: "no_fields" });
 
   values.push(req.user.sub);
-  const { rows } = await query(
-    `UPDATE users SET ${fields.join(", ")} WHERE id = $${i}
-     RETURNING id, identifier, role, display_name`,
-    values
-  );
-  res.json({ user: rows[0] });
+  try {
+    const { rows } = await query(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = $${i}
+       RETURNING id, identifier, role, display_name, email, ext, department, phone, bio, job_title`,
+      values
+    );
+    res.json({ user: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "email_taken" });
+    }
+    throw err;
+  }
 });
 
 // ============================================================

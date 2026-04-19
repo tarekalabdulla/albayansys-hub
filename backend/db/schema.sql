@@ -33,8 +33,17 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- أعمدة الملف الشخصي الإضافية (إضافة آمنة لو الجدول موجود سابقاً)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email      VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ext        VARCHAR(16);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(128);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone      VARCHAR(32);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio        TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title  VARCHAR(128);
+
 CREATE INDEX IF NOT EXISTS idx_users_identifier ON users(identifier);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- ============================================
 -- الموظفون (data table — منفصل عن users)
