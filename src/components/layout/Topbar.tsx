@@ -384,7 +384,7 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={handleLogout}
+            onClick={() => setLogoutOpen(true)}
             className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="تسجيل الخروج"
             title="تسجيل الخروج"
