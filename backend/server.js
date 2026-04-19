@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import "dotenv/config";
 
 import authRoutes from "./routes/auth.js";
+import usersRoutes from "./routes/users.js";
 import agentsRoutes from "./routes/agents.js";
 import callsRoutes from "./routes/calls.js";
 import alertsRoutes from "./routes/alerts.js";
@@ -50,6 +51,7 @@ app.get("/api/health", async (_req, res) => {
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
 app.use("/api/agents", agentsRoutes);
 app.use("/api/calls", callsRoutes);
 app.use("/api/alerts", alertsRoutes);
