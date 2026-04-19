@@ -31,9 +31,10 @@ import {
   type ThemeId,
 } from "@/lib/themes";
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
-import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
+import { clearSession, getSession, ROLE_LABELS, resolveAvatarUrl } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface TopbarProps {
   onMenuClick: () => void;
