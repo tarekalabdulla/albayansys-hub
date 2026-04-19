@@ -95,8 +95,36 @@ export async function logoutViaApi() {
   }
 }
 
+// شكل الملف الشخصي الكامل من الخادم
+export interface ProfileFromApi {
+  id: string;
+  identifier: string;
+  role: Role;
+  display_name: string | null;
+  email: string | null;
+  ext: string | null;
+  department: string | null;
+  phone: string | null;
+  bio: string | null;
+  job_title: string | null;
+}
+
+// جلب الملف الشخصي الكامل
+export async function fetchProfileViaApi(): Promise<ProfileFromApi> {
+  const { data } = await api.get("/auth/me");
+  return data.user;
+}
+
 // تحديث بيانات الملف الشخصي على الخادم
-export async function updateProfileViaApi(payload: { display_name?: string }) {
+export async function updateProfileViaApi(payload: {
+  display_name?: string;
+  email?: string;
+  ext?: string;
+  department?: string;
+  phone?: string;
+  bio?: string;
+  job_title?: string;
+}): Promise<ProfileFromApi> {
   const { data } = await api.patch("/auth/me", payload);
   const current = getSession();
   if (current) {
