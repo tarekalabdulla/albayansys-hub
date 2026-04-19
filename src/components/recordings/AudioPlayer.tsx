@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Download, Gauge } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Download, Gauge, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { formatTime } from "@/lib/recordingsData";
+import { fetchRecordingBlobUrl } from "@/lib/cdrApi";
 import { cn } from "@/lib/utils";
 
 interface AudioPlayerProps {
   src: string;
+  /** إذا true → نجلب الملف عبر fetch مع Bearer token (لتسجيلات Yeastar) */
+  authRequired?: boolean;
   onTimeUpdate?: (time: number) => void;
   onSeek?: (time: number) => void;
   seekTo?: number | null;
@@ -14,7 +17,7 @@ interface AudioPlayerProps {
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2];
 
-export function AudioPlayer({ src, onTimeUpdate, onSeek, seekTo }: AudioPlayerProps) {
+export function AudioPlayer({ src, authRequired, onTimeUpdate, onSeek, seekTo }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -23,12 +26,51 @@ export function AudioPlayer({ src, onTimeUpdate, onSeek, seekTo }: AudioPlayerPr
   const [muted, setMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [resolvedSrc, setResolvedSrc] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPlaying(false);
     setCurrent(0);
     setLoading(true);
-  }, [src]);
+    setError(null);
+
+    // تنظيف Blob السابق
+    if (blobRef.current) {
+      URL.revokeObjectURL(blobRef.current);
+      blobRef.current = null;
+    }
+
+    if (!src) {
+      setResolvedSrc("");
+      setLoading(false);
+      return;
+    }
+
+    if (authRequired) {
+      let cancelled = false;
+      fetchRecordingBlobUrl(src)
+        .then((url) => {
+          if (cancelled) { URL.revokeObjectURL(url); return; }
+          blobRef.current = url;
+          setResolvedSrc(url);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError(e?.message || "تعذّر تحميل التسجيل");
+          setLoading(false);
+        });
+      return () => { cancelled = true; };
+    } else {
+      setResolvedSrc(src);
+    }
+  }, [src, authRequired]);
+
+  useEffect(() => () => {
+    if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+  }, []);
+
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : volume;
@@ -77,7 +119,7 @@ export function AudioPlayer({ src, onTimeUpdate, onSeek, seekTo }: AudioPlayerPr
     <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
       <audio
         ref={audioRef}
-        src={src}
+        src={resolvedSrc}
         preload="metadata"
         onLoadedMetadata={(e) => {
           setDuration(e.currentTarget.duration || 0);
@@ -89,8 +131,19 @@ export function AudioPlayer({ src, onTimeUpdate, onSeek, seekTo }: AudioPlayerPr
           onTimeUpdate?.(t);
         }}
         onEnded={() => setPlaying(false)}
-        onError={() => setLoading(false)}
+        onError={() => { setLoading(false); setError("تعذّر تشغيل الملف"); }}
       />
+
+      {error && (
+        <div className="mb-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-2.5 py-1.5">
+          {error}
+        </div>
+      )}
+      {loading && !error && (
+        <div className="mb-2 text-xs text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> جارٍ تحميل التسجيل...
+        </div>
+      )}
 
       {/* شريط التقدم */}
       <div className="flex items-center gap-3 mb-3">
@@ -172,8 +225,8 @@ export function AudioPlayer({ src, onTimeUpdate, onSeek, seekTo }: AudioPlayerPr
             />
           </div>
 
-          <a href={src} download target="_blank" rel="noreferrer">
-            <Button variant="outline" size="icon">
+          <a href={resolvedSrc || src} download target="_blank" rel="noreferrer">
+            <Button variant="outline" size="icon" disabled={!resolvedSrc}>
               <Download className="w-4 h-4" />
             </Button>
           </a>

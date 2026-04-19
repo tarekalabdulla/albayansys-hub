@@ -3,9 +3,11 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { AudioPlayer } from "@/components/recordings/AudioPlayer";
 import { TranscriptView } from "@/components/recordings/TranscriptView";
 import { QualityScore } from "@/components/recordings/QualityScore";
+import { YeastarCdrTable } from "@/components/recordings/YeastarCdrTable";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search,
   Phone,
@@ -15,6 +17,8 @@ import {
   Sparkles,
   Filter,
   ChevronLeft,
+  Server,
+  Sparkle,
 } from "lucide-react";
 import {
   RECORDINGS,
@@ -63,6 +67,21 @@ export default function Recordings() {
       title="تسجيلات المكالمات"
       subtitle="استمع، اقرأ النص، وراجع جودة كل مكالمة"
     >
+      <Tabs defaultValue="yeastar" className="space-y-4">
+        <TabsList className="grid grid-cols-2 max-w-md">
+          <TabsTrigger value="yeastar" className="gap-1.5">
+            <Server className="w-3.5 h-3.5" /> Yeastar CDR
+          </TabsTrigger>
+          <TabsTrigger value="demo" className="gap-1.5">
+            <Sparkle className="w-3.5 h-3.5" /> تحليلات الجودة
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="yeastar" className="mt-0">
+          <YeastarCdrTable />
+        </TabsContent>
+
+        <TabsContent value="demo" className="mt-0">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* قائمة التسجيلات */}
         <aside
@@ -278,6 +297,8 @@ export default function Recordings() {
           </div>
         </section>
       </div>
+        </TabsContent>
+      </Tabs>
     </AppLayout>
   );
 }
