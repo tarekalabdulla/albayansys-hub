@@ -101,7 +101,15 @@ export function clearSession() {
 export async function loginViaApi(identifier: string, password: string) {
   const { data } = await api.post("/auth/login", { identifier, password });
   tokenStorage.set(data.token);
-  setSession(data.user.identifier, data.user.role, data.user.display_name);
+  setSession(data.user.identifier, data.user.role, data.user.display_name, data.user.avatar_url ?? undefined);
+  // اجلب الـ avatar مباشرة بعد الدخول لو لم يُرجِعه login
+  if (!data.user.avatar_url) {
+    try {
+      const me = await fetchProfileViaApi();
+      const cur = getSession();
+      if (cur) setSession(cur.identifier, cur.role, me.display_name ?? cur.displayName, me.avatar_url ?? undefined);
+    } catch { /* ignore */ }
+  }
   return data.user;
 }
 
@@ -165,7 +173,7 @@ export async function updateProfileViaApi(payload: {
   const { data } = await api.patch("/auth/me", payload);
   const current = getSession();
   if (current) {
-    setSession(current.identifier, current.role, data.user.display_name);
+    setSession(current.identifier, current.role, data.user.display_name, data.user.avatar_url ?? undefined);
   }
   return data.user;
 }
