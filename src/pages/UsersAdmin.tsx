@@ -26,10 +26,11 @@ import { ROLE_LABELS, getSession, resolveAvatarUrl, setSession, type Role } from
 import {
   listUsers, createUser, updateUser, deleteUser,
   uploadUserAvatar, deleteUserAvatar,
-  type ManagedUser, type CreateUserPayload,
+  listAgentsForLink, linkAgentToUser,
+  type ManagedUser, type CreateUserPayload, type AgentLite,
 } from "@/lib/usersApi";
 import {
-  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2, Camera,
+  UserPlus, Pencil, Trash2, Search, ShieldAlert, Users as UsersIcon, Loader2, Camera, Link2,
 } from "lucide-react";
 
 const ROLE_BADGE: Record<Role, string> = {
