@@ -174,4 +174,61 @@ router.post("/reset-all", async (req, res) => {
   }
 });
 
+
+// POST /api/admin/restore — استعادة من ملف .sql أو .dump
+// يتطلب: ملف مرفوع + body.confirm === "RESTORE" (تأكيد مزدوج عبر الواجهة)
+router.post("/restore", restoreUpload.single("file"), async (req, res) => {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) return res.status(500).json({ error: "DATABASE_URL غير مضبوط" });
+
+  if (!req.file) return res.status(400).json({ error: "لم يتم إرفاق ملف" });
+
+  // تأكيد إلزامي
+  if (req.body?.confirm !== "RESTORE") {
+    fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: "تأكيد ناقص — أرسل confirm=RESTORE" });
+  }
+
+  const filePath = req.file.path;
+  const ext = path.extname(filePath).toLowerCase();
+  const isCustom = ext === ".dump";
+
+  // استخدم psql للـ .sql و pg_restore للـ .dump
+  const cmd = isCustom ? "pg_restore" : "psql";
+  const args = isCustom
+    ? ["--dbname", dbUrl, "--clean", "--if-exists", "--no-owner", "--no-privileges", filePath]
+    : ["--dbname", dbUrl, "--quiet", "--single-transaction", "--set", "ON_ERROR_STOP=1", "-f", filePath];
+
+  const child = spawn(cmd, args, { env: process.env });
+  let stdout = "";
+  let stderr = "";
+
+  child.stdout.on("data", (d) => { stdout += d.toString(); });
+  child.stderr.on("data", (d) => { stderr += d.toString(); });
+
+  child.on("error", (err) => {
+    fs.promises.unlink(filePath).catch(() => {});
+    return res.status(500).json({
+      error: `${cmd} غير متوفر على الخادم`,
+      detail: err.message,
+    });
+  });
+
+  child.on("close", (code) => {
+    fs.promises.unlink(filePath).catch(() => {});
+    if (code === 0) {
+      return res.json({
+        ok: true,
+        tool: cmd,
+        message: "تمت الاستعادة بنجاح",
+        warnings: stderr.slice(0, 1000) || null,
+      });
+    }
+    return res.status(500).json({
+      error: `فشلت الاستعادة (${cmd} exit ${code})`,
+      detail: stderr.slice(0, 2000) || stdout.slice(0, 1000),
+    });
+  });
+});
+
 export default router;
