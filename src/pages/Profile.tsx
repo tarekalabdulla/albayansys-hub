@@ -150,6 +150,58 @@ export default function Profile() {
     .join("")
     .slice(0, 2);
 
+  const onPickAvatar = () => fileInputRef.current?.click();
+
+  const onAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!USE_REAL_API) {
+      toast({ title: "وضع تجريبي", description: "رفع الصورة يعمل فقط بعد ربط الخادم", variant: "destructive" });
+      return;
+    }
+    if (!/^image\//.test(file.type)) {
+      toast({ title: "نوع غير مدعوم", description: "اختر صورة (PNG/JPG/WEBP)", variant: "destructive" });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "الحجم كبير", description: "الحد الأقصى 2 ميجابايت", variant: "destructive" });
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const u = await uploadAvatarViaApi(file);
+      setAvatarUrl(u.avatar_url ?? undefined);
+      toast({ title: "تم الرفع", description: "تم تحديث صورتك الشخصية" });
+    } catch (err: any) {
+      const code = err?.response?.data?.error;
+      toast({
+        title: "تعذّر الرفع",
+        description:
+          code === "file_too_large" ? "الحجم أكبر من 2MB" :
+          code === "invalid_file_type" ? "نوع الملف غير مسموح" :
+          "خطأ في الاتصال بالخادم",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!USE_REAL_API || !avatarUrl) return;
+    setUploadingAvatar(true);
+    try {
+      await deleteAvatarViaApi();
+      setAvatarUrl(undefined);
+      toast({ title: "تم الحذف", description: "تمت إزالة الصورة الشخصية" });
+    } catch {
+      toast({ title: "تعذّر الحذف", variant: "destructive" });
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const saveProfile = async () => {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
     if (USE_REAL_API) {
