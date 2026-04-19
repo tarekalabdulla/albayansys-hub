@@ -153,6 +153,7 @@ async function upsertExtStatus(e) {
 // المعالج الرئيسي — يُستدعى من routes/pbx.js
 export async function handleYeastarWebhook(req, res) {
   const io = req.app.get("io");
+  const broadcastFiltered = req.app.get("broadcastFiltered");
   const raw = req.rawBody || (typeof req.body === "string" ? Buffer.from(req.body) : Buffer.from(JSON.stringify(req.body || {})));
   const secret = await getWebhookSecret();
 
@@ -166,8 +167,13 @@ export async function handleYeastarWebhook(req, res) {
   try { body = typeof req.body === "string" ? JSON.parse(req.body) : req.body; }
   catch { return res.status(400).json({ error: "invalid_json" }); }
 
-  // قد يأتي مصفوفة أحداث أو حدث واحد
   const events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
+
+  // helper بث آمن: مفلتر حسب الدور إن أمكن، وإلا fallback
+  const emit = (event, payload, keyFn) => {
+    if (broadcastFiltered) broadcastFiltered(event, payload, keyFn);
+    else io?.emit(event, payload);
+  };
 
   for (const ev of events) {
     try {
@@ -175,27 +181,27 @@ export async function handleYeastarWebhook(req, res) {
       if (type === "ext_status") {
         const e = normalizeExt(ev);
         await upsertExtStatus(e);
-        io?.emit("ext:status", { ...e, ts: nowIso() });
+        emit("ext:status", { ...e, ts: nowIso() }, (p) => ({ ext: p.extension }));
       } else if (type === "cdr") {
         const c = normalizeCdr(ev);
         await insertCdr(c, ev);
-        await deleteLiveCall(c.id); // المكالمة انتهت
-        io?.emit("cdr:new", { ...c, ts: nowIso() });
-        io?.emit("call:status", { id: c.id, status: "ended", extension: c.extension, ts: nowIso() });
+        await deleteLiveCall(c.id);
+        emit("cdr:new", { ...c, ts: nowIso() }, (p) => ({ ext: p.extension }));
+        emit("call:status", { id: c.id, status: "ended", extension: c.extension, ts: nowIso() }, (p) => ({ ext: p.extension }));
       } else if (type === "queue") {
         const c = normalizeCall(ev);
-        io?.emit("queue:event", {
+        emit("queue:event", {
           action: pick(ev, ["action", "queue_event"]),
           queue: c.queue_name,
           extension: c.extension,
           caller_number: c.caller_number,
           waited: Number(pick(ev, ["wait_time", "waited"]) || 0),
           ts: nowIso(),
-        });
+        }, (p) => ({ ext: p.extension }));
       } else { // call_status
         const c = normalizeCall(ev);
         await upsertLiveCall(c);
-        io?.emit("call:status", { ...c, ts: nowIso() });
+        emit("call:status", { ...c, ts: nowIso() }, (p) => ({ ext: p.extension }));
       }
     } catch (e) {
       console.error("[webhook] خطأ في معالجة حدث:", e.message);
