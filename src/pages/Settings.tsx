@@ -227,6 +227,27 @@ const Settings = () => {
       supervisors: "المشرفون والربط بالفِرق",
       stats: "إحصائيات الموظفين (تصفير العدّادات)",
     };
+    // إجبار تنزيل نسخة احتياطية قبل التصفير
+    const pre = await Swal.fire({
+      icon: "question",
+      title: "نزّل نسخة احتياطية أولاً",
+      html: `<div class="text-right text-sm leading-7">
+        ننصح بشدّة بتنزيل نسخة احتياطية كاملة قبل التصفير حتى يمكن الاستعادة عند الحاجة.
+      </div>`,
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: "نزّل ثم تابع",
+      denyButtonText: "تابع بدون نسخة (خطِر)",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(217 91% 60%)",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (pre.dismiss) return;
+    if (pre.isConfirmed) {
+      const ok = await downloadBackup("plain");
+      if (!ok) return; // فشل التنزيل = ألغِ التصفير
+    }
+
     const r = await Swal.fire({
       icon: "warning",
       title: "تأكيد التصفير الشامل",
