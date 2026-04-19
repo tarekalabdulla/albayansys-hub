@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { USE_REAL_API } from "@/lib/config";
 import {
   getSession,
+  fetchProfileViaApi,
   updateProfileViaApi,
   changePasswordViaApi,
   ROLE_LABELS,
