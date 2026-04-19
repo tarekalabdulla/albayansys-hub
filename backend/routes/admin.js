@@ -1,9 +1,77 @@
 import { Router } from "express";
+import { spawn } from "child_process";
 import { pool } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 router.use(authRequired, requireRole("admin"));
+
+// GET /api/admin/backup — تنزيل SQL dump كامل لقاعدة البيانات
+// يستخدم pg_dump المثبّت على الخادم. يدعم plain أو custom format.
+router.get("/backup", async (req, res) => {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    return res.status(500).json({ error: "DATABASE_URL غير مضبوط" });
+  }
+
+  const fmt = req.query.format === "custom" ? "custom" : "plain";
+  const ext = fmt === "custom" ? "dump" : "sql";
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `hulul-backup-${ts}.${ext}`;
+  const mime = fmt === "custom" ? "application/octet-stream" : "application/sql";
+
+  // pg_dump args: تضمين البيانات، مع DROP لاستعادة نظيفة، بدون owner/privileges
+  const args = [
+    "--dbname", dbUrl,
+    "--no-owner",
+    "--no-privileges",
+    "--clean",
+    "--if-exists",
+    fmt === "custom" ? "--format=custom" : "--format=plain",
+  ];
+
+  const child = spawn("pg_dump", args, { env: process.env });
+
+  let started = false;
+  let stderr = "";
+
+  child.stderr.on("data", (d) => { stderr += d.toString(); });
+
+  child.stdout.on("data", (chunk) => {
+    if (!started) {
+      started = true;
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "no-store");
+    }
+    res.write(chunk);
+  });
+
+  child.on("error", (err) => {
+    if (!started) {
+      return res.status(500).json({ error: "pg_dump غير متوفر على الخادم", detail: err.message });
+    }
+    res.end();
+  });
+
+  child.on("close", (code) => {
+    if (code === 0) {
+      if (!started) {
+        // لم يخرج شيء؟ (نادر) — أرسل ملفاً فارغاً
+        res.setHeader("Content-Type", mime);
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      }
+      res.end();
+    } else {
+      if (!started) {
+        return res.status(500).json({ error: "فشل pg_dump", code, detail: stderr.slice(0, 500) });
+      }
+      // إذا بدأ البث ثم فشل: أنهِ الاستجابة (لا يمكن إرسال JSON بعدها)
+      res.end();
+    }
+  });
+});
+
 
 // POST /api/admin/reset-all
 // تصفير شامل: المكالمات + CDR + التنبيهات + البريد + المشرفين + إحصائيات الموظفين

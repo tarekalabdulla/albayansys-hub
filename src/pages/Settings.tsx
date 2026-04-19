@@ -183,9 +183,36 @@ const Settings = () => {
     stats: true,
   });
   const [resetting, setResetting] = useState(false);
+  const [downloadingBackup, setDownloadingBackup] = useState(false);
 
   const toggleScope = (s: ResetScope) =>
     setResetScopes((p) => ({ ...p, [s]: !p[s] }));
+
+  const downloadBackup = async (format: "plain" | "custom" = "plain") => {
+    if (!USE_REAL_API) {
+      Swal.fire({ icon: "info", title: "وضع تجريبي", text: "تنزيل النسخة الاحتياطية يحتاج تفعيل API الحقيقي." });
+      return false;
+    }
+    setDownloadingBackup(true);
+    try {
+      await adminApi.downloadBackup(format);
+      Swal.fire({
+        icon: "success",
+        title: "تم تنزيل النسخة الاحتياطية",
+        text: format === "custom"
+          ? "ملف .dump جاهز للاستعادة عبر pg_restore."
+          : "ملف .sql جاهز للاستعادة عبر psql -f.",
+        timer: 2200,
+        showConfirmButton: false,
+      });
+      return true;
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التنزيل", text: e?.message || "خطأ غير متوقع" });
+      return false;
+    } finally {
+      setDownloadingBackup(false);
+    }
+  };
 
   const runResetAll = async () => {
     const selected = (Object.keys(resetScopes) as ResetScope[]).filter((k) => resetScopes[k]);
@@ -200,6 +227,27 @@ const Settings = () => {
       supervisors: "المشرفون والربط بالفِرق",
       stats: "إحصائيات الموظفين (تصفير العدّادات)",
     };
+    // إجبار تنزيل نسخة احتياطية قبل التصفير
+    const pre = await Swal.fire({
+      icon: "question",
+      title: "نزّل نسخة احتياطية أولاً",
+      html: `<div class="text-right text-sm leading-7">
+        ننصح بشدّة بتنزيل نسخة احتياطية كاملة قبل التصفير حتى يمكن الاستعادة عند الحاجة.
+      </div>`,
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: "نزّل ثم تابع",
+      denyButtonText: "تابع بدون نسخة (خطِر)",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(217 91% 60%)",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (pre.dismiss) return;
+    if (pre.isConfirmed) {
+      const ok = await downloadBackup("plain");
+      if (!ok) return; // فشل التنزيل = ألغِ التصفير
+    }
+
     const r = await Swal.fire({
       icon: "warning",
       title: "تأكيد التصفير الشامل",
@@ -910,16 +958,57 @@ const Settings = () => {
             ))}
           </div>
 
+          {/* أزرار النسخ الاحتياطي قبل التصفير */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => downloadBackup("plain")}
+              disabled={downloadingBackup}
+              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
+            >
+              {downloadingBackup ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 ml-2" />
+              )}
+              تنزيل نسخة .sql (نص قابل للقراءة)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => downloadBackup("custom")}
+              disabled={downloadingBackup}
+              className="border-info/40 text-info hover:bg-info/10 hover:text-info"
+            >
+              {downloadingBackup ? (
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 ml-2" />
+              )}
+              تنزيل نسخة .dump (مضغوطة لـ pg_restore)
+            </Button>
+          </div>
+
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-info/5 border border-info/20 text-[11px] text-muted-foreground mb-2">
+            <Database className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+            <span>
+              للاستعادة: <code className="px-1 bg-muted rounded" dir="ltr">psql $DATABASE_URL -f file.sql</code>
+              {" أو "}
+              <code className="px-1 bg-muted rounded" dir="ltr">pg_restore -d $DATABASE_URL --clean file.dump</code>
+            </span>
+          </div>
+
           <div className="flex items-start gap-2 p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-[11px] text-muted-foreground mb-3">
             <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
             <span>
-              سيُطلب منك كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
+              سيُطلب منك تنزيل نسخة احتياطية ثم كتابة <code className="px-1 bg-muted rounded">RESET</code> للتأكيد. الإجراء غير قابل للتراجع.
             </span>
           </div>
 
           <Button
             onClick={runResetAll}
-            disabled={resetting}
+            disabled={resetting || downloadingBackup}
             variant="destructive"
             className="w-full"
           >
