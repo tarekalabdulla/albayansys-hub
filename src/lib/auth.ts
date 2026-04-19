@@ -34,6 +34,7 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   "/mail": ["admin", "supervisor", "agent"],
   "/supervisors": ["admin"],
   "/supervisors/:id": ["admin", "supervisor"],
+  "/users": ["admin"],
   "/profile": ["admin", "supervisor", "agent"],
   "/settings": ["admin"],
 };
