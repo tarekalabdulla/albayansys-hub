@@ -12,6 +12,7 @@ import usersRoutes from "./routes/users.js";
 import agentsRoutes from "./routes/agents.js";
 import callsRoutes from "./routes/calls.js";
 import alertsRoutes from "./routes/alerts.js";
+import pbxRoutes from "./routes/pbx.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -62,6 +63,7 @@ app.use("/api/users", usersRoutes);
 app.use("/api/agents", agentsRoutes);
 app.use("/api/calls", callsRoutes);
 app.use("/api/alerts", alertsRoutes);
+app.use("/api/pbx", pbxRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);

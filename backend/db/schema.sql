@@ -100,6 +100,33 @@ CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(is_read) WHERE is_read = FALSE;
 
 -- ============================================
+-- إعدادات السنترال Yeastar (Open API لـ P-Series)
+-- ============================================
+CREATE TABLE IF NOT EXISTS pbx_settings (
+  id              SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1), -- صف واحد فقط
+  enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+  host            VARCHAR(253),                 -- IP أو domain
+  port            INT NOT NULL DEFAULT 8088,
+  use_tls         BOOLEAN NOT NULL DEFAULT TRUE,
+  api_username    VARCHAR(128),
+  api_secret_enc  TEXT,                          -- مشفّر AES-256-GCM
+  webhook_url     VARCHAR(2048),
+  -- حالة آخر اختبار اتصال
+  last_test_at    TIMESTAMPTZ,
+  last_test_ok    BOOLEAN,
+  last_test_msg   TEXT,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by      UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- صف افتراضي
+INSERT INTO pbx_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+DROP TRIGGER IF EXISTS pbx_settings_updated_at ON pbx_settings;
+CREATE TRIGGER pbx_settings_updated_at BEFORE UPDATE ON pbx_settings
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================
 -- trigger لتحديث updated_at تلقائياً
 -- ============================================
 CREATE OR REPLACE FUNCTION set_updated_at()
