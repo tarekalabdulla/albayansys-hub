@@ -119,7 +119,7 @@ export function AudioPlayer({ src, authRequired, onTimeUpdate, onSeek, seekTo }:
     <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
       <audio
         ref={audioRef}
-        src={src}
+        src={resolvedSrc}
         preload="metadata"
         onLoadedMetadata={(e) => {
           setDuration(e.currentTarget.duration || 0);
@@ -131,8 +131,19 @@ export function AudioPlayer({ src, authRequired, onTimeUpdate, onSeek, seekTo }:
           onTimeUpdate?.(t);
         }}
         onEnded={() => setPlaying(false)}
-        onError={() => setLoading(false)}
+        onError={() => { setLoading(false); setError("تعذّر تشغيل الملف"); }}
       />
+
+      {error && (
+        <div className="mb-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-2.5 py-1.5">
+          {error}
+        </div>
+      )}
+      {loading && !error && (
+        <div className="mb-2 text-xs text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> جارٍ تحميل التسجيل...
+        </div>
+      )}
 
       {/* شريط التقدم */}
       <div className="flex items-center gap-3 mb-3">
@@ -214,8 +225,8 @@ export function AudioPlayer({ src, authRequired, onTimeUpdate, onSeek, seekTo }:
             />
           </div>
 
-          <a href={src} download target="_blank" rel="noreferrer">
-            <Button variant="outline" size="icon">
+          <a href={resolvedSrc || src} download target="_blank" rel="noreferrer">
+            <Button variant="outline" size="icon" disabled={!resolvedSrc}>
               <Download className="w-4 h-4" />
             </Button>
           </a>
