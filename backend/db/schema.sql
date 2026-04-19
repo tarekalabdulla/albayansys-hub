@@ -2,6 +2,15 @@
 -- Hulul Abayan Call Center — Database Schema
 -- ============================================
 
+-- function لتحديث updated_at (مُعرَّفة أولاً قبل أي trigger)
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- enum للأدوار
 DO $$ BEGIN
   CREATE TYPE app_role AS ENUM ('admin', 'supervisor', 'agent');
@@ -90,16 +99,8 @@ CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(is_read) WHERE is_read = FALSE;
 
 -- ============================================
--- trigger لتحديث updated_at تلقائياً
+-- triggers لتحديث updated_at تلقائياً
 -- ============================================
-CREATE OR REPLACE FUNCTION set_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS users_updated_at ON users;
 CREATE TRIGGER users_updated_at BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
