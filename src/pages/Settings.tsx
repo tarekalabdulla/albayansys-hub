@@ -628,9 +628,15 @@ const Settings = () => {
                 {pTesting ? "جاري الاختبار..." : "اختبار الاتصال"}
               </Button>
             </div>
-          </TabsContent>
 
-          {/* S-Series */}
+            {/* ============ Webhook للأحداث الحية ============ */}
+            <YeastarWebhookCard
+              hasSecret={pHasWebhookSecret}
+              webhookUrl={pPublicWebhookUrl}
+              lastEventAt={pLastEventAt}
+              onChange={(s) => setPHasWebhookSecret(s)}
+            />
+          </TabsContent>
           <TabsContent value="s20" className="space-y-4 mt-0">
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
