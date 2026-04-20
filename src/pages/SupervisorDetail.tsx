@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -23,6 +23,7 @@ import {
   Users,
   Activity,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -40,7 +41,7 @@ import {
   Line,
 } from "recharts";
 
-import { loadSupervisors } from "@/lib/supervisorsData";
+import { supervisorsApi, isRealApi, type ApiSupervisor } from "@/lib/dataApi";
 
 type Range = "day" | "week" | "month";
 
