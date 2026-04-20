@@ -251,7 +251,92 @@ async function logEvent({ eventType, callUuid, payload, ip, sigOk, processed, er
 }
 
 // ------------------------------------------------------------
-// المعالج الرئيسي
+// معالج موحّد — مشترك بين webhook (HTTP) و Open API (WebSocket)
+// يأخذ body مُطبَّع ويُحدّث DB + يبثّ socket.io
+// ------------------------------------------------------------
+export async function handleNormalizedEvent(body, io, source = "yeastar-webhook") {
+  const evt = normalizeEvent(body || {});
+  const rawPayload = body || {};
+  try {
+    const agent = await findAgentByExt(evt.ext);
+    if (!agent && evt.ext) {
+      await logEvent({
+        eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
+        sigOk: true, processed: false, error: `unknown_extension:${evt.ext}`,
+      });
+      return { ok: true, ignored: "unknown_extension" };
+    }
+
+    switch (evt.kind) {
+      case "ring": {
+        if (agent) {
+          const updated = await setAgentStatus(agent.id, "in_call");
+          if (updated) io?.emit("agent:update", updated);
+        }
+        if (evt.callUuid) {
+          await recordCallStart({
+            callUuid: evt.callUuid, agentId: agent?.id || null,
+            number: evt.peer, direction: evt.direction, raw: rawPayload,
+          });
+        }
+        break;
+      }
+      case "answer": {
+        if (agent) {
+          const updated = await setAgentStatus(agent.id, "in_call");
+          if (updated) io?.emit("agent:update", updated);
+        }
+        if (evt.callUuid) {
+          await query(`UPDATE calls SET status = 'answered' WHERE call_uuid = $1`, [evt.callUuid]);
+        }
+        break;
+      }
+      case "hangup": {
+        const finalStatus = /no.?answer|missed|cancel/.test(evt.status) ? "missed" : "answered";
+        if (evt.callUuid) {
+          await recordCallEnd({ callUuid: evt.callUuid, duration: evt.duration, status: finalStatus, raw: rawPayload });
+        }
+        if (agent) {
+          await bumpAgentCounters(agent.id, finalStatus, evt.duration);
+          const updated = await setAgentStatus(agent.id, "online");
+          if (updated) io?.emit("agent:update", updated);
+        }
+        break;
+      }
+      case "agent_status": {
+        if (agent) {
+          const map = { available: "online", busy: "in_call", away: "break", dnd: "break", offline: "offline" };
+          const next = map[evt.status] || "online";
+          const updated = await setAgentStatus(agent.id, next);
+          if (updated) io?.emit("agent:update", updated);
+        }
+        break;
+      }
+      default:
+        await logEvent({
+          eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
+          sigOk: true, processed: false, error: "unknown_event_kind",
+        });
+        return { ok: true, ignored: "unknown_event" };
+    }
+
+    await logEvent({
+      eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
+      sigOk: true, processed: true,
+    });
+    return { ok: true, kind: evt.kind, agent: agent?.id || null };
+  } catch (err) {
+    console.error(`[${source}] error:`, err);
+    await logEvent({
+      eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
+      sigOk: true, processed: false, error: err.message,
+    });
+    throw err;
+  }
+}
+
+// ------------------------------------------------------------
+// المعالج الرئيسي (HTTP webhook)
 // ------------------------------------------------------------
 async function handleYeastarEvent(req, res) {
   const ip = getClientIp(req);
@@ -279,102 +364,12 @@ async function handleYeastarEvent(req, res) {
     return res.status(401).json({ error: "invalid_signature", reason });
   }
 
-  // 3) معالجة الحدث
-  const evt = normalizeEvent(req.body || {});
-  const rawPayload = req.body || {};
-
+  // 3) فوّض للمعالج الموحّد
   try {
-    const agent = await findAgentByExt(evt.ext);
-
-    // إذا لم يكن هناك موظف بهذا الامتداد → سجّل وتجاهل (بحسب اختيار المستخدم)
-    if (!agent && evt.ext) {
-      await logEvent({
-        eventType: evt.eventType, callUuid: evt.callUuid, payload: rawPayload, ip,
-        sigOk: true, processed: false, error: `unknown_extension:${evt.ext}`,
-      });
-      return res.json({ ok: true, ignored: "unknown_extension" });
-    }
-
-    switch (evt.kind) {
-      case "ring": {
-        // المكالمة وصلت — اجعل الموظف in_call مؤقتاً عند الرد
-        // بعض PBX يرسل ring قبل answer؛ نسجّل بداية المكالمة بحالة missed افتراضياً
-        if (agent) {
-          const updated = await setAgentStatus(agent.id, "in_call");
-          if (updated) io?.emit("agent:update", updated);
-        }
-        if (evt.callUuid) {
-          await recordCallStart({
-            callUuid: evt.callUuid,
-            agentId: agent?.id || null,
-            number: evt.peer,
-            direction: evt.direction,
-            raw: rawPayload,
-          });
-        }
-        break;
-      }
-
-      case "answer": {
-        if (agent) {
-          const updated = await setAgentStatus(agent.id, "in_call");
-          if (updated) io?.emit("agent:update", updated);
-        }
-        if (evt.callUuid) {
-          await query(
-            `UPDATE calls SET status = 'answered' WHERE call_uuid = $1`,
-            [evt.callUuid]
-          );
-        }
-        break;
-      }
-
-      case "hangup": {
-        const finalStatus = /no.?answer|missed|cancel/.test(evt.status) ? "missed" : "answered";
-        if (evt.callUuid) {
-          await recordCallEnd({
-            callUuid: evt.callUuid, duration: evt.duration, status: finalStatus, raw: rawPayload,
-          });
-        }
-        if (agent) {
-          await bumpAgentCounters(agent.id, finalStatus, evt.duration);
-          const updated = await setAgentStatus(agent.id, "online");
-          if (updated) io?.emit("agent:update", updated);
-        }
-        break;
-      }
-
-      case "agent_status": {
-        if (agent) {
-          const map = { available: "online", busy: "in_call", away: "break", dnd: "break", offline: "offline" };
-          const next = map[evt.status] || "online";
-          const updated = await setAgentStatus(agent.id, next);
-          if (updated) io?.emit("agent:update", updated);
-        }
-        break;
-      }
-
-      default:
-        await logEvent({
-          eventType: evt.eventType, callUuid: evt.callUuid, payload: rawPayload, ip,
-          sigOk: true, processed: false, error: "unknown_event_kind",
-        });
-        return res.json({ ok: true, ignored: "unknown_event" });
-    }
-
-    await logEvent({
-      eventType: evt.eventType, callUuid: evt.callUuid, payload: rawPayload, ip,
-      sigOk: true, processed: true,
-    });
-
-    res.json({ ok: true, kind: evt.kind, agent: agent?.id || null });
-  } catch (err) {
-    console.error("[webhook/yeastar] error:", err);
-    await logEvent({
-      eventType: evt.eventType, callUuid: evt.callUuid, payload: rawPayload, ip,
-      sigOk: true, processed: false, error: err.message,
-    });
-    res.status(500).json({ error: "processing_failed" });
+    const result = await handleNormalizedEvent(req.body || {}, io, "yeastar-webhook");
+    return res.json(result);
+  } catch {
+    return res.status(500).json({ error: "processing_failed" });
   }
 }
 
