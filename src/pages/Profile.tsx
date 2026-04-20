@@ -113,19 +113,38 @@ export default function Profile() {
       toast({ title: "وضع تجريبي", description: "تفعيل API الحقيقي مطلوب للحفظ.", variant: "destructive" });
       return;
     }
+
+    const trimmedName = profile.name.trim();
+    const trimmedEmail = profile.email.trim();
+
+    if (!profile.id) {
+      toast({ title: "فشل الحفظ", description: "تعذر تحديد المستخدم الحالي", variant: "destructive" });
+      return;
+    }
+
+    if (!trimmedName) {
+      toast({ title: "فشل الحفظ", description: "الاسم الكامل مطلوب", variant: "destructive" });
+      return;
+    }
+
     setSaving(true);
     try {
       await usersApi.update(profile.id, {
-        name: profile.name,
-        email: profile.email,
-        phone: profile.phone || null,
-        department: profile.department || null,
-        ext: profile.ext || null,
-        bio: profile.bio || null,
+        name: trimmedName,
+        ...(trimmedEmail ? { email: trimmedEmail } : {}),
+        phone: profile.phone.trim() || null,
+        department: profile.department.trim() || null,
+        ext: profile.ext.trim() || null,
+        bio: profile.bio.trim() || null,
       });
       toast({ title: "تم الحفظ", description: "تم تحديث بياناتك الشخصية" });
     } catch (e: any) {
-      toast({ title: "فشل الحفظ", description: e?.response?.data?.error || e.message, variant: "destructive" });
+      const code = e?.response?.data?.error;
+      toast({
+        title: "فشل الحفظ",
+        description: code === "invalid_input" ? "تأكد من الاسم والبريد الإلكتروني بصيغة صحيحة" : (code || e.message),
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
