@@ -274,6 +274,8 @@ async function handleYeastarEvent(req, res) {
       eventType: "sig_rejected", payload: req.body || {}, ip,
       sigOk: false, processed: false, error: `hmac_${reason}`,
     });
+    // تتبّع الإخفاقات وأنشئ تنبيه عند تجاوز العتبة (10 فشل/دقيقة)
+    trackHmacFailure(ip, io).catch((e) => console.error("[webhook] trackHmacFailure:", e.message));
     return res.status(401).json({ error: "invalid_signature", reason });
   }
 
@@ -389,7 +391,7 @@ router.get("/yeastar/health", (_req, res) => {
   });
 });
 
-// المسار الرئيسي — نستخدم rawJson middleware حتى نتحقق من HMAC على body الأصلي
-router.post("/yeastar", rawJson, handleYeastarEvent);
+// المسار الرئيسي — rate limit ثم raw body ثم المعالجة (HMAC + IP)
+router.post("/yeastar", yeastarLimiter, rawJson, handleYeastarEvent);
 
 export default router;
