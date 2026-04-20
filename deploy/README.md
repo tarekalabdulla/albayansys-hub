@@ -144,15 +144,108 @@ curl -X POST https://api.hulul-albayan.com/api/auth/login \
 
 ---
 
-## 7️⃣ ربط Frontend (Lovable)
+## 7️⃣ بناء ونشر Frontend من GitHub إلى VPS
 
-في Lovable (نفس مشروعك):
-1. أنشئ متغير بيئة في `.env` (لو ما عندك):
+### 7.1 تحديث npm scripts (مرة واحدة)
+
+في `package.json` بالمشروع، تأكد من وجود:
+```json
+"scripts": {
+  "build": "tsc && vite build",
+  "preview": "vite preview"
+}
+```
+
+### 7.2 نسخ ملفات config للـ VPS
+
+```bash
+scp deploy/04-nginx-frontend.conf root@184.94.215.64:/root/deploy/
+```
+
+### 7.3 على السيرفر — إعداد Nginx للـ Frontend
+
+```bash
+# إنشاء مجلد الفرونت
+mkdir -p /var/www/hulul-frontend
+
+# نسخ config
+ln -sf /root/deploy/04-nginx-frontend.conf /etc/nginx/sites-enabled/hulul-frontend
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+```
+
+### 7.4 بناء Frontend محلياً أو من GitHub
+
+#### خيار أ: بناء محلي ورفع dist/
+من جهازك:
+```bash
+cd /path/to/project
+# تأكد من env variables
+export VITE_USE_REAL_API=true
+export VITE_API_URL=https://api.hulul-albayan.com
+npm install
+npm run build
+# ارفع dist/
+scp -r dist/ root@184.94.215.64:/var/www/hulul-frontend/
+```
+
+#### خيار ب: CI/CD من GitHub (مُستحسن)
+في السيرفر:
+```bash
+mkdir -p /opt/hulul-frontend
+cd /opt/hulul-frontend
+
+# استنساخ المشروع
+git clone https://github.com/<user>/<repo>.git .
+
+# بناء مباشرة على السيرفر
+npm install
+VITE_USE_REAL_API=true VITE_API_URL=https://api.hulul-albayan.com npm run build
+
+# نسخ dist للـ Nginx
+cp -r dist/* /var/www/hulul-frontend/
+```
+
+### 7.5 SSL للـ Frontend
+
+```bash
+certbot --nginx -d hulul-albayan.com -d www.hulul-albayan.com
+```
+
+### 7.6 اختبار النشر
+
+```bash
+curl -I https://hulul-albayan.com
+# يجب أن يُرجع: HTTP/2 200
+```
+
+---
+
+## 🔄 تحديث Frontend (بعد التعديلات)
+
+### تحديث يدوي:
+```bash
+# من جهازك — بناء ورفع
+npm run build
+scp -r dist/* root@184.94.215.64:/var/www/hulul-frontend/
+```
+
+### أو تحديث عبر Git على السيرفر:
+```bash
+ssh root@184.94.215.64 "cd /opt/hulul-frontend && git pull && npm install && VITE_USE_REAL_API=true VITE_API_URL=https://api.hulul-albayan.com npm run build && cp -r dist/* /var/www/hulul-frontend/"
+```
+
+---
+
+## 🔗 ربط Frontend (Lovable Preview)
+
+للتطوير السريع بدون نشر:
+1. أنشئ `.env` في Lovable:
    ```
    VITE_USE_REAL_API=true
    VITE_API_URL=https://api.hulul-albayan.com
    ```
-2. أعد بناء المشروع — رح يستخدم API الحقيقي تلقائياً.
+2. أعد بناء — رح يستخدم API الحقيقي تلقائياً.
 
 ---
 
