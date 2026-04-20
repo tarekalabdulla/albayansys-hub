@@ -43,7 +43,8 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authRequired, async (req, res) => {
   const { rows } = await query(
-    "SELECT id, identifier, role, display_name FROM users WHERE id = $1",
+    `SELECT id, identifier, role, display_name, email, phone, department, ext, bio
+       FROM users WHERE id = $1`,
     [req.user.sub]
   );
   if (!rows[0]) return res.status(404).json({ error: "not_found" });
