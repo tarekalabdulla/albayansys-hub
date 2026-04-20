@@ -109,8 +109,14 @@ io.on("connection", async (socket) => {
   });
 });
 
-// شغّل المحاكي
-startSimulator(io);
+// شغّل المحاكي فقط إذا تم تفعيله صراحة (افتراضياً معطّل في الإنتاج)
+// لتفعيله: ضع SIMULATOR_ENABLED=true في ملف .env
+if (String(process.env.SIMULATOR_ENABLED || "").toLowerCase() === "true") {
+  console.log("⚙️  المحاكي مُفعَّل (SIMULATOR_ENABLED=true)");
+  startSimulator(io);
+} else {
+  console.log("🛑 المحاكي معطّل — البيانات الحيّة تأتي من PBX/webhooks فقط");
+}
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
