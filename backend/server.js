@@ -17,6 +17,7 @@ import settingsRoutes from "./routes/settings.js";
 import mailsRoutes from "./routes/mails.js";
 import recordingsRoutes from "./routes/recordings.js";
 import aiAnalyticsRoutes from "./routes/ai-analytics.js";
+import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -53,6 +54,9 @@ app.get("/api/health", async (_req, res) => {
     res.status(500).json({ ok: false, db: "down", error: e.message });
   }
 });
+
+// ⚠️  Webhooks تُسجَّل قبل express.json() لأنها تحتاج raw body للتحقق من HMAC
+app.use("/api/webhooks", webhooksYeastarRoutes);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
