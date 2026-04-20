@@ -8,11 +8,11 @@ import {
   Mic,
   Mail,
   Settings,
-  PhoneCall,
   UserCog,
   User,
   Bell,
 } from "lucide-react";
+import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
 import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
 
@@ -68,8 +68,8 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
         )}
       >
         <div className="flex items-center gap-3 px-6 py-6 border-b border-sidebar-border">
-          <div className="w-11 h-11 rounded-xl gradient-primary grid place-items-center shadow-glow">
-            <PhoneCall className="w-5 h-5 text-primary-foreground" />
+          <div className="w-11 h-11 rounded-xl bg-white/10 grid place-items-center shadow-glow p-1.5">
+            <img src={logo} alt="شعار حلول البيان" className="w-full h-full object-contain" />
           </div>
           <div>
             <h1 className="text-lg font-bold text-sidebar-foreground leading-tight">حلول البيان</h1>
