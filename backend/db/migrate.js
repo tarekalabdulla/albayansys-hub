@@ -6,15 +6,30 @@ import { pool } from "./pool.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-async function run() {
-  const sql = fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8");
-  console.log("→ تطبيق المخطط...");
+async function runSqlFile(filePath, label) {
+  const sql = fs.readFileSync(filePath, "utf8");
+  console.log(`→ تطبيق ${label}...`);
   await pool.query(sql);
-  console.log("✓ تم إنشاء الجداول بنجاح");
+  console.log(`✓ تم ${label}`);
+}
+
+async function run() {
+  await runSqlFile(path.join(__dirname, "schema.sql"), "المخطط الأساسي");
+
+  const migrationFiles = fs
+    .readdirSync(__dirname)
+    .filter((file) => /^migration_\d+.*\.sql$/i.test(file))
+    .sort((a, b) => a.localeCompare(b, "en"));
+
+  for (const file of migrationFiles) {
+    await runSqlFile(path.join(__dirname, file), file);
+  }
+
   await pool.end();
 }
 
-run().catch((e) => {
+run().catch(async (e) => {
   console.error("✗ فشل migration:", e);
+  await pool.end();
   process.exit(1);
 });

@@ -41,6 +41,32 @@ const ROLE_BADGE: Record<UserRole, string> = {
   agent: "bg-info/15 text-info border-info/30",
 };
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const getUserSaveError = (error: any) => {
+  const code = error?.response?.data?.error;
+  const fieldErrors = error?.response?.data?.details?.fieldErrors;
+
+  if (code === "duplicate") return "البريد أو المعرّف مستخدم بالفعل.";
+
+  if (code === "invalid_input") {
+    const messages = [
+      ...(fieldErrors?.name?.length ? ["الاسم مطلوب"] : []),
+      ...(fieldErrors?.email?.length ? ["أدخل بريدًا إلكترونيًا صحيحًا"] : []),
+      ...(fieldErrors?.password?.length ? ["كلمة المرور يجب أن تكون 6 أحرف على الأقل"] : []),
+      ...(fieldErrors?.role?.length ? ["اختر دورًا صحيحًا"] : []),
+    ];
+
+    return messages.length ? messages.join(" — ") : "تأكد من الاسم والبريد وكلمة المرور.";
+  }
+
+  if (code === "server_error") {
+    return "فشل الحفظ من السيرفر. غالبًا قاعدة البيانات على الـ VPS تحتاج تشغيل migration الأخير.";
+  }
+
+  return code || error?.message || "حدث خطأ غير متوقع.";
+};
+
 const Settings = () => {
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -96,38 +122,54 @@ const Settings = () => {
   };
 
   const submit = async () => {
-    if (!form.name.trim() || !form.email.trim()) {
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+
+    if (!name || !email) {
       Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "الاسم والبريد إلزاميان." });
+      return;
+    }
+    if (!EMAIL_REGEX.test(email)) {
+      Swal.fire({ icon: "warning", title: "بريد غير صحيح", text: "أدخل بريدًا إلكترونيًا بصيغة صحيحة." });
       return;
     }
     if (!editing && form.password.length < 6) {
       Swal.fire({ icon: "warning", title: "كلمة مرور ضعيفة", text: "6 أحرف على الأقل." });
       return;
     }
+    if (editing && form.password && form.password.length < 6) {
+      Swal.fire({ icon: "warning", title: "كلمة مرور ضعيفة", text: "إذا أردت تغييرها يجب أن تكون 6 أحرف على الأقل." });
+      return;
+    }
     setSubmitting(true);
     try {
       if (editing) {
         const updated = await usersApi.update(editing.id, {
-          name: form.name, email: form.email, role: form.role, active: form.active,
+          name,
+          email,
+          role: form.role,
+          active: form.active,
           ...(form.password ? { password: form.password } : {}),
         });
         setUsers((p) => p.map((u) => (u.id === editing.id ? updated : u)));
         Swal.fire({ icon: "success", title: "تم التعديل", timer: 1500, showConfirmButton: false });
       } else {
         const created = await usersApi.create({
-          name: form.name, email: form.email, password: form.password,
-          role: form.role, active: form.active,
+          name,
+          email,
+          password: form.password,
+          role: form.role,
+          active: form.active,
         });
         setUsers((p) => [created, ...p]);
         Swal.fire({ icon: "success", title: "تم إضافة المستخدم", timer: 1500, showConfirmButton: false });
       }
       setOpen(false);
     } catch (e: any) {
-      const code = e?.response?.data?.error;
       Swal.fire({
         icon: "error",
         title: "فشل الحفظ",
-        text: code === "duplicate" ? "البريد أو المعرّف مستخدم بالفعل." : (code || e.message),
+        text: getUserSaveError(e),
       });
     } finally {
       setSubmitting(false);
