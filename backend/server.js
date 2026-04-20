@@ -20,6 +20,7 @@ import aiAnalyticsRoutes from "./routes/ai-analytics.js";
 import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
+import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
 import { query } from "./db/pool.js";
 
 const app = express();
@@ -53,6 +54,11 @@ app.get("/api/health", async (_req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, db: "down", error: e.message });
   }
+});
+
+// حالة تكامل Yeastar Open API (للتشخيص فقط — لا يكشف أسراراً)
+app.get("/api/yeastar/status", (_req, res) => {
+  res.json(getYeastarApiStatus());
 });
 
 // ⚠️  Webhooks تُسجَّل قبل express.json() لأنها تحتاج raw body للتحقق من HMAC
@@ -121,6 +127,9 @@ if (String(process.env.SIMULATOR_ENABLED || "").toLowerCase() === "true") {
 } else {
   console.log("🛑 المحاكي معطّل — البيانات الحيّة تأتي من PBX/webhooks فقط");
 }
+
+// شغّل تكامل Yeastar Open API (يبدأ تلقائياً إذا كانت ENV مضبوطة)
+startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
