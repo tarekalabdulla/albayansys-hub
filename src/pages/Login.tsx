@@ -114,7 +114,7 @@ const Login = () => {
               <Input
                 id="identifier"
                 type="text"
-                placeholder="admin / supervisor / agent"
+                placeholder="أدخل اسم المستخدم"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 className="pr-10"
@@ -169,7 +169,7 @@ const Login = () => {
           </Button>
 
           <p className="text-[11px] text-muted-foreground text-center leading-relaxed pt-2 border-t border-border/40">
-            بيانات تجريبية: <span dir="ltr">admin / supervisor / agent</span> — كلمة السر = اسم المستخدم + 123
+            نظام آمن لإدارة مركز الاتصال — ادخل بيانات حسابك المُصرَّح بها
           </p>
         </form>
 
