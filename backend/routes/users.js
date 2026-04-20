@@ -38,7 +38,13 @@ const createSchema = z.object({
 router.post("/", requireRole("admin"), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+    const flat = parsed.error.flatten();
+    console.error("[users.create] invalid_input", {
+      body: { ...req.body, password: req.body?.password ? "***" : undefined },
+      fieldErrors: flat.fieldErrors,
+      formErrors: flat.formErrors,
+    });
+    return res.status(400).json({ error: "invalid_input", details: flat });
   }
   const d = parsed.data;
   const identifier = (d.identifier || d.email).toLowerCase().trim();
@@ -53,8 +59,24 @@ router.post("/", requireRole("admin"), async (req, res) => {
     );
     res.status(201).json({ user: rows[0] });
   } catch (e) {
-    if (e.code === "23505") return res.status(409).json({ error: "duplicate", detail: "identifier or email" });
-    throw e;
+    if (e.code === "23505") {
+      console.warn("[users.create] duplicate", { identifier, email: d.email, constraint: e.constraint });
+      return res.status(409).json({ error: "duplicate", detail: e.constraint || "identifier or email" });
+    }
+    console.error("[users.create] db_error", {
+      code: e.code,
+      message: e.message,
+      detail: e.detail,
+      constraint: e.constraint,
+      column: e.column,
+      table: e.table,
+    });
+    return res.status(500).json({
+      error: "server_error",
+      code: e.code,
+      message: e.message,
+      detail: e.detail,
+    });
   }
 });
 
@@ -101,7 +123,16 @@ const updateSchema = z.object({
 
 router.patch("/:id", async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+  if (!parsed.success) {
+    const flat = parsed.error.flatten();
+    console.error("[users.update] invalid_input", {
+      id: req.params.id,
+      body: { ...req.body, password: req.body?.password ? "***" : undefined },
+      fieldErrors: flat.fieldErrors,
+      formErrors: flat.formErrors,
+    });
+    return res.status(400).json({ error: "invalid_input", details: flat });
+  }
 
   const isSelf = req.user.sub === req.params.id;
   const isAdmin = req.user.role === "admin";
@@ -150,8 +181,25 @@ router.patch("/:id", async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: "not_found" });
     res.json({ user: rows[0] });
   } catch (e) {
-    if (e.code === "23505") return res.status(409).json({ error: "duplicate" });
-    throw e;
+    if (e.code === "23505") {
+      console.warn("[users.update] duplicate", { id: req.params.id, constraint: e.constraint });
+      return res.status(409).json({ error: "duplicate", detail: e.constraint });
+    }
+    console.error("[users.update] db_error", {
+      id: req.params.id,
+      code: e.code,
+      message: e.message,
+      detail: e.detail,
+      constraint: e.constraint,
+      column: e.column,
+      table: e.table,
+    });
+    return res.status(500).json({
+      error: "server_error",
+      code: e.code,
+      message: e.message,
+      detail: e.detail,
+    });
   }
 });
 
