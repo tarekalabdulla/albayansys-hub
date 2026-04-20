@@ -103,4 +103,120 @@ export const settingsApi = {
   },
 };
 
+// ============================================================
+// MAILS — البريد الداخلي
+// ============================================================
+export type MailFolder = "inbox" | "sent" | "drafts" | "starred" | "trash";
+export type MailPriority = "high" | "normal" | "low";
+
+export interface ApiMail {
+  id: string;
+  from: { name: string; ext: string; avatar: string };
+  to:   { name: string; ext: string; avatar: string };
+  subject: string;
+  body: string;
+  date: string;
+  read: boolean;
+  starred: boolean;
+  priority: MailPriority;
+  folder: "inbox" | "sent" | "trash";
+  ownerExt: string;
+}
+
+export interface MailCounts {
+  inbox: number; sent: number; starred: number; drafts: number; trash: number;
+}
+
+export const mailsApi = {
+  list: async (folder: MailFolder): Promise<ApiMail[]> => {
+    const { data } = await api.get(`/mails`, { params: { folder } });
+    return data.mails;
+  },
+  counts: async (): Promise<MailCounts> => {
+    const { data } = await api.get(`/mails/counts`);
+    return data.counts;
+  },
+  send: async (payload: { toExt: string; subject: string; body: string; priority: MailPriority }): Promise<ApiMail> => {
+    const { data } = await api.post(`/mails`, payload);
+    return data.mail;
+  },
+  update: async (id: string, payload: { is_read?: boolean; is_starred?: boolean; folder?: "inbox" | "sent" | "trash" }): Promise<ApiMail> => {
+    const { data } = await api.patch(`/mails/${id}`, payload);
+    return data.mail;
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/mails/${id}`);
+  },
+};
+
+// ============================================================
+// RECORDINGS — التسجيلات
+// ============================================================
+export interface ApiRecordingMetric { label: string; score: number; }
+export interface ApiTranscriptLine { speaker: "agent" | "customer"; time: number; text: string; }
+
+export interface ApiRecording {
+  id: string;
+  agentId: string | null;
+  agentName: string;
+  agentAvatar: string;
+  customerNumber: string;
+  date: string;
+  time: string;
+  duration: number;
+  audioUrl: string | null;
+  qualityScore: number;
+  sentiment: "positive" | "neutral" | "negative";
+  category: string;
+  tags: string[];
+  metrics: ApiRecordingMetric[];
+  transcript: ApiTranscriptLine[];
+  summary: string;
+}
+
+export const recordingsApi = {
+  list: async (): Promise<ApiRecording[]> => {
+    const { data } = await api.get("/recordings");
+    return data.recordings;
+  },
+  get: async (id: string): Promise<ApiRecording | null> => {
+    try {
+      const { data } = await api.get(`/recordings/${id}`);
+      return data.recording;
+    } catch { return null; }
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/recordings/${id}`);
+  },
+};
+
+// ============================================================
+// AI ANALYTICS
+// ============================================================
+export interface ApiAiRecommendation {
+  id: string; icon: string; color: string; title: string; body: string; impact: string | null;
+}
+export interface SentimentSummary { positive: number; neutral: number; negative: number; total: number; }
+export interface SentimentTrendDay { day: string; positive: number; neutral: number; negative: number; }
+export interface AiOverview { calls24h: number; recordings24h: number; activeRecs: number; }
+
+export const aiAnalyticsApi = {
+  recommendations: async (): Promise<ApiAiRecommendation[]> => {
+    const { data } = await api.get("/ai-analytics/recommendations");
+    return data.recommendations;
+  },
+  sentiment: async (): Promise<SentimentSummary> => {
+    const { data } = await api.get("/ai-analytics/sentiment");
+    return data.summary;
+  },
+  trend: async (): Promise<SentimentTrendDay[]> => {
+    const { data } = await api.get("/ai-analytics/sentiment-trend");
+    return data.trend;
+  },
+  overview: async (): Promise<AiOverview> => {
+    const { data } = await api.get("/ai-analytics/overview");
+    return data.overview;
+  },
+};
+
 export const isRealApi = USE_REAL_API;
