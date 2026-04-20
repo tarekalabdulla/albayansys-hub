@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -23,6 +23,7 @@ import {
   Users,
   Activity,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -40,15 +41,28 @@ import {
   Line,
 } from "recharts";
 
-import { loadSupervisors } from "@/lib/supervisorsData";
+import { supervisorsApi, isRealApi, type ApiSupervisor } from "@/lib/dataApi";
+
+type Range = "day" | "week" | "month";
 
 export default function SupervisorDetail() {
   const { id } = useParams<{ id: string }>();
-  const supervisors = loadSupervisors();
-  const supervisor = supervisors.find((s) => s.id === id);
-
-  type Range = "day" | "week" | "month";
+  const [supervisor, setSupervisor] = useState<ApiSupervisor | null>(null);
+  const [loadingSup, setLoadingSup] = useState(true);
   const [range, setRange] = useState<Range>("week");
+
+  useEffect(() => {
+    if (!id) { setLoadingSup(false); return; }
+    if (!isRealApi) { setLoadingSup(false); return; }
+    (async () => {
+      try {
+        const s = await supervisorsApi.get(id);
+        setSupervisor(s);
+      } finally {
+        setLoadingSup(false);
+      }
+    })();
+  }, [id]);
 
   const rangeMultiplier: Record<Range, number> = {
     day: 0.2,
@@ -121,6 +135,16 @@ export default function SupervisorDetail() {
       missed: Math.floor(Math.random() * 20),
     }));
   }, [range, team]);
+
+  if (loadingSup) {
+    return (
+      <AppLayout title="جاري التحميل...">
+        <div className="py-20 text-center text-muted-foreground">
+          <Loader2 className="w-8 h-8 mx-auto animate-spin" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   if (!supervisor) {
     return (

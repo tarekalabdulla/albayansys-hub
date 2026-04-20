@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,168 +19,122 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  UserPlus,
-  Pencil,
-  Trash2,
-  Server,
-  Webhook,
-  Database,
-  Download,
-  Upload,
-  Save,
-  Shield,
-  Sparkles,
-  PhoneCall,
-  Wifi,
-  KeyRound,
-  CheckCircle2,
+  UserPlus, Pencil, Trash2, Server, Webhook, Database, Download, Upload,
+  Save, Shield, Sparkles, PhoneCall, Wifi, KeyRound, CheckCircle2, Loader2,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
-import { z } from "zod";
+import {
+  usersApi, settingsApi, isRealApi,
+  type ApiUser, type UserRole, type SettingsKey,
+} from "@/lib/dataApi";
 
-type Role = "admin" | "supervisor" | "agent" | "viewer";
-
-// ===== مخطط التحقق لاستيراد JSON (zod) =====
-// يمنع استبدال بيانات التطبيق ببيانات مشوّهة أو خبيثة من ملف غير موثوق.
-const ROLE_VALUES = ["admin", "supervisor", "agent", "viewer"] as const;
-
-const userSchema = z.object({
-  id: z.string().min(1).max(64),
-  name: z.string().trim().min(1).max(100),
-  email: z.string().trim().email().max(255),
-  role: z.enum(ROLE_VALUES),
-  active: z.boolean(),
-});
-
-// مضيف: IP أو hostname بسيط — يمنع روابط/مخططات غير متوقعة (SSRF).
-const hostSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(253)
-  .regex(/^[a-zA-Z0-9.\-_]+$/, "host غير صالح");
-
-const portSchema = z
-  .string()
-  .trim()
-  .regex(/^\d{1,5}$/, "port غير صالح");
-
-// رابط webhook: https فقط
-const httpsUrlSchema = z
-  .string()
-  .trim()
-  .max(2048)
-  .url()
-  .refine((u) => u.startsWith("https://"), "يجب أن يبدأ الرابط بـ https://");
-
-const importSchema = z.object({
-  users: z.array(userSchema).max(1000).optional(),
-  pbx: z
-    .object({
-      pSeries: z
-        .object({ host: hostSchema.optional(), port: portSchema.optional() })
-        .optional(),
-      sSeries: z
-        .object({ host: hostSchema.optional() }).optional(),
-    })
-    .optional(),
-  webhook: z.object({ url: httpsUrlSchema.optional() }).optional(),
-});
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  active: boolean;
-}
-
-const ROLE_LABEL: Record<Role, string> = {
+const ROLE_LABEL: Record<UserRole, string> = {
   admin: "مدير النظام",
   supervisor: "مشرف",
   agent: "موظف",
-  viewer: "مشاهد",
 };
-
-const ROLE_BADGE: Record<Role, string> = {
+const ROLE_BADGE: Record<UserRole, string> = {
   admin: "bg-destructive/15 text-destructive border-destructive/30",
   supervisor: "bg-primary/15 text-primary border-primary/30",
   agent: "bg-info/15 text-info border-info/30",
-  viewer: "bg-muted text-muted-foreground border-border",
 };
 
-const INITIAL_USERS: User[] = [
-  { id: "u1", name: "سلمان العامر", email: "salman@hb.sa", role: "admin", active: true },
-  { id: "u2", name: "منى الشهري",   email: "mona@hb.sa",   role: "supervisor", active: true },
-  { id: "u3", name: "بدر القحطاني", email: "badr@hb.sa",   role: "supervisor", active: true },
-  { id: "u4", name: "ريم الحربي",   email: "reem@hb.sa",   role: "agent",      active: true },
-  { id: "u5", name: "فهد التركي",   email: "fahad@hb.sa",  role: "viewer",     active: false },
-];
-
 const Settings = () => {
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<User | null>(null);
-  const [form, setForm] = useState<Omit<User, "id">>({
-    name: "", email: "", role: "agent", active: true,
+  const [editing, setEditing] = useState<ApiUser | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({
+    name: "", email: "", role: "agent" as UserRole, active: true, password: "",
   });
 
-  // Yeastar P-Series (P560)
-  const [pHost, setPHost] = useState("192.168.1.50");
-  const [pPort, setPPort] = useState("8088");
-  const [pApiUser, setPApiUser] = useState("apiuser");
-  const [pApiSecret, setPApiSecret] = useState("");
-  const [pUseTLS, setPUseTLS] = useState(true);
-  const [pEnabled, setPEnabled] = useState(true);
-
-  // Yeastar S-Series (S20)
-  const [sHost, setSHost] = useState("192.168.1.60");
-  const [sAmiPort, setSAmiPort] = useState("5038");
-  const [sAmiUser, setSAmiUser] = useState("admin");
-  const [sAmiSecret, setSAmiSecret] = useState("");
-  const [sCdrUrl, setSCdrUrl] = useState("https://cdr.hb.sa/s20");
-  const [sEnabled, setSEnabled] = useState(false);
-
-  // Google AI
-  const [googleAiKey, setGoogleAiKey] = useState("");
-  const [googleAiModel, setGoogleAiModel] = useState("gemini-1.5-pro");
-  const [googleAiEnabled, setGoogleAiEnabled] = useState(false);
-
-  const [webhookUrl, setWebhookUrl] = useState("https://hooks.hb.sa/calls");
-  const [webhookSecret, setWebhookSecret] = useState("••••••••••");
+  // Settings state (يُحمَّل من DB)
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [pbxP, setPbxP] = useState({ enabled: true, host: "", port: "8088", apiUser: "apiuser", useTLS: true, apiSecret: "" });
+  const [pbxS, setPbxS] = useState({ enabled: false, host: "", amiPort: "5038", amiUser: "admin", cdrUrl: "", amiSecret: "" });
+  const [googleAi, setGoogleAi] = useState({ enabled: false, model: "gemini-1.5-pro", apiKey: "" });
+  const [webhook, setWebhook] = useState({ url: "" });
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const openAdd = () => {
-    setEditing(null);
-    setForm({ name: "", email: "", role: "agent", active: true });
-    setOpen(true);
-  };
-
-  const openEdit = (u: User) => {
-    setEditing(u);
-    setForm({ name: u.name, email: u.email, role: u.role, active: u.active });
-    setOpen(true);
-  };
-
-  const submit = () => {
-    if (!form.name.trim() || !form.email.trim()) {
-      Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "يرجى تعبئة الاسم والبريد." });
+  // ===== تحميل أولي =====
+  useEffect(() => {
+    if (!isRealApi) {
+      setLoadingUsers(false);
+      setSettingsLoading(false);
       return;
     }
-    if (editing) {
-      setUsers((p) => p.map((u) => u.id === editing.id ? { ...editing, ...form } : u));
-      Swal.fire({ icon: "success", title: "تم التعديل", timer: 1500, showConfirmButton: false });
-    } else {
-      const id = `u${Date.now()}`;
-      setUsers((p) => [...p, { id, ...form }]);
-      Swal.fire({ icon: "success", title: "تم إضافة المستخدم", timer: 1500, showConfirmButton: false });
-    }
-    setOpen(false);
+    (async () => {
+      try {
+        const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
+        setUsers(u);
+        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
+        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
+        if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
+        if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
+      } catch (e: any) {
+        Swal.fire({ icon: "error", title: "تعذّر التحميل", text: e?.response?.data?.error || e.message });
+      } finally {
+        setLoadingUsers(false);
+        setSettingsLoading(false);
+      }
+    })();
+  }, []);
+
+  // ===== Users CRUD =====
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ name: "", email: "", role: "agent", active: true, password: "" });
+    setOpen(true);
+  };
+  const openEdit = (u: ApiUser) => {
+    setEditing(u);
+    setForm({ name: u.name, email: u.email || "", role: u.role, active: u.active, password: "" });
+    setOpen(true);
   };
 
-  const remove = (u: User) => {
+  const submit = async () => {
+    if (!form.name.trim() || !form.email.trim()) {
+      Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "الاسم والبريد إلزاميان." });
+      return;
+    }
+    if (!editing && form.password.length < 6) {
+      Swal.fire({ icon: "warning", title: "كلمة مرور ضعيفة", text: "6 أحرف على الأقل." });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (editing) {
+        const updated = await usersApi.update(editing.id, {
+          name: form.name, email: form.email, role: form.role, active: form.active,
+          ...(form.password ? { password: form.password } : {}),
+        });
+        setUsers((p) => p.map((u) => (u.id === editing.id ? updated : u)));
+        Swal.fire({ icon: "success", title: "تم التعديل", timer: 1500, showConfirmButton: false });
+      } else {
+        const created = await usersApi.create({
+          name: form.name, email: form.email, password: form.password,
+          role: form.role, active: form.active,
+        });
+        setUsers((p) => [created, ...p]);
+        Swal.fire({ icon: "success", title: "تم إضافة المستخدم", timer: 1500, showConfirmButton: false });
+      }
+      setOpen(false);
+    } catch (e: any) {
+      const code = e?.response?.data?.error;
+      Swal.fire({
+        icon: "error",
+        title: "فشل الحفظ",
+        text: code === "duplicate" ? "البريد أو المعرّف مستخدم بالفعل." : (code || e.message),
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const remove = (u: ApiUser) => {
     Swal.fire({
       title: `حذف ${u.name}؟`,
       text: "لا يمكن التراجع عن هذا الإجراء.",
@@ -189,121 +143,87 @@ const Settings = () => {
       confirmButtonText: "نعم، احذف",
       cancelButtonText: "إلغاء",
       confirmButtonColor: "hsl(0 78% 56%)",
-    }).then((r) => {
-      if (r.isConfirmed) {
+    }).then(async (r) => {
+      if (!r.isConfirmed) return;
+      try {
+        await usersApi.remove(u.id);
         setUsers((p) => p.filter((x) => x.id !== u.id));
         Swal.fire({ icon: "success", title: "تم الحذف", timer: 1200, showConfirmButton: false });
+      } catch (e: any) {
+        Swal.fire({ icon: "error", title: "تعذّر الحذف", text: e?.response?.data?.error || e.message });
       }
     });
   };
 
-  const toggleActive = (u: User) => {
-    setUsers((p) => p.map((x) => x.id === u.id ? { ...x, active: !x.active } : x));
+  const toggleActive = async (u: ApiUser) => {
+    try {
+      const updated = await usersApi.update(u.id, { active: !u.active });
+      setUsers((p) => p.map((x) => (x.id === u.id ? updated : x)));
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التحديث", text: e?.response?.data?.error || e.message });
+    }
   };
 
+  // ===== Settings save =====
+  const persist = async (key: SettingsKey, value: Record<string, unknown>, label: string) => {
+    try {
+      await settingsApi.save(key, value);
+      Swal.fire({ icon: "success", title: `تم حفظ ${label}`, timer: 1600, showConfirmButton: false });
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل الحفظ", text: e?.response?.data?.error || e.message });
+    }
+  };
+
+  const savePbxP = () => {
+    const payload: Record<string, unknown> = {
+      enabled: pbxP.enabled, host: pbxP.host, port: pbxP.port, apiUser: pbxP.apiUser, useTLS: pbxP.useTLS,
+    };
+    if (pbxP.apiSecret) payload.apiSecret = pbxP.apiSecret;
+    persist("pbx_p_series", payload, "P560");
+  };
+  const savePbxS = () => {
+    const payload: Record<string, unknown> = {
+      enabled: pbxS.enabled, host: pbxS.host, amiPort: pbxS.amiPort, amiUser: pbxS.amiUser, cdrUrl: pbxS.cdrUrl,
+    };
+    if (pbxS.amiSecret) payload.amiSecret = pbxS.amiSecret;
+    persist("pbx_s_series", payload, "S20");
+  };
+  const saveGoogleAi = () => {
+    if (googleAi.enabled && !googleAi.apiKey.trim() && !(googleAi as any).apiKeyIsSet) {
+      Swal.fire({ icon: "warning", title: "المفتاح مطلوب" });
+      return;
+    }
+    const payload: Record<string, unknown> = { enabled: googleAi.enabled, model: googleAi.model };
+    if (googleAi.apiKey) payload.apiKey = googleAi.apiKey;
+    persist("google_ai", payload, "Google AI");
+  };
+  const saveWebhook = () => persist("webhook", { url: webhook.url }, "Webhook");
+
   const exportJSON = () => {
-    // ⚠️ لا نُصدِّر أي أسرار (API secrets، AMI secrets، webhook secrets، Google AI key).
-    // كذلك نتفادى تصدير تفاصيل البنية التحتية الحسّاسة (المنافذ، أسماء المستخدمين، CDR URL).
     const data = {
       exportedAt: new Date().toISOString(),
-      users: users.map((u) => ({
-        id: u.id, name: u.name, email: u.email, role: u.role, active: u.active,
-      })),
-      pbx: {
-        pSeries: { enabled: pEnabled, useTLS: pUseTLS },
-        sSeries: { enabled: sEnabled },
-      },
-      googleAi: { enabled: googleAiEnabled, model: googleAiModel },
+      users: users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: u.active })),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `hulul-albayan-backup-${Date.now()}.json`;
+    link.download = `hulul-albayan-users-${Date.now()}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    Swal.fire({
-      icon: "success",
-      title: "تم تصدير النسخة الاحتياطية",
-      text: "لم تُضمَّن الأسرار أو بيانات الاتصال بالسنترال لأسباب أمنية.",
-      timer: 2200,
-      showConfirmButton: false,
-    });
   };
 
-  const importJSON = async (file: File) => {
-    // حد حجم الملف: 1MB لمنع DoS/abuse
-    if (file.size > 1024 * 1024) {
-      Swal.fire({ icon: "error", title: "الملف كبير جداً", text: "الحد الأقصى 1MB." });
-      return;
-    }
-    let parsed: unknown;
-    try {
-      const text = await file.text();
-      parsed = JSON.parse(text);
-    } catch {
-      Swal.fire({ icon: "error", title: "ملف غير صالح", text: "تعذّر قراءة JSON." });
-      return;
-    }
-    const result = importSchema.safeParse(parsed);
-    if (!result.success) {
-      const firstIssue = result.error.issues[0];
-      Swal.fire({
-        icon: "error",
-        title: "ملف الاستيراد غير صالح",
-        text: firstIssue ? `${firstIssue.path.join(".")}: ${firstIssue.message}` : "البنية لا تطابق المخطط.",
-      });
-      return;
-    }
-    const data = result.data;
-    if (data.users) setUsers(data.users as User[]);
-    if (data.pbx?.pSeries?.host) setPHost(data.pbx.pSeries.host);
-    if (data.pbx?.pSeries?.port) setPPort(data.pbx.pSeries.port);
-    if (data.pbx?.sSeries?.host) setSHost(data.pbx.sSeries.host);
-    if (data.webhook?.url) setWebhookUrl(data.webhook.url);
-    Swal.fire({ icon: "success", title: "تم الاستيراد بنجاح", timer: 1800, showConfirmButton: false });
-  };
-
-  const savePbx = (kind: "P560" | "S20") => {
-    Swal.fire({
-      icon: "success",
-      title: `تم حفظ إعدادات Yeastar ${kind}`,
-      text: "ستُستخدم تلقائياً عند الاتصال بالسنترال.",
-      timer: 1800,
-      showConfirmButton: false,
-    });
-  };
-
-  const testPbx = (kind: "P560" | "S20") => {
-    Swal.fire({
-      title: `اختبار اتصال Yeastar ${kind}`,
-      html: '<div class="text-sm">جاري المحاولة...</div>',
-      timer: 1200,
-      showConfirmButton: false,
-    }).then(() => {
-      Swal.fire({
-        icon: "success",
-        title: "نجح الاتصال ✓",
-        text: `تم التحقق من سنترال ${kind} بنجاح.`,
-        timer: 1800,
-        showConfirmButton: false,
-      });
-    });
-  };
-
-  const saveGoogleAi = () => {
-    if (googleAiEnabled && !googleAiKey.trim()) {
-      Swal.fire({ icon: "warning", title: "المفتاح مطلوب", text: "يرجى إدخال Google AI API Key." });
-      return;
-    }
-    Swal.fire({
-      icon: "success",
-      title: "تم حفظ إعدادات Google AI",
-      text: googleAiEnabled ? `النموذج: ${googleAiModel}` : "تم تعطيل Google AI.",
-      timer: 1800,
-      showConfirmButton: false,
-    });
-  };
+  if (!isRealApi) {
+    return (
+      <AppLayout title="الإعدادات">
+        <div className="glass-card p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            هذه الصفحة تتطلب الاتصال بـ API الحقيقي. فعّل <code className="bg-muted px-1 rounded">VITE_USE_REAL_API=true</code> في ملف .env
+          </p>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="الإعدادات والمستخدمين" subtitle="إدارة الصلاحيات وإعدادات النظام">
@@ -314,7 +234,7 @@ const Settings = () => {
             <Shield className="w-4 h-4 text-primary" />
             <div>
               <h3 className="text-base font-bold">إدارة المستخدمين والصلاحيات</h3>
-              <p className="text-xs text-muted-foreground">{users.length} مستخدم نشط</p>
+              <p className="text-xs text-muted-foreground">{users.length} مستخدم</p>
             </div>
           </div>
           <Button onClick={openAdd} className="gradient-primary text-primary-foreground">
@@ -322,200 +242,177 @@ const Settings = () => {
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-right">
-            <thead className="bg-muted/50 text-xs font-bold text-muted-foreground uppercase">
-              <tr>
-                <th className="px-4 py-3">المستخدم</th>
-                <th className="px-4 py-3">البريد</th>
-                <th className="px-4 py-3">الدور</th>
-                <th className="px-4 py-3">الحالة</th>
-                <th className="px-4 py-3 text-left">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg gradient-primary grid place-items-center text-xs font-bold text-primary-foreground">
-                        {u.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
-                      </div>
-                      <p className="text-sm font-semibold">{u.name}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground" dir="ltr">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full border", ROLE_BADGE[u.role])}>
-                      {ROLE_LABEL[u.role]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Switch checked={u.active} onCheckedChange={() => toggleActive(u)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1.5">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(u)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => remove(u)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
+          {loadingUsers ? (
+            <div className="p-10 text-center text-muted-foreground">
+              <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
+              جاري التحميل...
+            </div>
+          ) : (
+            <table className="w-full text-right">
+              <thead className="bg-muted/50 text-xs font-bold text-muted-foreground uppercase">
+                <tr>
+                  <th className="px-4 py-3">المستخدم</th>
+                  <th className="px-4 py-3">البريد</th>
+                  <th className="px-4 py-3">الدور</th>
+                  <th className="px-4 py-3">الحالة</th>
+                  <th className="px-4 py-3 text-left">إجراءات</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} className="border-b border-border/50 hover:bg-muted/40">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg gradient-primary grid place-items-center text-xs font-bold text-primary-foreground">
+                          {u.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
+                        </div>
+                        <p className="text-sm font-semibold">{u.name}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground" dir="ltr">{u.email}</td>
+                    <td className="px-4 py-3">
+                      <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full border", ROLE_BADGE[u.role])}>
+                        {ROLE_LABEL[u.role]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Switch checked={u.active} onCheckedChange={() => toggleActive(u)} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1.5">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(u)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => remove(u)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-10 text-muted-foreground text-sm">لا يوجد مستخدمون.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
 
-      {/* PBX (Yeastar) Settings — Tabs */}
+      {/* PBX Settings */}
       <section className="glass-card p-5 mb-5">
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <PhoneCall className="w-4 h-4 text-primary" />
-            <div>
-              <h3 className="text-base font-bold">إعدادات السنترال (Yeastar)</h3>
-              <p className="text-xs text-muted-foreground">يدعم النظام نوعَي السنترال — اختر التبويب وأدخل بيانات الاتصال.</p>
-            </div>
+        <div className="flex items-center gap-2 mb-4">
+          <PhoneCall className="w-4 h-4 text-primary" />
+          <div>
+            <h3 className="text-base font-bold">إعدادات السنترال (Yeastar)</h3>
+            <p className="text-xs text-muted-foreground">تُحفظ في قاعدة البيانات وتبقى بعد إعادة التشغيل.</p>
           </div>
         </div>
 
         <Tabs defaultValue="p560" dir="rtl" className="w-full">
           <TabsList className="grid grid-cols-2 w-full max-w-md mb-5">
-            <TabsTrigger value="p560" className="gap-2">
-              <Server className="w-3.5 h-3.5" /> Yeastar P560 (P-Series)
-            </TabsTrigger>
-            <TabsTrigger value="s20" className="gap-2">
-              <Server className="w-3.5 h-3.5" /> Yeastar S20 (S-Series)
-            </TabsTrigger>
+            <TabsTrigger value="p560" className="gap-2"><Server className="w-3.5 h-3.5" /> P560</TabsTrigger>
+            <TabsTrigger value="s20" className="gap-2"><Server className="w-3.5 h-3.5" /> S20</TabsTrigger>
           </TabsList>
 
-          {/* P-Series */}
           <TabsContent value="p560" className="space-y-4 mt-0">
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className={cn("w-4 h-4", pEnabled ? "text-success" : "text-muted-foreground")} />
-                <span className="text-sm font-medium">تفعيل سنترال P-Series</span>
+                <CheckCircle2 className={cn("w-4 h-4", pbxP.enabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل P-Series</span>
               </div>
-              <Switch checked={pEnabled} onCheckedChange={setPEnabled} />
+              <Switch checked={pbxP.enabled} onCheckedChange={(v) => setPbxP({ ...pbxP, enabled: v })} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
-                <Input value={pHost} onChange={(e) => setPHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+                <Input value={pbxP.host} onChange={(e) => setPbxP({ ...pbxP, host: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
-                <Input value={pPort} onChange={(e) => setPPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+                <Input value={pbxP.port} onChange={(e) => setPbxP({ ...pbxP, port: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
-                <Input value={pApiUser} onChange={(e) => setPApiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!pEnabled} />
+                <Input value={pbxP.apiUser} onChange={(e) => setPbxP({ ...pbxP, apiUser: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Secret</label>
-                <Input value={pApiSecret} onChange={(e) => setPApiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!pEnabled} placeholder="••••••••" />
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
+                  API Secret {(pbxP as any).apiSecretIsSet && <span className="text-success">(محفوظ)</span>}
+                </label>
+                <Input value={pbxP.apiSecret} onChange={(e) => setPbxP({ ...pbxP, apiSecret: e.target.value })} type="password" dir="ltr" className="bg-background/60" placeholder={(pbxP as any).apiSecretIsSet ? "اتركه فارغًا للإبقاء" : "••••••••"} />
               </div>
             </div>
             <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
-              <div className="flex items-center gap-2">
-                <Wifi className="w-4 h-4 text-info" />
-                <span className="text-xs font-medium">استخدام HTTPS / TLS</span>
-              </div>
-              <Switch checked={pUseTLS} onCheckedChange={setPUseTLS} disabled={!pEnabled} />
+              <div className="flex items-center gap-2"><Wifi className="w-4 h-4 text-info" /><span className="text-xs font-medium">HTTPS / TLS</span></div>
+              <Switch checked={pbxP.useTLS} onCheckedChange={(v) => setPbxP({ ...pbxP, useTLS: v })} />
             </div>
-            <div className="flex gap-2">
-              <Button onClick={() => savePbx("P560")} className="flex-1 gradient-primary text-primary-foreground" disabled={!pEnabled}>
-                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
-              </Button>
-              <Button variant="outline" onClick={() => testPbx("P560")} disabled={!pEnabled}>
-                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
-              </Button>
-            </div>
+            <Button onClick={savePbxP} className="w-full gradient-primary text-primary-foreground" disabled={settingsLoading}>
+              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
+            </Button>
           </TabsContent>
 
-          {/* S-Series */}
           <TabsContent value="s20" className="space-y-4 mt-0">
             <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className={cn("w-4 h-4", sEnabled ? "text-success" : "text-muted-foreground")} />
-                <span className="text-sm font-medium">تفعيل سنترال S-Series</span>
+                <CheckCircle2 className={cn("w-4 h-4", pbxS.enabled ? "text-success" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">تفعيل S-Series</span>
               </div>
-              <Switch checked={sEnabled} onCheckedChange={setSEnabled} />
+              <Switch checked={pbxS.enabled} onCheckedChange={(v) => setPbxS({ ...pbxS, enabled: v })} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
-                <Input value={sHost} onChange={(e) => setSHost(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Host</label>
+                <Input value={pbxS.host} onChange={(e) => setPbxS({ ...pbxS, host: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ AMI</label>
-                <Input value={sAmiPort} onChange={(e) => setSAmiPort(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+                <Input value={pbxS.amiPort} onChange={(e) => setPbxS({ ...pbxS, amiPort: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Username</label>
-                <Input value={sAmiUser} onChange={(e) => setSAmiUser(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI User</label>
+                <Input value={pbxS.amiUser} onChange={(e) => setPbxS({ ...pbxS, amiUser: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI Secret</label>
-                <Input value={sAmiSecret} onChange={(e) => setSAmiSecret(e.target.value)} type="password" dir="ltr" className="bg-background/60" disabled={!sEnabled} placeholder="••••••••" />
+                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
+                  AMI Secret {(pbxS as any).amiSecretIsSet && <span className="text-success">(محفوظ)</span>}
+                </label>
+                <Input value={pbxS.amiSecret} onChange={(e) => setPbxS({ ...pbxS, amiSecret: e.target.value })} type="password" dir="ltr" className="bg-background/60" placeholder="••••••••" />
               </div>
               <div className="md:col-span-2">
                 <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                  <Webhook className="w-3 h-3" /> CDR Webhook URL
+                  <Webhook className="w-3 h-3" /> CDR URL
                 </label>
-                <Input value={sCdrUrl} onChange={(e) => setSCdrUrl(e.target.value)} dir="ltr" className="bg-background/60" disabled={!sEnabled} />
+                <Input value={pbxS.cdrUrl} onChange={(e) => setPbxS({ ...pbxS, cdrUrl: e.target.value })} dir="ltr" className="bg-background/60" />
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button onClick={() => savePbx("S20")} className="flex-1 gradient-primary text-primary-foreground" disabled={!sEnabled}>
-                <Save className="w-4 h-4 ml-2" /> حفظ إعدادات S20
-              </Button>
-              <Button variant="outline" onClick={() => testPbx("S20")} disabled={!sEnabled}>
-                <Wifi className="w-4 h-4 ml-2" /> اختبار الاتصال
-              </Button>
-            </div>
+            <Button onClick={savePbxS} className="w-full gradient-primary text-primary-foreground" disabled={settingsLoading}>
+              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات S20
+            </Button>
           </TabsContent>
         </Tabs>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Google AI Settings */}
+        {/* Google AI */}
         <section className="glass-card p-5">
           <div className="flex items-center justify-between mb-1">
             <h3 className="text-base font-bold flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" /> إعدادات Google AI
+              <Sparkles className="w-4 h-4 text-primary" /> Google AI
             </h3>
-            <Switch checked={googleAiEnabled} onCheckedChange={setGoogleAiEnabled} />
+            <Switch checked={googleAi.enabled} onCheckedChange={(v) => setGoogleAi({ ...googleAi, enabled: v })} />
           </div>
-          <p className="text-xs text-muted-foreground mb-5">
-            مفتاح Gemini لتفعيل التحليلات الذكية وملخصات المكالمات.
-          </p>
+          <p className="text-xs text-muted-foreground mb-5">مفتاح Gemini للتحليلات الذكية.</p>
           <div className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                <KeyRound className="w-3 h-3" /> Google AI API Key
+                <KeyRound className="w-3 h-3" /> API Key {(googleAi as any).apiKeyIsSet && <span className="text-success">(محفوظ)</span>}
               </label>
-              <Input
-                value={googleAiKey}
-                onChange={(e) => setGoogleAiKey(e.target.value)}
-                type="password"
-                dir="ltr"
-                placeholder="AIza..."
-                className="bg-background/60"
-                disabled={!googleAiEnabled}
-              />
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                احصل على المفتاح من{" "}
-                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-primary hover:underline" dir="ltr">
-                  Google AI Studio
-                </a>
-              </p>
+              <Input value={googleAi.apiKey} onChange={(e) => setGoogleAi({ ...googleAi, apiKey: e.target.value })} type="password" dir="ltr" placeholder={(googleAi as any).apiKeyIsSet ? "اتركه فارغًا للإبقاء" : "AIza..."} className="bg-background/60" disabled={!googleAi.enabled} />
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">النموذج</label>
-              <Select value={googleAiModel} onValueChange={setGoogleAiModel} disabled={!googleAiEnabled}>
+              <Select value={googleAi.model} onValueChange={(v) => setGoogleAi({ ...googleAi, model: v })} disabled={!googleAi.enabled}>
                 <SelectTrigger className="bg-background/60"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
@@ -526,9 +423,12 @@ const Settings = () => {
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                <Webhook className="w-3 h-3" /> Webhook URL (اختياري)
+                <Webhook className="w-3 h-3" /> Webhook URL
               </label>
-              <Input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} dir="ltr" className="bg-background/60" />
+              <div className="flex gap-2">
+                <Input value={webhook.url} onChange={(e) => setWebhook({ url: e.target.value })} dir="ltr" className="bg-background/60" />
+                <Button variant="outline" onClick={saveWebhook}>حفظ</Button>
+              </div>
             </div>
             <Button onClick={saveGoogleAi} className="w-full gradient-primary text-primary-foreground">
               <Save className="w-4 h-4 ml-2" /> حفظ إعدادات Google AI
@@ -541,40 +441,11 @@ const Settings = () => {
           <h3 className="text-base font-bold flex items-center gap-2">
             <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي
           </h3>
-          <p className="text-xs text-muted-foreground mb-5">تصدير واستيراد إعدادات النظام والمستخدمين بصيغة JSON.</p>
-          <div className="space-y-3">
-            <button
-              onClick={exportJSON}
-              className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40"
-            >
-              <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
-              <p className="text-sm font-bold">تصدير النسخة الاحتياطية</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">يُنزَّل ملف .json كامل</p>
-            </button>
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40"
-            >
-              <Upload className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
-              <p className="text-sm font-bold">استيراد نسخة احتياطية</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">اختر ملف .json للاستعادة</p>
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) importJSON(f);
-                e.target.value = "";
-              }}
-            />
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-info/10 text-info text-xs">
-              <Database className="w-4 h-4 shrink-0" />
-              <span>آخر نسخة احتياطية: قبل ساعتين</span>
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground mb-5">تصدير المستخدمين كـ JSON.</p>
+          <button onClick={exportJSON} className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40">
+            <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
+            <p className="text-sm font-bold">تصدير JSON</p>
+          </button>
         </section>
       </div>
 
@@ -590,21 +461,26 @@ const Settings = () => {
           <div className="space-y-4 py-2">
             <div>
               <label className="text-xs font-semibold mb-1.5 block">الاسم الكامل</label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="مثال: أحمد العتيبي" />
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="أحمد العتيبي" />
             </div>
             <div>
               <label className="text-xs font-semibold mb-1.5 block">البريد الإلكتروني</label>
               <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" dir="ltr" placeholder="user@hb.sa" />
             </div>
             <div>
+              <label className="text-xs font-semibold mb-1.5 block">
+                كلمة المرور {editing && <span className="text-muted-foreground">(اتركها فارغة للإبقاء)</span>}
+              </label>
+              <Input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} type="password" dir="ltr" placeholder="6 أحرف على الأقل" />
+            </div>
+            <div>
               <label className="text-xs font-semibold mb-1.5 block">الدور</label>
-              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as Role })}>
+              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as UserRole })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="admin">مدير النظام</SelectItem>
                   <SelectItem value="supervisor">مشرف</SelectItem>
                   <SelectItem value="agent">موظف</SelectItem>
-                  <SelectItem value="viewer">مشاهد</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -614,8 +490,9 @@ const Settings = () => {
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>إلغاء</Button>
-            <Button onClick={submit} className="gradient-primary text-primary-foreground">
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>إلغاء</Button>
+            <Button onClick={submit} className="gradient-primary text-primary-foreground" disabled={submitting}>
+              {submitting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
               {editing ? "حفظ التعديلات" : "إضافة المستخدم"}
             </Button>
           </DialogFooter>
