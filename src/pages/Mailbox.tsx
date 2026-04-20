@@ -1,49 +1,29 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Inbox,
-  Send,
-  Star,
-  Trash2,
-  Edit3,
-  Search,
-  Paperclip,
-  Reply,
-  Forward,
-  Archive,
-  ChevronLeft,
-  Mail,
-  AlertCircle,
-  CornerUpLeft,
+  Inbox, Send, Star, Trash2, Edit3, Search, Paperclip, Reply, Forward,
+  Archive, ChevronLeft, Mail, AlertCircle, CornerUpLeft, Loader2,
 } from "lucide-react";
-import { AGENTS } from "@/lib/mockData";
 import {
-  MAILS,
-  CURRENT_USER,
-  formatMailDate,
-  priorityMeta,
-  type InternalMail,
+  mailsApi,
+  type ApiMail,
   type MailFolder,
   type MailPriority,
-} from "@/lib/mailData";
+  type MailCounts,
+  usersApi,
+  type ApiUser,
+} from "@/lib/dataApi";
+import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 
@@ -55,107 +35,152 @@ const FOLDERS: { id: MailFolder; label: string; icon: any }[] = [
   { id: "trash",   label: "المحذوفة", icon: Trash2 },
 ];
 
+function priorityMeta(p: MailPriority) {
+  switch (p) {
+    case "high":   return { label: "عاجل", cls: "bg-destructive/15 text-destructive border-destructive/30" };
+    case "normal": return { label: "عادي", cls: "bg-info/15 text-info border-info/30" };
+    case "low":    return { label: "منخفض", cls: "bg-muted text-muted-foreground border-border" };
+  }
+}
+
+function formatMailDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+  const time = d.toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (sameDay) return time;
+  if (isYesterday) return `أمس ${time}`;
+  return d.toLocaleDateString("ar-SA", { month: "short", day: "numeric" });
+}
+
 export default function Mailbox() {
-  const [mails, setMails] = useState<InternalMail[]>(MAILS);
+  const session = getSession();
+  const currentName = session?.displayName || session?.identifier || "أنا";
+  const initials = currentName.split(" ").map(p => p[0]).filter(Boolean).join("").slice(0, 2);
+
+  const [mails, setMails] = useState<ApiMail[]>([]);
+  const [counts, setCounts] = useState<MailCounts>({ inbox: 0, sent: 0, starred: 0, drafts: 0, trash: 0 });
+  const [recipients, setRecipients] = useState<ApiUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [folder, setFolder] = useState<MailFolder>("inbox");
-  const [selectedId, setSelectedId] = useState<string | null>(MAILS[0]?.id || null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [sending, setSending] = useState(false);
 
-  // Compose state
   const [toExt, setToExt] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [priority, setPriority] = useState<MailPriority>("normal");
 
-  const folderMails = useMemo(() => {
-    return mails.filter((m) => {
-      if (folder === "starred") return m.starred && m.folder !== "trash";
-      return m.folder === folder;
-    });
-  }, [mails, folder]);
+  const refreshCounts = async () => {
+    try { setCounts(await mailsApi.counts()); } catch { /* ignore */ }
+  };
+
+  const loadFolder = async (f: MailFolder) => {
+    setLoading(true);
+    try {
+      const list = await mailsApi.list(f);
+      setMails(list);
+      setSelectedId(list[0]?.id || null);
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التحميل", text: e?.response?.data?.error || "تعذر جلب الرسائل" });
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadFolder(folder); refreshCounts(); }, [folder]);
+
+  useEffect(() => {
+    // اجلب قائمة المستلمين المحتملين (مستخدمون لديهم ext)
+    usersApi.list().then((u) => setRecipients(u.filter(x => x.ext))).catch(() => {});
+  }, []);
 
   const filteredMails = useMemo(() => {
-    if (!search) return folderMails;
+    if (!search) return mails;
     const q = search.toLowerCase();
-    return folderMails.filter(
+    return mails.filter(
       (m) =>
         m.subject.toLowerCase().includes(q) ||
         m.from.name.toLowerCase().includes(q) ||
         m.to.name.toLowerCase().includes(q) ||
         m.body.toLowerCase().includes(q),
     );
-  }, [folderMails, search]);
+  }, [mails, search]);
 
   const selected = useMemo(
     () => mails.find((m) => m.id === selectedId) || null,
     [mails, selectedId],
   );
 
-  const counts = useMemo(() => ({
-    inbox:   mails.filter((m) => m.folder === "inbox" && !m.read).length,
-    sent:    mails.filter((m) => m.folder === "sent").length,
-    starred: mails.filter((m) => m.starred && m.folder !== "trash").length,
-    drafts:  0,
-    trash:   mails.filter((m) => m.folder === "trash").length,
-  }), [mails]);
-
-  const openMail = (id: string) => {
+  const openMail = async (id: string) => {
     setSelectedId(id);
     setMobileView("detail");
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, read: true } : m)));
+    const m = mails.find((x) => x.id === id);
+    if (m && !m.read) {
+      try {
+        await mailsApi.update(id, { is_read: true });
+        setMails((prev) => prev.map((x) => x.id === id ? { ...x, read: true } : x));
+        refreshCounts();
+      } catch { /* ignore */ }
+    }
   };
 
-  const toggleStar = (id: string) => {
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, starred: !m.starred } : m)));
+  const toggleStar = async (id: string) => {
+    const m = mails.find((x) => x.id === id);
+    if (!m) return;
+    try {
+      const updated = await mailsApi.update(id, { is_starred: !m.starred });
+      setMails((prev) => prev.map((x) => x.id === id ? updated : x));
+      refreshCounts();
+    } catch { /* ignore */ }
   };
 
-  const moveToTrash = (id: string) => {
-    setMails((prev) => prev.map((m) => (m.id === id ? { ...m, folder: "trash" } : m)));
-    setSelectedId(null);
-    setMobileView("list");
+  const moveToTrash = async (id: string) => {
+    try {
+      // إن كانت في trash بالفعل → حذف نهائي
+      const m = mails.find((x) => x.id === id);
+      if (m?.folder === "trash") {
+        const ok = await Swal.fire({
+          icon: "warning", title: "حذف نهائي؟", text: "لن يمكن استرجاع الرسالة.",
+          showCancelButton: true, confirmButtonText: "حذف", cancelButtonText: "إلغاء",
+          confirmButtonColor: "hsl(var(--destructive))",
+        });
+        if (!ok.isConfirmed) return;
+        await mailsApi.remove(id);
+      } else {
+        await mailsApi.update(id, { folder: "trash" });
+      }
+      setMails((prev) => prev.filter((x) => x.id !== id));
+      setSelectedId(null);
+      setMobileView("list");
+      refreshCounts();
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل الحذف", text: e?.response?.data?.error || "حدث خطأ" });
+    }
   };
 
-  const sendMail = () => {
-    const target = AGENTS.find((a) => a.ext === toExt);
-    if (!target || !subject.trim() || !body.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "بيانات ناقصة",
-        text: "يرجى تعبئة المستلم والموضوع والمحتوى.",
-        confirmButtonColor: "hsl(var(--primary))",
-      });
+  const sendMail = async () => {
+    if (!toExt || !subject.trim() || !body.trim()) {
+      Swal.fire({ icon: "warning", title: "بيانات ناقصة", text: "يرجى تعبئة المستلم والموضوع والمحتوى." });
       return;
     }
-    const newMail: InternalMail = {
-      id: `M-${Date.now()}`,
-      from: { name: CURRENT_USER.name, avatar: CURRENT_USER.avatar, ext: CURRENT_USER.ext },
-      to: { name: target.name, avatar: target.avatar, ext: target.ext },
-      subject,
-      body,
-      date: new Date().toISOString(),
-      read: true,
-      starred: false,
-      priority,
-      folder: "sent",
-      ownerExt: CURRENT_USER.ext,
-    };
-    setMails((prev) => [newMail, ...prev]);
-    setComposeOpen(false);
-    setToExt(""); setSubject(""); setBody(""); setPriority("normal");
-    setFolder("sent");
-    setSelectedId(newMail.id);
-    Swal.fire({
-      icon: "success",
-      title: "تم الإرسال",
-      text: `تم إرسال الرسالة إلى ${target.name}`,
-      confirmButtonColor: "hsl(var(--primary))",
-      timer: 1800,
-    });
+    setSending(true);
+    try {
+      await mailsApi.send({ toExt, subject, body, priority });
+      setComposeOpen(false);
+      setToExt(""); setSubject(""); setBody(""); setPriority("normal");
+      Swal.fire({ icon: "success", title: "تم الإرسال", timer: 1500, showConfirmButton: false });
+      if (folder === "sent") loadFolder("sent");
+      refreshCounts();
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل الإرسال", text: e?.response?.data?.error || "خطأ" });
+    } finally { setSending(false); }
   };
 
-  const replyTo = (m: InternalMail) => {
+  const replyTo = (m: ApiMail) => {
     setToExt(m.from.ext);
     setSubject(m.subject.startsWith("Re:") ? m.subject : `Re: ${m.subject}`);
     setBody(`\n\n---\nرد على رسالة من ${m.from.name}:\n${m.body.split("\n").map((l) => "> " + l).join("\n")}`);
@@ -166,7 +191,6 @@ export default function Mailbox() {
   return (
     <AppLayout title="البريد الداخلي" subtitle="تواصل بين موظفي مركز الاتصال">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* الشريط الجانبي للمجلدات */}
         <aside className="lg:col-span-2 space-y-2">
           <Button
             onClick={() => setComposeOpen(true)}
@@ -185,9 +209,7 @@ export default function Mailbox() {
                   onClick={() => { setFolder(f.id); setMobileView("list"); }}
                   className={cn(
                     "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground/75 hover:bg-muted",
+                    active ? "bg-primary/10 text-primary" : "text-foreground/75 hover:bg-muted",
                   )}
                 >
                   <f.icon className="w-4 h-4 shrink-0" />
@@ -205,15 +227,14 @@ export default function Mailbox() {
             })}
           </nav>
 
-          {/* بطاقة المستخدم */}
           <div className="rounded-2xl border border-border bg-card p-3 shadow-card hidden lg:block">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-full gradient-primary grid place-items-center text-[11px] font-bold text-primary-foreground">
-                {CURRENT_USER.avatar}
+                {initials}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold truncate">{CURRENT_USER.name}</p>
-                <p className="text-[10px] text-muted-foreground">تحويلة {CURRENT_USER.ext}</p>
+                <p className="text-xs font-bold truncate">{currentName}</p>
+                <p className="text-[10px] text-muted-foreground">{session?.role}</p>
               </div>
             </div>
           </div>
@@ -239,7 +260,12 @@ export default function Mailbox() {
           </div>
 
           <div className="flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
-            {filteredMails.length === 0 && (
+            {loading && (
+              <div className="text-center py-12 text-sm text-muted-foreground flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> جاري التحميل...
+              </div>
+            )}
+            {!loading && filteredMails.length === 0 && (
               <div className="text-center py-12 text-sm text-muted-foreground">
                 <Mail className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 لا توجد رسائل
@@ -282,15 +308,8 @@ export default function Mailbox() {
                       {m.subject}
                     </p>
                     <div className="flex items-center gap-1.5">
-                      {!m.read && !isSent && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                      )}
-                      {m.starred && (
-                        <Star className="w-3 h-3 fill-warning text-warning" />
-                      )}
-                      {m.attachments && m.attachments.length > 0 && (
-                        <Paperclip className="w-3 h-3 text-muted-foreground" />
-                      )}
+                      {!m.read && !isSent && (<span className="w-1.5 h-1.5 rounded-full bg-primary" />)}
+                      {m.starred && (<Star className="w-3 h-3 fill-warning text-warning" />)}
                       <Badge variant="outline" className={cn("text-[9px] h-4 px-1.5", prio.cls)}>
                         {prio.label}
                       </Badge>
@@ -313,12 +332,7 @@ export default function Mailbox() {
             <>
               <div className="p-4 border-b border-border">
                 <div className="flex items-center justify-between mb-3 gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setMobileView("list")}
-                    className="lg:hidden"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setMobileView("list")} className="lg:hidden">
                     <ChevronLeft className="w-4 h-4 ms-1" /> العودة
                   </Button>
                   <div className="flex items-center gap-1 ms-auto">
@@ -340,9 +354,7 @@ export default function Mailbox() {
                   </div>
                 </div>
 
-                <h2 className="text-lg font-extrabold text-foreground mb-3">
-                  {selected.subject}
-                </h2>
+                <h2 className="text-lg font-extrabold text-foreground mb-3">{selected.subject}</h2>
 
                 <div className="flex items-start gap-3">
                   <div className="w-11 h-11 rounded-full gradient-primary grid place-items-center text-xs font-bold text-primary-foreground shrink-0">
@@ -361,10 +373,7 @@ export default function Mailbox() {
                           {priorityMeta(selected.priority).label}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground tabular-nums">
-                          {new Date(selected.date).toLocaleString("ar-SA", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
+                          {new Date(selected.date).toLocaleString("ar-SA", { dateStyle: "medium", timeStyle: "short" })}
                         </span>
                       </div>
                     </div>
@@ -376,27 +385,6 @@ export default function Mailbox() {
                 <div className="prose prose-sm max-w-none text-foreground/90 whitespace-pre-wrap text-sm leading-relaxed">
                   {selected.body}
                 </div>
-
-                {selected.attachments && selected.attachments.length > 0 && (
-                  <div className="mt-6 pt-4 border-t border-border">
-                    <p className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <Paperclip className="w-3.5 h-3.5" />
-                      المرفقات ({selected.attachments.length})
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {selected.attachments.map((a) => (
-                        <button
-                          key={a.name}
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted transition-colors text-xs"
-                        >
-                          <Paperclip className="w-3.5 h-3.5 text-primary" />
-                          <span className="font-semibold">{a.name}</span>
-                          <span className="text-muted-foreground">({a.size})</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="p-3 border-t border-border flex items-center gap-2">
@@ -412,7 +400,9 @@ export default function Mailbox() {
             <div className="flex-1 grid place-items-center text-center p-10">
               <div>
                 <Mail className="w-14 h-14 mx-auto text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">اختر رسالة لعرض محتواها</p>
+                <p className="text-sm text-muted-foreground">
+                  {loading ? "جاري التحميل..." : "اختر رسالة لعرض محتواها"}
+                </p>
               </div>
             </div>
           )}
@@ -431,17 +421,15 @@ export default function Mailbox() {
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-bold text-muted-foreground mb-1 block">
-                إلى (الموظف)
-              </label>
+              <label className="text-xs font-bold text-muted-foreground mb-1 block">إلى (المستخدم)</label>
               <Select value={toExt} onValueChange={setToExt}>
                 <SelectTrigger>
-                  <SelectValue placeholder="اختر الموظف المستلم..." />
+                  <SelectValue placeholder={recipients.length ? "اختر المستلم..." : "لا يوجد مستلمون لديهم تحويلة"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {AGENTS.map((a) => (
-                    <SelectItem key={a.id} value={a.ext}>
-                      {a.name} — تحويلة {a.ext}
+                  {recipients.map((u) => (
+                    <SelectItem key={u.id} value={u.ext!}>
+                      {u.name} — تحويلة {u.ext}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -451,11 +439,7 @@ export default function Mailbox() {
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
                 <label className="text-xs font-bold text-muted-foreground mb-1 block">الموضوع</label>
-                <Input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="عنوان الرسالة..."
-                />
+                <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="عنوان الرسالة..." />
               </div>
               <div>
                 <label className="text-xs font-bold text-muted-foreground mb-1 block">الأولوية</label>
@@ -476,20 +460,15 @@ export default function Mailbox() {
 
             <div>
               <label className="text-xs font-bold text-muted-foreground mb-1 block">المحتوى</label>
-              <Textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                placeholder="اكتب رسالتك هنا..."
-                rows={8}
-                className="resize-none"
-              />
+              <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="اكتب رسالتك هنا..." rows={8} className="resize-none" />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setComposeOpen(false)}>إلغاء</Button>
-            <Button onClick={sendMail} className="gradient-primary text-primary-foreground">
-              <Send className="w-4 h-4 ms-2" /> إرسال
+            <Button variant="outline" onClick={() => setComposeOpen(false)} disabled={sending}>إلغاء</Button>
+            <Button onClick={sendMail} disabled={sending} className="gradient-primary text-primary-foreground">
+              {sending ? <Loader2 className="w-4 h-4 ms-2 animate-spin" /> : <Send className="w-4 h-4 ms-2" />}
+              إرسال
             </Button>
           </DialogFooter>
         </DialogContent>
