@@ -11,6 +11,9 @@ import authRoutes from "./routes/auth.js";
 import agentsRoutes from "./routes/agents.js";
 import callsRoutes from "./routes/calls.js";
 import alertsRoutes from "./routes/alerts.js";
+import usersRoutes from "./routes/users.js";
+import supervisorsRoutes from "./routes/supervisors.js";
+import settingsRoutes from "./routes/settings.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { query } from "./db/pool.js";
@@ -50,6 +53,9 @@ app.get("/api/health", async (_req, res) => {
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/supervisors", supervisorsRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api/agents", agentsRoutes);
 app.use("/api/calls", callsRoutes);
 app.use("/api/alerts", alertsRoutes);
