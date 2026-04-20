@@ -59,6 +59,32 @@ router.post("/", requireRole("admin"), async (req, res) => {
 });
 
 // ============================================================
+// PATCH /api/users/me/password — تغيير كلمة المرور (يجب أن يكون قبل /:id)
+// ============================================================
+const pwdSchema = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: z.string().min(6).max(128),
+});
+
+router.patch("/me/password", async (req, res) => {
+  const parsed = pwdSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
+
+  const { rows } = await query(
+    `SELECT password_hash FROM users WHERE id = $1`,
+    [req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: "not_found" });
+
+  const ok = await bcrypt.compare(parsed.data.oldPassword, rows[0].password_hash);
+  if (!ok) return res.status(401).json({ error: "wrong_old_password" });
+
+  const hash = await bcrypt.hash(parsed.data.newPassword, 10);
+  await query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, req.user.sub]);
+  res.json({ ok: true });
+});
+
+// ============================================================
 // PATCH /api/users/:id — تحديث (admin) أو الذات
 // ============================================================
 const updateSchema = z.object({
@@ -138,32 +164,6 @@ router.delete("/:id", requireRole("admin"), async (req, res) => {
   }
   const { rowCount } = await query(`DELETE FROM users WHERE id = $1`, [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: "not_found" });
-  res.json({ ok: true });
-});
-
-// ============================================================
-// PATCH /api/users/me/password — تغيير كلمة المرور للمستخدم الحالي
-// ============================================================
-const pwdSchema = z.object({
-  oldPassword: z.string().min(1),
-  newPassword: z.string().min(6).max(128),
-});
-
-router.patch("/me/password", async (req, res) => {
-  const parsed = pwdSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "invalid_input" });
-
-  const { rows } = await query(
-    `SELECT password_hash FROM users WHERE id = $1`,
-    [req.user.sub]
-  );
-  if (!rows[0]) return res.status(404).json({ error: "not_found" });
-
-  const ok = await bcrypt.compare(parsed.data.oldPassword, rows[0].password_hash);
-  if (!ok) return res.status(401).json({ error: "wrong_old_password" });
-
-  const hash = await bcrypt.hash(parsed.data.newPassword, 10);
-  await query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, req.user.sub]);
   res.json({ ok: true });
 });
 
