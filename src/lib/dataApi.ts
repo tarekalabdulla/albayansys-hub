@@ -69,6 +69,7 @@ export const usersApi = {
 
 export interface BulkImportResult {
   created: number;
+  updated?: number;
   skipped: number;
   errors: Array<{ row: number; reason: string; [k: string]: unknown }>;
 }
