@@ -497,19 +497,78 @@ export default function Yeastar() {
             </div>
           </Card>
 
-          {/* ====== Webhook reference ====== */}
+          {/* ====== Webhook reference (قابل للتحرير) ====== */}
           <Card className="p-5">
-            <h3 className="font-semibold text-foreground flex items-center gap-2 mb-3">
-              <WebhookIcon className="w-5 h-5 text-primary" />
-              مسار Webhook الداخلي
-            </h3>
-            <div className="rounded-lg bg-muted/40 border border-border/50 p-3 font-mono text-xs break-all" dir="ltr">
-              POST /api/yeastar/webhook/call-event/{"{TOKEN}"}
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
+                <WebhookIcon className="w-5 h-5 text-primary" />
+                مسار Webhook الداخلي
+              </h3>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => setForm((p) => ({ ...p, webhookPath: DEFAULT_WH_PATH }))}
+                  title="إعادة المسار للقيمة الافتراضية"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  افتراضي
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(form.webhookPath || DEFAULT_WH_PATH);
+                      toast({ title: "تم النسخ", description: "تم نسخ مسار Webhook." });
+                    } catch {
+                      toast({ title: "تعذّر النسخ", variant: "destructive" });
+                    }
+                  }}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  نسخ
+                </Button>
+              </div>
             </div>
-            <ul className="text-xs text-muted-foreground mt-3 space-y-1 list-disc pr-5">
+
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="webhookPath" className="text-xs">المسار (Path)</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-muted-foreground font-mono shrink-0" dir="ltr">POST</span>
+                  <Input
+                    id="webhookPath"
+                    dir="ltr"
+                    placeholder={DEFAULT_WH_PATH}
+                    value={form.webhookPath}
+                    onChange={(e) => setForm((p) => ({ ...p, webhookPath: e.target.value }))}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  يجب أن يبدأ بـ <code>/</code>. استخدم <code>{"{TOKEN}"}</code> كمكان لإدراج التوكن تلقائياً.
+                  اضغط <b>حفظ الإعدادات</b> ليُطبَّق المسار الجديد عند اختبار المزامنة.
+                </p>
+              </div>
+
+              {(c.webhookPath || data?.env.webhookPath) && (
+                <div className="rounded-lg bg-muted/40 border border-border/50 p-3 font-mono text-[11px] break-all" dir="ltr">
+                  <span className="text-muted-foreground">المسار الحالي المحفوظ: </span>
+                  {c.webhookPath || data?.env.webhookPath}
+                </div>
+              )}
+            </div>
+
+            <ul className="text-xs text-muted-foreground mt-4 space-y-1 list-disc pr-5">
               <li>التوكن يُحقَّق من URL، والتوقيع HMAC من رأس <code>X-Yeastar-Signature</code>.</li>
               <li>الأحداث المدعومة: 30008/30009/30011/30012/30013/30014/30025/30026/30029/30033.</li>
               <li>السجلّ يُكتب في <code>pbx_events</code> مع <code>unique_key</code> لمنع التكرار.</li>
+              <li>تغيير المسار هنا يؤثر فقط على اختبار المزامنة الذاتي — لا يُعيد توجيه نقطة النهاية الفعلية في الكود.</li>
             </ul>
           </Card>
 
