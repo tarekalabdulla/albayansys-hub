@@ -252,9 +252,14 @@ async function upsertCdrRow(c) {
   }
 }
 
-async function selfTestWebhook(baseUrlReq, token, secret, timeoutMs = 8_000) {
+async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutMs = 8_000) {
   if (!token) return { ok: false, error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
-  const url = `${baseUrlReq}/api/yeastar/webhook/call-event/${encodeURIComponent(token)}`;
+  const tpl = (pathTemplate || DEFAULT_WEBHOOK_PATH).trim();
+  // استبدل {TOKEN} أو ألحقه إذا لم يكن موجوداً
+  const pathWithToken = tpl.includes("{TOKEN}")
+    ? tpl.replace("{TOKEN}", encodeURIComponent(token))
+    : `${tpl.replace(/\/+$/, "")}/${encodeURIComponent(token)}`;
+  const url = `${baseUrlReq}${pathWithToken.startsWith("/") ? "" : "/"}${pathWithToken}`;
   const body = JSON.stringify({
     type: 30012,
     msg: { call_id: `SYNC-${Date.now()}`, caller_num: "0", callee_num: "0", call_status: "test", _self_test: true },
@@ -268,9 +273,9 @@ async function selfTestWebhook(baseUrlReq, token, secret, timeoutMs = 8_000) {
   try {
     const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
     if (r.ok) return { ok: true, url };
-    return { ok: false, error: `HTTP ${r.status}` };
+    return { ok: false, error: `HTTP ${r.status} (${url})` };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: `${e.message} (${url})` };
   } finally {
     clearTimeout(tm);
   }
