@@ -25,7 +25,11 @@ router.get("/", requireRole("admin"), async (_req, res) => {
 // ============================================================
 const createSchema = z.object({
   name: z.string().trim().min(1).max(128),
-  email: z.string().trim().email().max(255),
+  // البريد اختياري — يقبل سلسلة فارغة أو يُحذف
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().trim().email().max(255).optional(),
+  ),
   identifier: z.string().trim().min(2).max(64).optional(),
   password: z.string().min(6).max(128),
   role: z.enum(["admin", "supervisor", "agent"]),
@@ -47,7 +51,13 @@ router.post("/", requireRole("admin"), async (req, res) => {
     return res.status(400).json({ error: "invalid_input", details: flat });
   }
   const d = parsed.data;
-  const identifier = (d.identifier || d.email).toLowerCase().trim();
+  // identifier يُشتقّ من: المُرسَل → البريد → التحويلة → اسم مُولَّد
+  const identifier = (
+    d.identifier ||
+    d.email ||
+    (d.ext ? `ext-${d.ext}` : null) ||
+    `user-${Date.now()}`
+  ).toString().toLowerCase().trim();
   const hash = await bcrypt.hash(d.password, 10);
 
   try {
@@ -55,7 +65,7 @@ router.post("/", requireRole("admin"), async (req, res) => {
       `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id, identifier, email, display_name AS name, role, is_active AS active, phone, department, ext, created_at`,
-      [identifier, hash, d.name, d.email, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
+      [identifier, hash, d.name, d.email || null, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
     );
     res.status(201).json({ user: rows[0] });
   } catch (e) {
@@ -86,7 +96,10 @@ router.post("/", requireRole("admin"), async (req, res) => {
 // ============================================================
 const bulkRowSchema = z.object({
   name: z.string().trim().min(1).max(128),
-  email: z.string().trim().email().max(255),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().trim().email().max(255).optional(),
+  ),
   password: z.string().min(6).max(128).default("Hulul@1234"),
   role: z.enum(["admin", "supervisor", "agent"]).default("agent"),
   active: z.boolean().default(true),
@@ -132,13 +145,17 @@ router.post("/bulk", requireRole("admin"), async (req, res) => {
     }
 
     const d = v.data;
-    const identifier = d.email.toLowerCase().trim();
+    const identifier = (
+      d.email ||
+      (d.ext ? `ext-${d.ext}` : null) ||
+      `user-${Date.now()}-${i}`
+    ).toString().toLowerCase().trim();
     try {
       const hash = await bcrypt.hash(d.password, 10);
       await query(
         `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [identifier, hash, d.name, d.email, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
+        [identifier, hash, d.name, d.email || null, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
       );
       results.created++;
     } catch (e) {
