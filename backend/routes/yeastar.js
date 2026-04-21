@@ -1,0 +1,376 @@
+// ============================================================================
+// /api/yeastar — إعدادات Yeastar PBX + زر Sync الموحّد
+// ----------------------------------------------------------------------------
+// يوفّر:
+//   GET  /api/yeastar/config        — الإعدادات الحالية (بدون أسرار)
+//   PUT  /api/yeastar/config        — تحديث (مدير فقط)
+//   POST /api/yeastar/sync          — التحديث الشامل (admin only):
+//                                     1) تجديد access token
+//                                     2) اختبار اتصال webhook (self-call)
+//                                     3) سحب آخر 100 مكالمة من Yeastar API
+//                                     4) إعادة تحميل حالة التكاملات
+//                                     5) تخزين تقرير المزامنة في DB
+//   GET  /api/yeastar/sync/history  — آخر 20 مزامنة
+//
+// أمن:
+//   - أسرار (clientSecret/webhookSecret) لا تخرج للواجهة أبداً
+//   - التخزين في system_settings تحت المفتاح "yeastar_pbx"
+//   - فقط admin يستطيع التعديل والمزامنة
+// ============================================================================
+import { Router } from "express";
+import crypto from "crypto";
+import { z } from "zod";
+import { query } from "../db/pool.js";
+import { authRequired, requireRole } from "../middleware/auth.js";
+import { getYeastarApiStatus } from "../realtime/yeastar-openapi.js";
+import { getAmiStatus } from "../services/amiService.js";
+import { getWebhookStatus } from "./webhooks-yeastar.js";
+
+const router = Router();
+router.use(authRequired);
+
+const SETTINGS_KEY = "yeastar_pbx";
+const HISTORY_KEY  = "yeastar_sync_history";
+
+// -------------------- Helpers --------------------
+const SECRET_FIELDS = new Set(["clientSecret", "webhookSecret"]);
+
+function stripSecrets(obj) {
+  if (!obj || typeof obj !== "object") return {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (SECRET_FIELDS.has(k)) {
+      out[`${k}IsSet`] = Boolean(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+async function loadConfig() {
+  const { rows } = await query(`SELECT value FROM system_settings WHERE key = $1`, [SETTINGS_KEY]);
+  return rows[0]?.value || {};
+}
+
+async function saveConfig(value, userId) {
+  // ادمج مع القيمة الحالية كي لا تُمسح الأسرار غير المُرسَلة
+  const current = await loadConfig();
+  // إذا أُرسل سرّ فارغ "" فاحتفظ بالقديم
+  for (const f of SECRET_FIELDS) {
+    if (f in value && (value[f] === "" || value[f] == null)) delete value[f];
+  }
+  const merged = { ...current, ...value };
+  await query(
+    `INSERT INTO system_settings (key, value, updated_by)
+     VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by`,
+    [SETTINGS_KEY, JSON.stringify(merged), userId]
+  );
+  return merged;
+}
+
+async function loadHistory() {
+  const { rows } = await query(`SELECT value FROM system_settings WHERE key = $1`, [HISTORY_KEY]);
+  return Array.isArray(rows[0]?.value?.items) ? rows[0].value.items : [];
+}
+
+async function pushHistory(entry, userId) {
+  const items = await loadHistory();
+  items.unshift(entry);
+  const trimmed = items.slice(0, 20);
+  await query(
+    `INSERT INTO system_settings (key, value, updated_by)
+     VALUES ($1, $2::jsonb, $3)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by`,
+    [HISTORY_KEY, JSON.stringify({ items: trimmed }), userId]
+  );
+}
+
+// -------------------- GET /config --------------------
+router.get("/config", requireRole("admin"), async (_req, res) => {
+  try {
+    const cfg = await loadConfig();
+    const lastSync = (await loadHistory())[0] || null;
+    res.json({
+      config: stripSecrets(cfg),
+      env: {
+        // مصدر الحقيقة عند البدء — من .env (للعرض فقط)
+        baseUrl:  process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || null,
+        clientIdSet: Boolean(process.env.YEASTAR_CLIENT_ID),
+        clientSecretSet: Boolean(process.env.YEASTAR_CLIENT_SECRET),
+        webhookTokenSet: Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
+        webhookSecretSet: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+        allowedIps: (process.env.YEASTAR_ALLOWED_IPS || "")
+          .split(",").map((s) => s.trim()).filter(Boolean),
+      },
+      status: {
+        webhook: getWebhookStatus(),
+        openapi: getYeastarApiStatus(),
+        ami:     getAmiStatus(),
+      },
+      lastSync,
+    });
+  } catch (e) {
+    console.error("[yeastar/config:get]", e);
+    res.status(500).json({ error: "load_failed", message: e.message });
+  }
+});
+
+// -------------------- PUT /config --------------------
+const configSchema = z.object({
+  pbxIp:          z.string().trim().max(255).optional(),
+  baseUrl:        z.string().trim().max(255).optional(),
+  clientId:       z.string().trim().max(255).optional(),
+  clientSecret:   z.string().trim().max(512).optional(),
+  webhookSecret:  z.string().trim().max(512).optional(),
+  allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
+  enabled:        z.boolean().optional(),
+}).strict();
+
+router.put("/config", requireRole("admin"), async (req, res) => {
+  const parsed = configSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+  }
+  try {
+    const merged = await saveConfig(parsed.data, req.user.sub);
+    res.json({ ok: true, config: stripSecrets(merged) });
+  } catch (e) {
+    console.error("[yeastar/config:put]", e);
+    res.status(500).json({ error: "save_failed", message: e.message });
+  }
+});
+
+// ============================================================================
+// POST /sync — العملية الموحّدة
+// ============================================================================
+function getEffective(cfg) {
+  // الأولوية: DB ← .env
+  return {
+    baseUrl:       (cfg.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "").replace(/\/+$/, ""),
+    clientId:      cfg.clientId      || process.env.YEASTAR_CLIENT_ID || "",
+    clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
+    webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
+    webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
+  };
+}
+
+async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 10_000) {
+  const ctrl = new AbortController();
+  const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${baseUrl}/openapi/v1.0/get_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    const token = data.access_token || data.data?.access_token;
+    if (r.ok && token) {
+      return { ok: true, token, expiresIn: data.expire_time || data.data?.expire_time || 1800 };
+    }
+    return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    clearTimeout(tm);
+  }
+}
+
+async function fetchRecentCdr(baseUrl, token, limit, timeoutMs = 15_000) {
+  // Yeastar P-Series Open API — endpoint استرجاع CDR
+  // يستخدم POST /openapi/v1.0/cdr/list مع access_token query
+  const ctrl = new AbortController();
+  const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const url = `${baseUrl}/openapi/v1.0/cdr/list?access_token=${encodeURIComponent(token)}`;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ page: 1, page_size: Math.min(limit, 100), sort_by: "time", order_by: "desc" }),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || (data.errcode && data.errcode !== 0)) {
+      return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
+    }
+    const list = data.cdr_list || data.data || data.list || [];
+    return { ok: true, list: Array.isArray(list) ? list : [] };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    clearTimeout(tm);
+  }
+}
+
+async function upsertCdrRow(c) {
+  // اخترْ مفتاحاً موحّداً للتفرّد
+  const callId = (c.call_id || c.uniqueid || c.linkedid || `${c.time}-${c.caller_num}-${c.callee_num}`).toString().slice(0, 128);
+  const linkedid = (c.linkedid || c.call_id || "").toString().slice(0, 64);
+  const ext = (c.callee_num || c.member_num || c.extension || "").toString().slice(0, 32);
+  const remote = (c.caller_num || c.from_num || c.remote_number || "").toString().slice(0, 64);
+  const direction = (c.call_type === "1" || /out/i.test(c.direction || "")) ? "outgoing"
+                   : (c.call_type === "2" || /in/i.test(c.direction || "")) ? "incoming"
+                   : "unknown";
+  const status = /answer/i.test(c.status || "") ? "answered"
+               : /no.?answer|missed/i.test(c.status || "") ? "no_answer"
+               : /busy/i.test(c.status || "") ? "busy"
+               : "completed";
+  const answered = /answer/i.test(c.status || "") || parseInt(c.talk_duration || c.billsec || 0, 10) > 0;
+  const dur = parseInt(c.duration || c.call_duration || 0, 10) || 0;
+  const talk = parseInt(c.talk_duration || c.billsec || 0, 10) || 0;
+  const startedAt = c.time ? new Date(c.time) : new Date();
+
+  try {
+    await query(
+      `INSERT INTO pbx_call_logs
+        (call_unique_key, linkedid, ext, remote_number, remote_number_norm,
+         direction, status_last, answered, started_at, duration_seconds, talk_seconds,
+         source_of_truth, raw_final_payload)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'api', $11::jsonb)
+       ON CONFLICT (call_unique_key) DO UPDATE SET
+         status_last = EXCLUDED.status_last,
+         answered    = EXCLUDED.answered,
+         duration_seconds = GREATEST(pbx_call_logs.duration_seconds, EXCLUDED.duration_seconds),
+         talk_seconds     = GREATEST(pbx_call_logs.talk_seconds,    EXCLUDED.talk_seconds),
+         raw_final_payload = EXCLUDED.raw_final_payload,
+         updated_at  = NOW()`,
+      [callId, linkedid || null, ext || null, remote || null, direction, status, answered, startedAt, dur, talk, JSON.stringify(c)]
+    );
+    return true;
+  } catch (e) {
+    console.warn("[yeastar/sync] upsertCdrRow failed:", e.message);
+    return false;
+  }
+}
+
+async function selfTestWebhook(baseUrlReq, token, secret, timeoutMs = 8_000) {
+  if (!token) return { ok: false, error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
+  const url = `${baseUrlReq}/api/yeastar/webhook/call-event/${encodeURIComponent(token)}`;
+  const body = JSON.stringify({
+    type: 30012,
+    msg: { call_id: `SYNC-${Date.now()}`, caller_num: "0", callee_num: "0", call_status: "test", _self_test: true },
+  });
+  const headers = { "Content-Type": "application/json" };
+  if (secret) {
+    headers["X-Yeastar-Signature"] = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
+  }
+  const ctrl = new AbortController();
+  const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
+    if (r.ok) return { ok: true, url };
+    return { ok: false, error: `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    clearTimeout(tm);
+  }
+}
+
+router.post("/sync", requireRole("admin"), async (req, res) => {
+  const t0 = Date.now();
+  const startedAt = new Date().toISOString();
+  const cfg = await loadConfig();
+  const eff = getEffective(cfg);
+
+  const report = {
+    startedAt,
+    finishedAt: null,
+    durationMs: 0,
+    ok: true,
+    by: req.user.identifier || req.user.sub,
+    steps: {
+      token:    { ok: false, message: "" },
+      webhook:  { ok: false, message: "" },
+      cdr:      { ok: false, message: "", fetched: 0, upserted: 0 },
+      services: { ok: false, message: "" },
+    },
+  };
+
+  // ---- 1) Token
+  if (!eff.baseUrl || !eff.clientId || !eff.clientSecret) {
+    report.steps.token = { ok: false, message: "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)" };
+  } else {
+    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    report.steps.token = t.ok
+      ? { ok: true,  message: `access_token صالح لـ ${t.expiresIn}s`, expiresIn: t.expiresIn }
+      : { ok: false, message: t.error || "فشل get_token" };
+  }
+
+  // ---- 2) Webhook self-test
+  const baseReq = `${req.protocol}://${req.get("host") || `127.0.0.1:${process.env.PORT || 4000}`}`;
+  const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret);
+  report.steps.webhook = w.ok
+    ? { ok: true,  message: `Webhook استقبل الاختبار من ${w.url}` }
+    : { ok: false, message: w.error || "فشل اختبار webhook" };
+
+  // ---- 3) CDR pull (يعتمد على نجاح خطوة token)
+  if (report.steps.token.ok) {
+    // أعد طلب التوكن للحصول على القيمة (لا نخزّنها هنا)
+    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    if (t.ok) {
+      const cdr = await fetchRecentCdr(eff.baseUrl, t.token, 100);
+      if (cdr.ok) {
+        let upserted = 0;
+        for (const row of cdr.list) {
+          if (await upsertCdrRow(row)) upserted += 1;
+        }
+        report.steps.cdr = {
+          ok: true,
+          message: `تم سحب ${cdr.list.length} وحفظ ${upserted}`,
+          fetched: cdr.list.length,
+          upserted,
+        };
+      } else {
+        report.steps.cdr = { ok: false, message: cdr.error || "فشل cdr/list", fetched: 0, upserted: 0 };
+      }
+    } else {
+      report.steps.cdr = { ok: false, message: "تعذّر تجديد التوكن للسحب", fetched: 0, upserted: 0 };
+    }
+  } else {
+    report.steps.cdr = { ok: false, message: "تخطّيت — التوكن غير متاح", fetched: 0, upserted: 0 };
+  }
+
+  // ---- 4) Services snapshot
+  try {
+    const wh = getWebhookStatus();
+    const oa = getYeastarApiStatus();
+    const ami = getAmiStatus();
+    const allOff = !wh.tokenConfigured && !oa.configured && !ami.configured;
+    report.steps.services = allOff
+      ? { ok: false, message: "كل القنوات معطّلة في .env" }
+      : { ok: true,  message: `webhook=${wh.totalEvents} ev | openapi=${["CONNECTING","OPEN","CLOSING","CLOSED"][oa.wsState] || "OFF"} | ami=${ami.loggedIn ? "logged_in" : "off"}` };
+  } catch (e) {
+    report.steps.services = { ok: false, message: e.message };
+  }
+
+  // ---- خاتمة
+  report.finishedAt = new Date().toISOString();
+  report.durationMs = Date.now() - t0;
+  report.ok = report.steps.token.ok && report.steps.webhook.ok && report.steps.cdr.ok;
+
+  // خزّن التقرير + حدّث lastSyncAt في config
+  try {
+    await pushHistory(report, req.user.sub);
+    await saveConfig({ lastSyncAt: report.finishedAt, lastSyncOk: report.ok }, req.user.sub);
+  } catch (e) {
+    console.warn("[yeastar/sync] history persist failed:", e.message);
+  }
+
+  res.json({ report });
+});
+
+// -------------------- GET /sync/history --------------------
+router.get("/sync/history", requireRole("admin"), async (_req, res) => {
+  try {
+    const items = await loadHistory();
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: "load_failed", message: e.message });
+  }
+});
+
+export default router;
