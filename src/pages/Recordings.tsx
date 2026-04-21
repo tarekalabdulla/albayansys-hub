@@ -47,15 +47,30 @@ export default function Recordings() {
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"list" | "detail">("list");
 
-  useEffect(() => {
+  const loadRecordings = () => {
+    setLoading(true);
     recordingsApi.list()
       .then((list) => {
         setRecordings(list);
-        if (list.length) setSelectedId(list[0].id);
+        if (list.length && !selectedId) setSelectedId(list[0].id);
       })
       .catch(() => setRecordings([]))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadRecordings(); }, []);
+
+  const importBtn = (
+    <CsvImportButton
+      label="تسجيل"
+      requiredHeaders={["agentName", "customerNumber"]}
+      templateHeaders={RECORDINGS_TEMPLATE_HEADERS}
+      templateSample={RECORDINGS_TEMPLATE_SAMPLE}
+      templateFileName="recordings-template.csv"
+      onImport={async (rows) => recordingsApi.bulkCreate(rows)}
+      onSuccess={loadRecordings}
+    />
+  );
 
   const filtered = useMemo(() => {
     return recordings.filter((r) => {
