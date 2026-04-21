@@ -6,7 +6,7 @@ import { tokenStorage } from "./api";
 import type { Agent } from "./mockData";
 import { io, Socket } from "socket.io-client";
 
-type EventName = "agent:update" | "agent:list" | "alert";
+type EventName = "agent:update" | "agent:list" | "alert" | "call:live" | "call:ended";
 type Listener = (payload: any) => void;
 
 interface SocketProvider {
@@ -45,6 +45,8 @@ function createRealProvider(): SocketProvider {
         emit("agent:update", a);
       });
       socket.on("alert", (a: any) => emit("alert", a));
+      socket.on("call:live", (p: any) => emit("call:live", p));
+      socket.on("call:ended", (p: any) => emit("call:ended", p));
       socket.on("connect_error", (e) => console.warn("[socket]", e.message));
     },
     stop() {

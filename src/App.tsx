@@ -7,6 +7,7 @@ import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Monitoring from "./pages/Monitoring";
 import LiveReport from "./pages/LiveReport";
+import LiveMonitor from "./pages/LiveMonitor";
 import Performance from "./pages/Performance";
 import Alerts from "./pages/Alerts";
 import AIAnalytics from "./pages/AIAnalytics";
@@ -40,6 +41,7 @@ const App = () => (
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
 
           {/* مدير + مشرف */}
+          <Route path="/live-monitor" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><LiveMonitor /></ProtectedRoute>} />
           <Route path="/monitoring" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Monitoring /></ProtectedRoute>} />
           <Route path="/performance" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Performance /></ProtectedRoute>} />
           <Route path="/alerts" element={<ProtectedRoute allowedRoles={["admin", "supervisor"]}><Alerts /></ProtectedRoute>} />
