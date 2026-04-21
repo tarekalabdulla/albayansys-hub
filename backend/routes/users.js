@@ -111,19 +111,31 @@ router.post("/", requireRole("admin"), async (req, res) => {
 // POST /api/users/bulk — استيراد دفعة مستخدمين من CSV (admin)
 // يتجاهل الصفوف الفاشلة ويُرجع تقريراً
 // ============================================================
+// ملاحظة: schema مرن — يقبل كلمات مرور قصيرة (تُمدَّد تلقائياً) وأدوار شائعة كـ "manager"
 const bulkRowSchema = z.object({
   name: z.string().trim().min(1).max(128),
   email: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().trim().email().max(255).optional(),
   ),
-  password: z.string().min(6).max(128).default("Hulul@1234"),
+  password: z.string().min(1).max(128).default("Hulul@1234"),
   role: z.enum(["admin", "supervisor", "agent"]).default("agent"),
   active: z.boolean().default(true),
   phone: z.string().trim().max(32).optional(),
   department: z.string().trim().max(128).optional(),
   ext: z.string().trim().max(16).optional(),
 });
+
+// خرائط لتوحيد قيم role الواردة من ملفات CSV مختلفة
+const ROLE_ALIASES = {
+  admin: "admin", administrator: "admin", manager: "admin", "مدير": "admin",
+  supervisor: "supervisor", lead: "supervisor", "مشرف": "supervisor",
+  agent: "agent", user: "agent", employee: "agent", "موظف": "agent", "عميل": "agent",
+};
+function normalizeRole(v) {
+  const s = String(v ?? "").trim().toLowerCase();
+  return ROLE_ALIASES[s] || (["admin", "supervisor", "agent"].includes(s) ? s : "agent");
+}
 
 const bulkSchema = z.object({
   rows: z.array(z.record(z.any())).min(1).max(2000),
@@ -141,23 +153,35 @@ router.post("/bulk", requireRole("admin"), async (req, res) => {
 
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i];
+    // كلمة المرور: قبول الأرقام/سلاسل قصيرة، ومدّها تلقائياً إذا كانت أقل من 6 أحرف
+    let pwd = raw.password ?? raw.Password ?? defaultPassword ?? "Hulul@1234";
+    pwd = String(pwd).trim();
+    if (pwd.length === 0) pwd = defaultPassword || "Hulul@1234";
+    if (pwd.length < 6) pwd = (pwd + "Hulul@1234").slice(0, 12);
+
     const candidate = {
-      name: raw.name ?? raw.Name ?? raw["الاسم"],
+      name: String(raw.name ?? raw.Name ?? raw["الاسم"] ?? "").trim(),
       email: raw.email ?? raw.Email ?? raw["البريد"],
-      password: raw.password ?? defaultPassword ?? "Hulul@1234",
-      role: raw.role ?? raw.Role ?? "agent",
+      password: pwd,
+      role: normalizeRole(raw.role ?? raw.Role ?? raw["الدور"]),
       active: raw.active === undefined || raw.active === ""
         ? true
-        : (raw.active === true || raw.active === "true" || raw.active === 1 || raw.active === "1"),
-      phone: raw.phone ?? raw.Phone ?? undefined,
+        : (raw.active === true || String(raw.active).toLowerCase() === "true" || raw.active === 1 || raw.active === "1"),
+      phone: raw.phone ?? raw.Phone ?? raw["الجوال"] ?? undefined,
       department: raw.department ?? raw.Department ?? raw["القسم"] ?? undefined,
       ext: raw.ext ?? raw.Ext ?? raw["التحويلة"] ?? undefined,
     };
+    // تحويل phone/ext إلى نصوص (CSV قد يأتي كأرقام)
+    if (candidate.phone !== undefined) candidate.phone = String(candidate.phone).trim();
+    if (candidate.ext !== undefined) candidate.ext = String(candidate.ext).trim();
 
     const v = bulkRowSchema.safeParse(candidate);
     if (!v.success) {
       results.skipped++;
-      results.errors.push({ row: i + 2, reason: "invalid", details: v.error.flatten().fieldErrors });
+      const fe = v.error.flatten().fieldErrors;
+      const fields = Object.keys(fe).join(",") || "unknown";
+      console.warn("[users.bulk] invalid row", i + 2, fe);
+      results.errors.push({ row: i + 2, reason: "invalid", fields, details: fe });
       continue;
     }
 
