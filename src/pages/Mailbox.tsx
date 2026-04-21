@@ -94,8 +94,7 @@ export default function Mailbox() {
   useEffect(() => { loadFolder(folder); refreshCounts(); }, [folder]);
 
   useEffect(() => {
-    // اجلب قائمة المستلمين المحتملين (مستخدمون لديهم ext)
-    usersApi.list().then((u) => setRecipients(u.filter(x => x.ext))).catch(() => {});
+    usersApi.listRecipients().then(setRecipients).catch(() => setRecipients([]));
   }, []);
 
   const filteredMails = useMemo(() => {
@@ -424,7 +423,7 @@ export default function Mailbox() {
               <label className="text-xs font-bold text-muted-foreground mb-1 block">إلى (المستخدم)</label>
               <Select value={toExt} onValueChange={setToExt}>
                 <SelectTrigger>
-                  <SelectValue placeholder={recipients.length ? "اختر المستلم..." : "لا يوجد مستلمون لديهم تحويلة"} />
+                    <SelectValue placeholder={recipients.length ? "اختر مستخدمًا..." : "لا يوجد مستخدمون آخرون لديهم تحويلة"} />
                 </SelectTrigger>
                 <SelectContent>
                   {recipients.map((u) => (

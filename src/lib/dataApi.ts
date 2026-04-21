@@ -36,6 +36,10 @@ export const usersApi = {
     const { data } = await api.get("/users");
     return data.users;
   },
+  listRecipients: async (): Promise<ApiUser[]> => {
+    const { data } = await api.get("/users/recipients");
+    return data.users;
+  },
   create: async (payload: CreateUserPayload): Promise<ApiUser> => {
     const { data } = await api.post("/users", payload);
     return data.user;

@@ -8,6 +8,23 @@ const router = Router();
 router.use(authRequired);
 
 // ============================================================
+// GET /api/users/recipients — قائمة مستلمي البريد الداخلي
+// ============================================================
+router.get("/recipients", async (req, res) => {
+  const { rows } = await query(
+    `SELECT id, identifier, email, display_name AS name, role, is_active AS active,
+            phone, department, ext, bio
+       FROM users
+      WHERE is_active = TRUE
+        AND ext IS NOT NULL
+        AND id <> $1
+   ORDER BY display_name ASC`,
+    [req.user.sub]
+  );
+  res.json({ users: rows });
+});
+
+// ============================================================
 // GET /api/users  — قائمة المستخدمين (admin فقط)
 // ============================================================
 router.get("/", requireRole("admin"), async (_req, res) => {
