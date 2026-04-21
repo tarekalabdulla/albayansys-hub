@@ -254,18 +254,170 @@ const Settings = () => {
   };
   const saveWebhook = () => persist("webhook", { url: webhook.url }, "Webhook");
 
-  const exportJSON = () => {
-    const data = {
-      exportedAt: new Date().toISOString(),
-      users: users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: u.active })),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `hulul-albayan-users-${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  // نسخة احتياطية كاملة (المستخدمون + المشرفون + الموظفون + المكالمات + التسجيلات + الإعدادات...)
+  const exportFullBackup = async () => {
+    try {
+      setBackupBusy(true);
+      const payload = await adminApi.backup();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hulul-albayan-backup-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      const totals = Object.entries(payload.counts || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\n");
+      Swal.fire({ icon: "success", title: "تم تنزيل النسخة الاحتياطية", text: totals, timer: 3000 });
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل النسخ الاحتياطي", text: e?.response?.data?.message || e.message });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const triggerRestorePick = () => restoreInputRef.current?.click();
+
+  const onRestoreFile = async (file: File | null) => {
+    if (!file) return;
+    let backup: BackupFile;
+    try {
+      const text = await file.text();
+      backup = JSON.parse(text);
+      if (!backup?.data || typeof backup.data !== "object") {
+        throw new Error("ملف غير صالح: يجب أن يحوي حقل data");
+      }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "ملف نسخة احتياطية غير صالح", text: e.message });
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+      return;
+    }
+
+    const choice = await Swal.fire({
+      icon: "question",
+      title: "وضع الاستعادة",
+      html:
+        "<b>دمج</b>: يضيف فقط الصفوف غير الموجودة (آمن).<br/>" +
+        "<b>استبدال</b>: يحذف بياناتك الحالية ويستعيد كل شيء (خطير).",
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: "دمج",
+      denyButtonText: "استبدال كامل",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(var(--primary))",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (choice.isDismissed) {
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+      return;
+    }
+    const mode: "merge" | "replace" = choice.isDenied ? "replace" : "merge";
+
+    if (mode === "replace") {
+      const confirm = await Swal.fire({
+        icon: "warning",
+        title: "تأكيد الاستبدال",
+        text: "سيتم حذف كل البيانات الحالية واستبدالها. لا يمكن التراجع.",
+        showCancelButton: true,
+        confirmButtonText: "نعم، استبدل",
+        cancelButtonText: "إلغاء",
+        confirmButtonColor: "hsl(0 78% 56%)",
+      });
+      if (!confirm.isConfirmed) {
+        if (restoreInputRef.current) restoreInputRef.current.value = "";
+        return;
+      }
+    }
+
+    try {
+      setRestoreBusy(true);
+      const report = await adminApi.restore(backup, mode);
+      const restored = Object.entries(report.restored || {})
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${k}: ${n}`)
+        .join("\n") || "لا جديد";
+      Swal.fire({
+        icon: "success",
+        title: "تمت الاستعادة",
+        text: `الوضع: ${mode === "merge" ? "دمج" : "استبدال"}\n${restored}`,
+      });
+      // أعِد تحميل المستخدمين والإعدادات لتعكس التغييرات
+      try {
+        const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
+        setUsers(u);
+        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
+        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
+        if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
+        if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
+      } catch { /* ignore */ }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل الاستعادة", text: e?.response?.data?.message || e.message });
+    } finally {
+      setRestoreBusy(false);
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+    }
+  };
+
+  const resetSystem = async () => {
+    const choice = await Swal.fire({
+      icon: "warning",
+      title: "تصفير النظام",
+      html:
+        "اختر نطاق التصفير:<br/><br/>" +
+        "<b>البيانات فقط</b>: يحذف المكالمات والتسجيلات والإحصائيات والتنبيهات والبريد. <br/>" +
+        "<b>كل شيء</b>: يحذف أيضاً الموظفين والمشرفين وكل المستخدمين عدا حسابك.",
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: "البيانات فقط",
+      denyButtonText: "كل شيء",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(var(--primary))",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (choice.isDismissed) return;
+    const scope: "data" | "all" = choice.isDenied ? "all" : "data";
+
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: scope === "all" ? "تأكيد التصفير الشامل" : "تأكيد تصفير البيانات",
+      input: "text",
+      inputLabel: 'اكتب RESET للتأكيد',
+      inputPlaceholder: "RESET",
+      showCancelButton: true,
+      confirmButtonText: "نعم، صفِّر الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+      preConfirm: (val) => {
+        if (val !== "RESET") {
+          Swal.showValidationMessage("اكتب RESET بالأحرف الكبيرة");
+          return false;
+        }
+        return true;
+      },
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setResetBusy(true);
+      const report = await adminApi.reset(scope);
+      const lines = Object.entries(report.deleted || {})
+        .map(([k, n]) => `${k}: ${n}`)
+        .join("\n");
+      Swal.fire({ icon: "success", title: "تم التصفير", text: lines || "لا يوجد ما يحذف" });
+      if (scope === "all") {
+        try { setUsers(await usersApi.list()); } catch { /* ignore */ }
+      }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التصفير", text: e?.response?.data?.message || e.message });
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   if (!isRealApi) {
