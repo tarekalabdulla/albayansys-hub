@@ -1,0 +1,14 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  VITE_USE_REAL_API = "true"
+  VITE_API_URL = "https://api.hulul-albayan.com"
+
+# SPA fallback — كل المسارات تذهب إلى index.html ليتولاها React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
