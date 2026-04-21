@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { recordingsApi, type ApiRecording } from "@/lib/dataApi";
 import { CsvImportButton } from "@/components/CsvImportButton";
+import { AudioUploadDialog } from "@/components/recordings/AudioUploadDialog";
 import { RECORDINGS_TEMPLATE_HEADERS, RECORDINGS_TEMPLATE_SAMPLE } from "@/lib/csvImport";
 import { cn } from "@/lib/utils";
 
@@ -60,16 +61,19 @@ export default function Recordings() {
 
   useEffect(() => { loadRecordings(); }, []);
 
-  const importBtn = (
-    <CsvImportButton
-      label="تسجيل"
-      requiredHeaders={["agentName", "customerNumber"]}
-      templateHeaders={RECORDINGS_TEMPLATE_HEADERS}
-      templateSample={RECORDINGS_TEMPLATE_SAMPLE}
-      templateFileName="recordings-template.csv"
-      onImport={async (rows) => recordingsApi.bulkCreate(rows)}
-      onSuccess={loadRecordings}
-    />
+  const actionsBtns = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <AudioUploadDialog onCreated={loadRecordings} />
+      <CsvImportButton
+        label="تسجيل"
+        requiredHeaders={["agentName", "customerNumber"]}
+        templateHeaders={RECORDINGS_TEMPLATE_HEADERS}
+        templateSample={RECORDINGS_TEMPLATE_SAMPLE}
+        templateFileName="recordings-template.csv"
+        onImport={async (rows) => recordingsApi.bulkCreate(rows)}
+        onSuccess={loadRecordings}
+      />
+    </div>
   );
 
   const filtered = useMemo(() => {
@@ -111,7 +115,7 @@ export default function Recordings() {
           <p className="text-sm text-muted-foreground mb-5">
             ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) — أو استورد دفعة يدوياً عبر CSV.
           </p>
-          <div className="flex items-center justify-center">{importBtn}</div>
+          <div className="flex items-center justify-center">{actionsBtns}</div>
         </div>
       </AppLayout>
     );
@@ -146,7 +150,7 @@ export default function Recordings() {
               <div className="text-[11px] text-muted-foreground">
                 {filtered.length} من {recordings.length}
               </div>
-              {importBtn}
+              {actionsBtns}
             </div>
           </div>
 

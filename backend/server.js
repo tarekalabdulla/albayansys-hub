@@ -6,6 +6,9 @@ import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import "dotenv/config";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
 
 import authRoutes from "./routes/auth.js";
 import agentsRoutes from "./routes/agents.js";
@@ -38,6 +41,19 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
+
+// خدمة ملفات التسجيلات الصوتية المرفوعة
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const UPLOADS_DIR = path.join(__dirname, "uploads");
+fs.mkdirSync(path.join(UPLOADS_DIR, "recordings"), { recursive: true });
+app.use("/uploads", express.static(UPLOADS_DIR, {
+  maxAge: "7d",
+  setHeaders: (res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  },
+}));
 
 // rate limit على المصادقة فقط
 const loginLimiter = rateLimit({

@@ -203,6 +203,39 @@ export const recordingsApi = {
     const { data } = await api.post("/recordings/bulk", { rows });
     return data;
   },
+  /** رفع ملف صوت مستقل — يعيد الـ URL لاستخدامه في create */
+  uploadAudio: async (
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ audioUrl: string; filename: string; size: number }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const { data } = await api.post("/recordings/upload", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 5 * 60_000,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+      },
+    });
+    return data;
+  },
+  /** ربط/استبدال صوت لتسجيل موجود */
+  uploadAudioFor: async (
+    id: string,
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ audioUrl: string }> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const { data } = await api.post(`/recordings/${id}/audio`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 5 * 60_000,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+      },
+    });
+    return data;
+  },
   remove: async (id: string): Promise<void> => {
     await api.delete(`/recordings/${id}`);
   },
