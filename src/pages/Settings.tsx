@@ -656,15 +656,59 @@ const Settings = () => {
           </div>
         </section>
 
-        {/* Backup */}
+        {/* Backup / Restore / Reset */}
         <section className="glass-card p-5">
           <h3 className="text-base font-bold flex items-center gap-2">
-            <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي
+            <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي والاستعادة
           </h3>
-          <p className="text-xs text-muted-foreground mb-5">تصدير المستخدمين كـ JSON.</p>
-          <button onClick={exportJSON} className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40">
-            <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
-            <p className="text-sm font-bold">تصدير JSON</p>
+          <p className="text-xs text-muted-foreground mb-5">
+            صدّر نسخة كاملة (مستخدمون، مشرفون، موظفون، مكالمات، تسجيلات، إعدادات) أو استعدها لاحقاً.
+          </p>
+
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => onRestoreFile(e.target.files?.[0] || null)}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <button
+              onClick={exportFullBackup}
+              disabled={backupBusy}
+              className="p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40 disabled:opacity-60"
+            >
+              {backupBusy
+                ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-primary animate-spin" />
+                : <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />}
+              <p className="text-sm font-bold">نسخة احتياطية</p>
+              <p className="text-[11px] text-muted-foreground">تنزيل JSON كامل</p>
+            </button>
+
+            <button
+              onClick={triggerRestorePick}
+              disabled={restoreBusy}
+              className="p-4 rounded-xl border-2 border-dashed border-border hover:border-success/60 transition group bg-background/40 disabled:opacity-60"
+            >
+              {restoreBusy
+                ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-success animate-spin" />
+                : <RotateCcw className="w-6 h-6 mx-auto mb-2 text-success group-hover:scale-110 transition" />}
+              <p className="text-sm font-bold">استعادة من ملف</p>
+              <p className="text-[11px] text-muted-foreground">دمج أو استبدال كامل</p>
+            </button>
+          </div>
+
+          <button
+            onClick={resetSystem}
+            disabled={resetBusy}
+            className="w-full p-4 rounded-xl border-2 border-dashed border-destructive/40 hover:border-destructive transition group bg-destructive/5 disabled:opacity-60"
+          >
+            {resetBusy
+              ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-destructive animate-spin" />
+              : <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-destructive group-hover:scale-110 transition" />}
+            <p className="text-sm font-bold text-destructive">تصفير النظام</p>
+            <p className="text-[11px] text-muted-foreground">حذف المكالمات والتسجيلات والإحصائيات</p>
           </button>
         </section>
       </div>
