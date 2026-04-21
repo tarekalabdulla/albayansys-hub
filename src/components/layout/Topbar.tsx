@@ -33,6 +33,7 @@ import {
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
 import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -45,9 +46,30 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const session = getSession();
+  const agents = useLiveAgents();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const filteredAgents = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return [];
+    return agents
+      .filter((a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.ext || "").toLowerCase().includes(q) ||
+        (a.id || "").toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [agents, searchTerm]);
+
+  const goToAgent = (agentId: string) => {
+    setSearchTerm("");
+    setSearchOpen(false);
+    navigate(`/performance?agent=${encodeURIComponent(agentId)}`);
+  };
 
   const handleLogout = () => {
     clearSession();
