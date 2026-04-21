@@ -37,16 +37,44 @@ const server = http.createServer(app);
 // (يحلّ ValidationError: X-Forwarded-For من express-rate-limit)
 app.set("trust proxy", 1);
 
-const ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).filter(Boolean);
+// ============== CORS — صارم ويُقرأ من .env عند كل إقلاع ==============
+// الأولوية: CORS_ORIGIN ← APP_BASE_URL ← SOCKET_CORS_ORIGIN (للتوافق الخلفي)
+// fallback آمن لدومين الإنتاج إذا كل المتغيرات فارغة (يمنع كارثة "CORS origins: (none)")
+const RAW_ORIGINS =
+  process.env.CORS_ORIGIN ||
+  process.env.APP_BASE_URL ||
+  process.env.SOCKET_CORS_ORIGIN ||
+  "https://hulul-albayan.com,https://www.hulul-albayan.com";
 
-app.use(helmet());
-app.use(cors({
+const ORIGINS = RAW_ORIGINS
+  .split(",")
+  .map((s) => s.trim().replace(/\/+$/, "")) // إزالة trailing slashes
+  .filter(Boolean);
+
+// تحذير صريح إذا فشل التحميل من .env
+if (!process.env.CORS_ORIGIN) {
+  console.warn("⚠️  CORS_ORIGIN غير مضبوط في .env — استخدام fallback:", ORIGINS.join(", "));
+}
+
+const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin || ORIGINS.includes(origin) || ORIGINS.includes("*")) return cb(null, true);
+    // اسمح بالطلبات بدون origin (curl, health checks, server-to-server)
+    if (!origin) return cb(null, true);
+    const normalized = origin.replace(/\/+$/, "");
+    if (ORIGINS.includes(normalized) || ORIGINS.includes("*")) return cb(null, true);
+    console.warn(`[cors] blocked origin: ${origin} (allowed: ${ORIGINS.join(", ")})`);
     cb(new Error("CORS blocked: " + origin));
   },
   credentials: true,
-}));
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Yeastar-Signature"],
+  exposedHeaders: ["Content-Disposition"],
+  maxAge: 86400,
+};
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // ضمان معالجة preflight لكل المسارات
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 
@@ -74,10 +102,24 @@ const loginLimiter = rateLimit({
 app.get("/api/health", async (_req, res) => {
   try {
     await query("SELECT 1");
-    res.json({ ok: true, db: "up", time: new Date().toISOString() });
+    res.json({
+      ok: true,
+      db: "up",
+      cors: ORIGINS,
+      time: new Date().toISOString(),
+    });
   } catch (e) {
     res.status(500).json({ ok: false, db: "down", error: e.message });
   }
+});
+
+// endpoint تشخيصي للتحقق من قراءة .env بعد كل restart
+app.get("/api/_debug/cors", (_req, res) => {
+  res.json({
+    rawEnv: process.env.CORS_ORIGIN || null,
+    parsed: ORIGINS,
+    fallbackUsed: !process.env.CORS_ORIGIN,
+  });
 });
 
 // حالة تكامل Yeastar Open API (للتشخيص فقط — لا يكشف أسراراً)
