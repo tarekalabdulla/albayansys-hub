@@ -103,6 +103,37 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
+function TestResult({ result }: { result?: { ok: boolean; message: string; durationMs: number; at: number } }) {
+  if (!result) return null;
+  return (
+    <div
+      className={cn(
+        "rounded-lg border px-3 py-2 text-xs flex items-start gap-2",
+        result.ok
+          ? "bg-success/10 border-success/30 text-success"
+          : "bg-destructive/10 border-destructive/30 text-destructive",
+      )}
+    >
+      {result.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+      <div className="flex-1">
+        <p className="font-semibold">{result.ok ? "نجح" : "فشل"} ({result.durationMs}ms)</p>
+        <p className="opacity-90 break-all">{result.message}</p>
+      </div>
+    </div>
+  );
+}
+
+function TestButton({
+  busy, onClick,
+}: { busy: boolean; onClick: () => void }) {
+  return (
+    <Button onClick={onClick} disabled={busy} size="sm" variant="outline" className="gap-2 w-full">
+      {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+      {busy ? "جاري الاختبار..." : "اختبار الاتصال الآن"}
+    </Button>
+  );
+}
+
 export default function Integrations() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -206,6 +237,8 @@ export default function Integrations() {
                 <Row label="آخر خطأ" value={<span className="text-destructive">{w.lastError}</span>} mono />
               )}
             </div>
+            <TestButton busy={!!testing.webhook} onClick={() => runTest("webhook")} />
+            <TestResult result={results.webhook} />
           </Card>
 
           {/* OpenAPI */}
@@ -235,6 +268,8 @@ export default function Integrations() {
                 <Row label="آخر خطأ" value={<span className="text-destructive">{o.lastError}</span>} mono />
               )}
             </div>
+            <TestButton busy={!!testing.openapi} onClick={() => runTest("openapi")} />
+            <TestResult result={results.openapi} />
           </Card>
 
           {/* AMI */}
@@ -262,6 +297,8 @@ export default function Integrations() {
                 <Row label="آخر خطأ" value={<span className="text-destructive">{a.lastError}</span>} mono />
               )}
             </div>
+            <TestButton busy={!!testing.ami} onClick={() => runTest("ami")} />
+            <TestResult result={results.ami} />
           </Card>
         </div>
 
