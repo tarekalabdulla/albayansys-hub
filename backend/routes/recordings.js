@@ -211,11 +211,62 @@ router.post("/bulk", requireRole("admin", "supervisor"), async (req, res) => {
 });
 
 // ============================================================
+// POST /api/recordings/upload — رفع ملف صوت فقط (admin/supervisor)
+// يعيد URL يمكن استخدامه لاحقاً في إنشاء/تحديث تسجيل
+// form-data: file=<mp3>
+// ============================================================
+router.post("/upload", requireRole("admin", "supervisor"), (req, res) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: "upload_failed", message: err.message });
+    if (!req.file) return res.status(400).json({ error: "no_file" });
+    res.status(201).json({
+      filename: req.file.filename,
+      size: req.file.size,
+      audioUrl: publicAudioUrl(req, req.file.filename),
+    });
+  });
+});
+
+// ============================================================
+// POST /api/recordings/:id/audio — رفع/استبدال صوت لتسجيل موجود
+// ============================================================
+router.post("/:id/audio", requireRole("admin", "supervisor"), (req, res) => {
+  upload.single("file")(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: "upload_failed", message: err.message });
+    if (!req.file) return res.status(400).json({ error: "no_file" });
+    try {
+      // اجلب الملف القديم لحذفه إن وُجد
+      const { rows } = await query(`SELECT audio_url FROM recordings WHERE id = $1`, [req.params.id]);
+      if (!rows[0]) {
+        // التسجيل غير موجود — احذف الملف المرفوع لتجنب الفوضى
+        fs.unlink(path.join(AUDIO_DIR, req.file.filename), () => {});
+        return res.status(404).json({ error: "not_found" });
+      }
+      const newUrl = publicAudioUrl(req, req.file.filename);
+      await query(`UPDATE recordings SET audio_url = $1 WHERE id = $2`, [newUrl, req.params.id]);
+
+      const oldName = audioFilenameFromUrl(rows[0].audio_url);
+      if (oldName && oldName !== req.file.filename) {
+        fs.unlink(path.join(AUDIO_DIR, oldName), () => {});
+      }
+      res.json({ audioUrl: newUrl });
+    } catch (e) {
+      console.error("[recordings.audio]", e);
+      res.status(500).json({ error: "server_error", message: e.message });
+    }
+  });
+});
+
+// ============================================================
 // DELETE /api/recordings/:id (admin/supervisor)
 // ============================================================
 router.delete("/:id", requireRole("admin", "supervisor"), async (req, res) => {
+  const { rows } = await query(`SELECT audio_url FROM recordings WHERE id = $1`, [req.params.id]);
   const { rowCount } = await query(`DELETE FROM recordings WHERE id = $1`, [req.params.id]);
   if (!rowCount) return res.status(404).json({ error: "not_found" });
+  // احذف ملف الصوت المرفوع محلياً (إن وُجد)
+  const fname = rows[0] ? audioFilenameFromUrl(rows[0].audio_url) : null;
+  if (fname) fs.unlink(path.join(AUDIO_DIR, fname), () => {});
   res.json({ ok: true });
 });
 
