@@ -128,13 +128,20 @@ const Settings = () => {
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
+    const ext = form.ext.trim();
 
-    if (!name || !email) {
-      Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "الاسم والبريد إلزاميان." });
+    if (!name) {
+      Swal.fire({ icon: "warning", title: "الاسم مطلوب" });
       return;
     }
-    if (!EMAIL_REGEX.test(email)) {
-      Swal.fire({ icon: "warning", title: "بريد غير صحيح", text: "أدخل بريدًا إلكترونيًا بصيغة صحيحة." });
+    // البريد اختياري — لكن لو أُدخل يجب أن يكون صحيحاً
+    if (email && !EMAIL_REGEX.test(email)) {
+      Swal.fire({ icon: "warning", title: "بريد غير صحيح", text: "أدخل بريدًا إلكترونيًا بصيغة صحيحة أو اتركه فارغًا." });
+      return;
+    }
+    // عند الإنشاء يجب وجود طريقة لتسجيل الدخول: بريد أو تحويلة
+    if (!editing && !email && !ext) {
+      Swal.fire({ icon: "warning", title: "البريد أو التحويلة مطلوبان", text: "يلزم أحدهما لتسجيل الدخول." });
       return;
     }
     if (!editing && form.password.length < 6) {
@@ -150,7 +157,8 @@ const Settings = () => {
       if (editing) {
         const updated = await usersApi.update(editing.id, {
           name,
-          email,
+          email: email || null,
+          ext: ext || null,
           role: form.role,
           active: form.active,
           ...(form.password ? { password: form.password } : {}),
@@ -160,7 +168,8 @@ const Settings = () => {
       } else {
         const created = await usersApi.create({
           name,
-          email,
+          ...(email ? { email } : {}),
+          ...(ext ? { ext } : {}),
           password: form.password,
           role: form.role,
           active: form.active,
