@@ -102,10 +102,24 @@ const loginLimiter = rateLimit({
 app.get("/api/health", async (_req, res) => {
   try {
     await query("SELECT 1");
-    res.json({ ok: true, db: "up", time: new Date().toISOString() });
+    res.json({
+      ok: true,
+      db: "up",
+      cors: ORIGINS,
+      time: new Date().toISOString(),
+    });
   } catch (e) {
     res.status(500).json({ ok: false, db: "down", error: e.message });
   }
+});
+
+// endpoint تشخيصي للتحقق من قراءة .env بعد كل restart
+app.get("/api/_debug/cors", (_req, res) => {
+  res.json({
+    rawEnv: process.env.CORS_ORIGIN || null,
+    parsed: ORIGINS,
+    fallbackUsed: !process.env.CORS_ORIGIN,
+  });
 });
 
 // حالة تكامل Yeastar Open API (للتشخيص فقط — لا يكشف أسراراً)
