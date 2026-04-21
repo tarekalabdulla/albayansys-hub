@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AGENTS as MOCK_AGENTS, formatDuration } from "@/lib/mockData";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
@@ -40,6 +41,7 @@ interface Row {
 }
 
 const Performance = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [from, setFrom] = useState("2025-04-01");
   const [to, setTo] = useState("2025-04-18");
   const [supervisor, setSupervisor] = useState<string>("all");
@@ -47,6 +49,21 @@ const Performance = () => {
   const [sortKey, setSortKey] = useState<SortKey>("answered");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+
+  // افتح Modal الموظف عند وجود ?agent= في الرابط (من بحث Topbar مثلاً)
+  useEffect(() => {
+    const id = searchParams.get("agent");
+    if (id) setSelectedAgent(id);
+  }, [searchParams]);
+
+  const closeAgent = () => {
+    setSelectedAgent(null);
+    if (searchParams.get("agent")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("agent");
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   // في وضع الإنتاج: استخدم الموظفين الحيين فقط (فارغ حتى يبث الـ backend)
   // في وضع التطوير: استخدم البيانات الوهمية
@@ -263,7 +280,7 @@ const Performance = () => {
       <AgentDetailModal
         agentId={selectedAgent}
         open={selectedAgent !== null}
-        onClose={() => setSelectedAgent(null)}
+        onClose={closeAgent}
       />
     </AppLayout>
   );

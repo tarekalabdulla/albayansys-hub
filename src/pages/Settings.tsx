@@ -21,13 +21,14 @@ import {
 import {
   UserPlus, Pencil, Trash2, Server, Webhook, Database, Download, Upload,
   Save, Shield, Sparkles, PhoneCall, Wifi, KeyRound, CheckCircle2, Loader2,
+  RotateCcw, AlertTriangle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import {
-  usersApi, settingsApi, isRealApi,
-  type ApiUser, type UserRole, type SettingsKey,
+  usersApi, settingsApi, adminApi, isRealApi,
+  type ApiUser, type UserRole, type SettingsKey, type BackupFile,
 } from "@/lib/dataApi";
 import { CsvImportButton } from "@/components/CsvImportButton";
 import { USERS_TEMPLATE_HEADERS, USERS_TEMPLATE_SAMPLE } from "@/lib/csvImport";
@@ -49,17 +50,18 @@ const getUserSaveError = (error: any) => {
   const code = error?.response?.data?.error;
   const fieldErrors = error?.response?.data?.details?.fieldErrors;
 
-  if (code === "duplicate") return "البريد أو المعرّف مستخدم بالفعل.";
+  if (code === "duplicate") return "البريد أو المعرّف أو رقم التحويلة مستخدم بالفعل.";
 
   if (code === "invalid_input") {
     const messages = [
       ...(fieldErrors?.name?.length ? ["الاسم مطلوب"] : []),
-      ...(fieldErrors?.email?.length ? ["أدخل بريدًا إلكترونيًا صحيحًا"] : []),
+      ...(fieldErrors?.email?.length ? ["البريد غير صحيح"] : []),
       ...(fieldErrors?.password?.length ? ["كلمة المرور يجب أن تكون 6 أحرف على الأقل"] : []),
       ...(fieldErrors?.role?.length ? ["اختر دورًا صحيحًا"] : []),
+      ...(fieldErrors?.ext?.length ? ["رقم التحويلة غير صحيح"] : []),
     ];
 
-    return messages.length ? messages.join(" — ") : "تأكد من الاسم والبريد وكلمة المرور.";
+    return messages.length ? messages.join(" — ") : "تأكد من البيانات المُدخَلة.";
   }
 
   if (code === "server_error") {
@@ -76,7 +78,7 @@ const Settings = () => {
   const [editing, setEditing] = useState<ApiUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    name: "", email: "", role: "agent" as UserRole, active: true, password: "",
+    name: "", email: "", ext: "", role: "agent" as UserRole, active: true, password: "",
   });
 
   // Settings state (يُحمَّل من DB)
@@ -114,25 +116,32 @@ const Settings = () => {
   // ===== Users CRUD =====
   const openAdd = () => {
     setEditing(null);
-    setForm({ name: "", email: "", role: "agent", active: true, password: "" });
+    setForm({ name: "", email: "", ext: "", role: "agent", active: true, password: "" });
     setOpen(true);
   };
   const openEdit = (u: ApiUser) => {
     setEditing(u);
-    setForm({ name: u.name, email: u.email || "", role: u.role, active: u.active, password: "" });
+    setForm({ name: u.name, email: u.email || "", ext: u.ext || "", role: u.role, active: u.active, password: "" });
     setOpen(true);
   };
 
   const submit = async () => {
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
+    const ext = form.ext.trim();
 
-    if (!name || !email) {
-      Swal.fire({ icon: "warning", title: "الحقول مطلوبة", text: "الاسم والبريد إلزاميان." });
+    if (!name) {
+      Swal.fire({ icon: "warning", title: "الاسم مطلوب" });
       return;
     }
-    if (!EMAIL_REGEX.test(email)) {
-      Swal.fire({ icon: "warning", title: "بريد غير صحيح", text: "أدخل بريدًا إلكترونيًا بصيغة صحيحة." });
+    // البريد اختياري — لكن لو أُدخل يجب أن يكون صحيحاً
+    if (email && !EMAIL_REGEX.test(email)) {
+      Swal.fire({ icon: "warning", title: "بريد غير صحيح", text: "أدخل بريدًا إلكترونيًا بصيغة صحيحة أو اتركه فارغًا." });
+      return;
+    }
+    // عند الإنشاء يجب وجود طريقة لتسجيل الدخول: بريد أو تحويلة
+    if (!editing && !email && !ext) {
+      Swal.fire({ icon: "warning", title: "البريد أو التحويلة مطلوبان", text: "يلزم أحدهما لتسجيل الدخول." });
       return;
     }
     if (!editing && form.password.length < 6) {
@@ -148,7 +157,8 @@ const Settings = () => {
       if (editing) {
         const updated = await usersApi.update(editing.id, {
           name,
-          email,
+          email: email || null,
+          ext: ext || null,
           role: form.role,
           active: form.active,
           ...(form.password ? { password: form.password } : {}),
@@ -158,7 +168,8 @@ const Settings = () => {
       } else {
         const created = await usersApi.create({
           name,
-          email,
+          ...(email ? { email } : {}),
+          ...(ext ? { ext } : {}),
           password: form.password,
           role: form.role,
           active: form.active,
@@ -243,18 +254,170 @@ const Settings = () => {
   };
   const saveWebhook = () => persist("webhook", { url: webhook.url }, "Webhook");
 
-  const exportJSON = () => {
-    const data = {
-      exportedAt: new Date().toISOString(),
-      users: users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, active: u.active })),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `hulul-albayan-users-${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  // نسخة احتياطية كاملة (المستخدمون + المشرفون + الموظفون + المكالمات + التسجيلات + الإعدادات...)
+  const exportFullBackup = async () => {
+    try {
+      setBackupBusy(true);
+      const payload = await adminApi.backup();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `hulul-albayan-backup-${Date.now()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      const totals = Object.entries(payload.counts || {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\n");
+      Swal.fire({ icon: "success", title: "تم تنزيل النسخة الاحتياطية", text: totals, timer: 3000 });
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل النسخ الاحتياطي", text: e?.response?.data?.message || e.message });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const triggerRestorePick = () => restoreInputRef.current?.click();
+
+  const onRestoreFile = async (file: File | null) => {
+    if (!file) return;
+    let backup: BackupFile;
+    try {
+      const text = await file.text();
+      backup = JSON.parse(text);
+      if (!backup?.data || typeof backup.data !== "object") {
+        throw new Error("ملف غير صالح: يجب أن يحوي حقل data");
+      }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "ملف نسخة احتياطية غير صالح", text: e.message });
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+      return;
+    }
+
+    const choice = await Swal.fire({
+      icon: "question",
+      title: "وضع الاستعادة",
+      html:
+        "<b>دمج</b>: يضيف فقط الصفوف غير الموجودة (آمن).<br/>" +
+        "<b>استبدال</b>: يحذف بياناتك الحالية ويستعيد كل شيء (خطير).",
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: "دمج",
+      denyButtonText: "استبدال كامل",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(var(--primary))",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (choice.isDismissed) {
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+      return;
+    }
+    const mode: "merge" | "replace" = choice.isDenied ? "replace" : "merge";
+
+    if (mode === "replace") {
+      const confirm = await Swal.fire({
+        icon: "warning",
+        title: "تأكيد الاستبدال",
+        text: "سيتم حذف كل البيانات الحالية واستبدالها. لا يمكن التراجع.",
+        showCancelButton: true,
+        confirmButtonText: "نعم، استبدل",
+        cancelButtonText: "إلغاء",
+        confirmButtonColor: "hsl(0 78% 56%)",
+      });
+      if (!confirm.isConfirmed) {
+        if (restoreInputRef.current) restoreInputRef.current.value = "";
+        return;
+      }
+    }
+
+    try {
+      setRestoreBusy(true);
+      const report = await adminApi.restore(backup, mode);
+      const restored = Object.entries(report.restored || {})
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${k}: ${n}`)
+        .join("\n") || "لا جديد";
+      Swal.fire({
+        icon: "success",
+        title: "تمت الاستعادة",
+        text: `الوضع: ${mode === "merge" ? "دمج" : "استبدال"}\n${restored}`,
+      });
+      // أعِد تحميل المستخدمين والإعدادات لتعكس التغييرات
+      try {
+        const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
+        setUsers(u);
+        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
+        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
+        if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
+        if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
+      } catch { /* ignore */ }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل الاستعادة", text: e?.response?.data?.message || e.message });
+    } finally {
+      setRestoreBusy(false);
+      if (restoreInputRef.current) restoreInputRef.current.value = "";
+    }
+  };
+
+  const resetSystem = async () => {
+    const choice = await Swal.fire({
+      icon: "warning",
+      title: "تصفير النظام",
+      html:
+        "اختر نطاق التصفير:<br/><br/>" +
+        "<b>البيانات فقط</b>: يحذف المكالمات والتسجيلات والإحصائيات والتنبيهات والبريد. <br/>" +
+        "<b>كل شيء</b>: يحذف أيضاً الموظفين والمشرفين وكل المستخدمين عدا حسابك.",
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: "البيانات فقط",
+      denyButtonText: "كل شيء",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(var(--primary))",
+      denyButtonColor: "hsl(0 78% 56%)",
+    });
+    if (choice.isDismissed) return;
+    const scope: "data" | "all" = choice.isDenied ? "all" : "data";
+
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: scope === "all" ? "تأكيد التصفير الشامل" : "تأكيد تصفير البيانات",
+      input: "text",
+      inputLabel: 'اكتب RESET للتأكيد',
+      inputPlaceholder: "RESET",
+      showCancelButton: true,
+      confirmButtonText: "نعم، صفِّر الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 78% 56%)",
+      preConfirm: (val) => {
+        if (val !== "RESET") {
+          Swal.showValidationMessage("اكتب RESET بالأحرف الكبيرة");
+          return false;
+        }
+        return true;
+      },
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setResetBusy(true);
+      const report = await adminApi.reset(scope);
+      const lines = Object.entries(report.deleted || {})
+        .map(([k, n]) => `${k}: ${n}`)
+        .join("\n");
+      Swal.fire({ icon: "success", title: "تم التصفير", text: lines || "لا يوجد ما يحذف" });
+      if (scope === "all") {
+        try { setUsers(await usersApi.list()); } catch { /* ignore */ }
+      }
+    } catch (e: any) {
+      Swal.fire({ icon: "error", title: "فشل التصفير", text: e?.response?.data?.message || e.message });
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   if (!isRealApi) {
@@ -493,15 +656,59 @@ const Settings = () => {
           </div>
         </section>
 
-        {/* Backup */}
+        {/* Backup / Restore / Reset */}
         <section className="glass-card p-5">
           <h3 className="text-base font-bold flex items-center gap-2">
-            <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي
+            <Database className="w-4 h-4 text-primary" /> النسخ الاحتياطي والاستعادة
           </h3>
-          <p className="text-xs text-muted-foreground mb-5">تصدير المستخدمين كـ JSON.</p>
-          <button onClick={exportJSON} className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40">
-            <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />
-            <p className="text-sm font-bold">تصدير JSON</p>
+          <p className="text-xs text-muted-foreground mb-5">
+            صدّر نسخة كاملة (مستخدمون، مشرفون، موظفون، مكالمات، تسجيلات، إعدادات) أو استعدها لاحقاً.
+          </p>
+
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => onRestoreFile(e.target.files?.[0] || null)}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <button
+              onClick={exportFullBackup}
+              disabled={backupBusy}
+              className="p-4 rounded-xl border-2 border-dashed border-border hover:border-primary/60 transition group bg-background/40 disabled:opacity-60"
+            >
+              {backupBusy
+                ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-primary animate-spin" />
+                : <Download className="w-6 h-6 mx-auto mb-2 text-primary group-hover:scale-110 transition" />}
+              <p className="text-sm font-bold">نسخة احتياطية</p>
+              <p className="text-[11px] text-muted-foreground">تنزيل JSON كامل</p>
+            </button>
+
+            <button
+              onClick={triggerRestorePick}
+              disabled={restoreBusy}
+              className="p-4 rounded-xl border-2 border-dashed border-border hover:border-success/60 transition group bg-background/40 disabled:opacity-60"
+            >
+              {restoreBusy
+                ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-success animate-spin" />
+                : <RotateCcw className="w-6 h-6 mx-auto mb-2 text-success group-hover:scale-110 transition" />}
+              <p className="text-sm font-bold">استعادة من ملف</p>
+              <p className="text-[11px] text-muted-foreground">دمج أو استبدال كامل</p>
+            </button>
+          </div>
+
+          <button
+            onClick={resetSystem}
+            disabled={resetBusy}
+            className="w-full p-4 rounded-xl border-2 border-dashed border-destructive/40 hover:border-destructive transition group bg-destructive/5 disabled:opacity-60"
+          >
+            {resetBusy
+              ? <Loader2 className="w-6 h-6 mx-auto mb-2 text-destructive animate-spin" />
+              : <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-destructive group-hover:scale-110 transition" />}
+            <p className="text-sm font-bold text-destructive">تصفير النظام</p>
+            <p className="text-[11px] text-muted-foreground">حذف المكالمات والتسجيلات والإحصائيات</p>
           </button>
         </section>
       </div>
@@ -521,8 +728,16 @@ const Settings = () => {
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="أحمد العتيبي" />
             </div>
             <div>
-              <label className="text-xs font-semibold mb-1.5 block">البريد الإلكتروني</label>
+              <label className="text-xs font-semibold mb-1.5 block">
+                البريد الإلكتروني <span className="text-muted-foreground font-normal">(اختياري)</span>
+              </label>
               <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" dir="ltr" placeholder="user@hb.sa" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block">
+                رقم التحويلة <span className="text-muted-foreground font-normal">(اختياري — يُستخدم للدخول إن لم يوجد بريد)</span>
+              </label>
+              <Input value={form.ext} onChange={(e) => setForm({ ...form, ext: e.target.value })} dir="ltr" placeholder="1001" inputMode="numeric" />
             </div>
             <div>
               <label className="text-xs font-semibold mb-1.5 block">

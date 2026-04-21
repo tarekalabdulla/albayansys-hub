@@ -33,6 +33,7 @@ import {
 import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
 import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -45,9 +46,30 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const session = getSession();
+  const agents = useLiveAgents();
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [theme, setTheme] = useState<ThemeId>("turquoise");
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const filteredAgents = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return [];
+    return agents
+      .filter((a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.ext || "").toLowerCase().includes(q) ||
+        (a.id || "").toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [agents, searchTerm]);
+
+  const goToAgent = (agentId: string) => {
+    setSearchTerm("");
+    setSearchOpen(false);
+    navigate(`/performance?agent=${encodeURIComponent(agentId)}`);
+  };
 
   const handleLogout = () => {
     clearSession();
@@ -120,14 +142,66 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
           {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
         </div>
 
-        {/* Search */}
+        {/* Search — يبحث في الموظفين الأحياء */}
         <div className="flex-1 max-w-md mx-auto hidden sm:block">
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && filteredAgents[0]) goToAgent(filteredAgents[0].id);
+                if (e.key === "Escape") { setSearchTerm(""); setSearchOpen(false); }
+              }}
               placeholder="ابحث عن موظف، مكالمة، تحويلة..."
               className="pr-10 bg-background/60 border-border/60 focus-visible:ring-primary/40"
             />
+
+            {searchOpen && searchTerm.trim() && (
+              <div className="absolute top-full mt-1.5 right-0 left-0 z-50 rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
+                {filteredAgents.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    لا توجد نتائج لـ "{searchTerm}"
+                  </div>
+                ) : (
+                  <ul className="max-h-72 overflow-y-auto py-1">
+                    {filteredAgents.map((a) => (
+                      <li key={a.id}>
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => goToAgent(a.id)}
+                          className="w-full flex items-center gap-3 px-3 py-2 text-right hover:bg-muted/60 transition-colors"
+                        >
+                          <div className="w-8 h-8 rounded-lg gradient-primary grid place-items-center text-[10px] font-bold text-primary-foreground shrink-0">
+                            {a.avatar || a.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold truncate">{a.name}</p>
+                            <p className="text-[10px] text-muted-foreground" dir="ltr">
+                              ext: {a.ext} · {a.id}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "text-[9px] font-bold px-1.5 py-0.5 rounded-full",
+                              a.status === "in_call" && "bg-primary/15 text-primary",
+                              a.status === "online" && "bg-success/15 text-success",
+                              a.status === "idle" && "bg-warning/15 text-warning",
+                              a.status === "break" && "bg-info/15 text-info",
+                              a.status === "offline" && "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {a.status}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

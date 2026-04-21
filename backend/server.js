@@ -21,6 +21,7 @@ import mailsRoutes from "./routes/mails.js";
 import recordingsRoutes from "./routes/recordings.js";
 import aiAnalyticsRoutes from "./routes/ai-analytics.js";
 import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
+import adminRoutes from "./routes/admin.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
@@ -95,6 +96,7 @@ app.use("/api/alerts", alertsRoutes);
 app.use("/api/mails", mailsRoutes);
 app.use("/api/recordings", recordingsRoutes);
 app.use("/api/ai-analytics", aiAnalyticsRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);
