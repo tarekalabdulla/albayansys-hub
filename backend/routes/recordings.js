@@ -1,10 +1,59 @@
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { query } from "../db/pool.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
 
 const router = Router();
 router.use(authRequired);
+
+// ============================================================
+// إعداد multer لرفع ملفات الصوت إلى backend/uploads/recordings/
+// ============================================================
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+const AUDIO_DIR  = path.join(__dirname, "..", "uploads", "recordings");
+fs.mkdirSync(AUDIO_DIR, { recursive: true });
+
+const ALLOWED_MIME = new Set([
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
+  "audio/ogg", "audio/webm", "audio/mp4", "audio/m4a", "audio/x-m4a",
+]);
+const ALLOWED_EXT = new Set([".mp3", ".wav", ".ogg", ".webm", ".m4a", ".mp4"]);
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, AUDIO_DIR),
+  filename: (_req, file, cb) => {
+    const ext = (path.extname(file.originalname) || ".mp3").toLowerCase();
+    const safe = ALLOWED_EXT.has(ext) ? ext : ".mp3";
+    cb(null, `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safe}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    if (ALLOWED_MIME.has(file.mimetype) || ALLOWED_EXT.has(ext)) cb(null, true);
+    else cb(new Error("نوع ملف غير مدعوم — استخدم mp3 / wav / m4a / ogg"));
+  },
+});
+
+function publicAudioUrl(req, filename) {
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host  = req.headers["x-forwarded-host"]  || req.get("host");
+  return `${proto}://${host}/uploads/recordings/${filename}`;
+}
+
+function audioFilenameFromUrl(url) {
+  if (!url) return null;
+  const m = String(url).match(/\/uploads\/recordings\/([^/?#]+)$/);
+  return m ? m[1] : null;
+}
 
 // ============================================================
 // GET /api/recordings — قائمة (يمكن فلترة بالفئة)
