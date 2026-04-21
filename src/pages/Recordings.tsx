@@ -115,7 +115,7 @@ export default function Recordings() {
           <p className="text-sm text-muted-foreground mb-5">
             ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) — أو استورد دفعة يدوياً عبر CSV.
           </p>
-          <div className="flex items-center justify-center">{importBtn}</div>
+          <div className="flex items-center justify-center">{actionsBtns}</div>
         </div>
       </AppLayout>
     );
@@ -150,7 +150,7 @@ export default function Recordings() {
               <div className="text-[11px] text-muted-foreground">
                 {filtered.length} من {recordings.length}
               </div>
-              {importBtn}
+              {actionsBtns}
             </div>
           </div>
 
