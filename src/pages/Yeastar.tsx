@@ -324,6 +324,81 @@ export default function Yeastar() {
             )}
           </Card>
 
+          {/* ====== رسم بياني: اتجاه المكالمات المزامنة آخر 7 أيام ====== */}
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div>
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-primary" />
+                  اتجاه المكالمات المزامنة (آخر 7 أيام)
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  إجمالي السجلات الواردة من Yeastar (Webhook + Sync API) في pbx_call_logs
+                </p>
+              </div>
+              <div className="text-end">
+                <p className="text-2xl font-bold text-foreground tabular-nums">
+                  {trend.reduce((s, d) => s + (d.total || 0), 0).toLocaleString("ar")}
+                </p>
+                <p className="text-[11px] text-muted-foreground">إجمالي 7 أيام</p>
+              </div>
+            </div>
+            <div className="h-[180px] w-full">
+              {trend.length === 0 ? (
+                <div className="h-full grid place-items-center text-sm text-muted-foreground">
+                  لا توجد بيانات بعد
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="syncTrendFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%"   stopColor="hsl(var(--primary))" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      tickFormatter={(d: string) => {
+                        const dt = new Date(d);
+                        return dt.toLocaleDateString("ar", { weekday: "short" });
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                      width={30}
+                    />
+                    <RTooltip
+                      contentStyle={{
+                        background: "hsl(var(--background))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                      labelFormatter={(d: string) => new Date(d).toLocaleDateString("ar", {
+                        weekday: "long", day: "numeric", month: "short",
+                      })}
+                      formatter={(v: number) => [v.toLocaleString("ar"), "المكالمات"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="total"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      fill="url(#syncTrendFill)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Card>
+
           {/* ====== نموذج الإعدادات ====== */}
           <Card className="p-5">
             <div className="flex items-center justify-between mb-4">
