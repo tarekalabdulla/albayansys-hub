@@ -21,13 +21,14 @@ import {
 import {
   UserPlus, Pencil, Trash2, Server, Webhook, Database, Download, Upload,
   Save, Shield, Sparkles, PhoneCall, Wifi, KeyRound, CheckCircle2, Loader2,
+  RotateCcw, AlertTriangle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import {
-  usersApi, settingsApi, isRealApi,
-  type ApiUser, type UserRole, type SettingsKey,
+  usersApi, settingsApi, adminApi, isRealApi,
+  type ApiUser, type UserRole, type SettingsKey, type BackupFile,
 } from "@/lib/dataApi";
 import { CsvImportButton } from "@/components/CsvImportButton";
 import { USERS_TEMPLATE_HEADERS, USERS_TEMPLATE_SAMPLE } from "@/lib/csvImport";
@@ -49,17 +50,18 @@ const getUserSaveError = (error: any) => {
   const code = error?.response?.data?.error;
   const fieldErrors = error?.response?.data?.details?.fieldErrors;
 
-  if (code === "duplicate") return "البريد أو المعرّف مستخدم بالفعل.";
+  if (code === "duplicate") return "البريد أو المعرّف أو رقم التحويلة مستخدم بالفعل.";
 
   if (code === "invalid_input") {
     const messages = [
       ...(fieldErrors?.name?.length ? ["الاسم مطلوب"] : []),
-      ...(fieldErrors?.email?.length ? ["أدخل بريدًا إلكترونيًا صحيحًا"] : []),
+      ...(fieldErrors?.email?.length ? ["البريد غير صحيح"] : []),
       ...(fieldErrors?.password?.length ? ["كلمة المرور يجب أن تكون 6 أحرف على الأقل"] : []),
       ...(fieldErrors?.role?.length ? ["اختر دورًا صحيحًا"] : []),
+      ...(fieldErrors?.ext?.length ? ["رقم التحويلة غير صحيح"] : []),
     ];
 
-    return messages.length ? messages.join(" — ") : "تأكد من الاسم والبريد وكلمة المرور.";
+    return messages.length ? messages.join(" — ") : "تأكد من البيانات المُدخَلة.";
   }
 
   if (code === "server_error") {
@@ -76,7 +78,7 @@ const Settings = () => {
   const [editing, setEditing] = useState<ApiUser | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    name: "", email: "", role: "agent" as UserRole, active: true, password: "",
+    name: "", email: "", ext: "", role: "agent" as UserRole, active: true, password: "",
   });
 
   // Settings state (يُحمَّل من DB)
@@ -114,12 +116,12 @@ const Settings = () => {
   // ===== Users CRUD =====
   const openAdd = () => {
     setEditing(null);
-    setForm({ name: "", email: "", role: "agent", active: true, password: "" });
+    setForm({ name: "", email: "", ext: "", role: "agent", active: true, password: "" });
     setOpen(true);
   };
   const openEdit = (u: ApiUser) => {
     setEditing(u);
-    setForm({ name: u.name, email: u.email || "", role: u.role, active: u.active, password: "" });
+    setForm({ name: u.name, email: u.email || "", ext: u.ext || "", role: u.role, active: u.active, password: "" });
     setOpen(true);
   };
 
