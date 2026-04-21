@@ -14,9 +14,12 @@ import {
 
 export interface BulkResult {
   created: number;
+  updated?: number;
   skipped: number;
   errors: Array<{ row: number; reason: string; [k: string]: unknown }>;
 }
+
+export type DuplicateMode = "skip" | "update";
 
 interface Props {
   /** نوع البيانات المستوردة (للعرض) */
@@ -24,7 +27,7 @@ interface Props {
   /** أسماء الأعمدة الإلزامية للتحقق قبل الإرسال */
   requiredHeaders: string[];
   /** دالة تستقبل المصفوفة وترسلها للـ backend */
-  onImport: (rows: CsvRow[]) => Promise<BulkResult>;
+  onImport: (rows: CsvRow[], opts: { duplicateMode: DuplicateMode }) => Promise<BulkResult>;
   /** بيانات قالب التنزيل */
   templateHeaders: string[];
   templateSample: Record<string, string>[];
@@ -34,6 +37,8 @@ interface Props {
   className?: string;
   /** عرض زر تنزيل القالب بجانب الاستيراد */
   showTemplate?: boolean;
+  /** السماح بسؤال المستخدم عن سلوك التكرار (افتراضياً: نعم لـ users) */
+  askDuplicateMode?: boolean;
 }
 
 export function CsvImportButton({
