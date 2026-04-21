@@ -62,7 +62,11 @@ app.get("/api/yeastar/status", (_req, res) => {
 });
 
 // ⚠️  Webhooks تُسجَّل قبل express.json() لأنها تحتاج raw body للتحقق من HMAC
+// نُسجّل على عدّة prefixes لمرونة إعداد Yeastar PBX:
+//   /api/webhooks/yeastar           (الأصلي)
+//   /api/webhook/call-event         (المُستخدم حالياً في لوحة PBX)
 app.use("/api/webhooks", webhooksYeastarRoutes);
+app.use("/api/webhook", webhooksYeastarRoutes);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
@@ -129,7 +133,13 @@ if (String(process.env.SIMULATOR_ENABLED || "").toLowerCase() === "true") {
 }
 
 // شغّل تكامل Yeastar Open API (يبدأ تلقائياً إذا كانت ENV مضبوطة)
-startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
+// ملاحظة: للتعطيل اليدوي ضع YEASTAR_OPENAPI_DISABLED=true في .env
+// (مفيد عندما لا يكون PBX قابلاً للوصول من السيرفر — كما في Yeastar Cloud RAS)
+if (String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true") {
+  console.log("⏭️  Yeastar Open API مُعطَّل يدوياً (YEASTAR_OPENAPI_DISABLED=true) — webhook فقط");
+} else {
+  startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
+}
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {

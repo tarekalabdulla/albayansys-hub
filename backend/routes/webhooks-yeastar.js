@@ -387,6 +387,14 @@ router.get("/yeastar/health", (_req, res) => {
 });
 
 // المسار الرئيسي — rate limit ثم raw body ثم المعالجة (HMAC + IP)
+// نقبل عدّة مسارات لمرونة إعداد PBX:
+//   POST /api/webhooks/yeastar              (الافتراضي)
+//   POST /api/webhooks/yeastar/call-event   (Yeastar Cloud RAS)
+//   POST /api/webhook/call-event            (مسار بديل — يُسجَّل على /api/webhook في server.js)
+//   POST /api/webhook/yeastar               (مسار بديل)
 router.post("/yeastar", yeastarLimiter, rawJson, handleYeastarEvent);
+router.post("/yeastar/call-event", yeastarLimiter, rawJson, handleYeastarEvent);
+router.post("/call-event", yeastarLimiter, rawJson, handleYeastarEvent);
+router.post("/", yeastarLimiter, rawJson, handleYeastarEvent);
 
 export default router;
