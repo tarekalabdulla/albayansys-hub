@@ -36,6 +36,9 @@ let state = {
   refreshTimer: null,
   stopped: false,
   io: null,
+  lastConnectedAt: 0,
+  lastEventAt: 0,
+  lastError: null,
 };
 
 function log(...args) {
@@ -157,6 +160,8 @@ function connectWs() {
 
   ws.on("open", () => {
     state.reconnectMs = RECONNECT_MIN_MS;
+    state.lastConnectedAt = Date.now();
+    state.lastError = null;
     const { topics } = cfg();
     const sub = JSON.stringify({ topic_list: topics });
     ws.send(sub);
@@ -167,15 +172,18 @@ function connectWs() {
     let msg;
     try { msg = JSON.parse(data.toString()); }
     catch { return warn("رسالة غير JSON تم تجاهلها"); }
+    state.lastEventAt = Date.now();
     handleIncomingEvent(msg).catch((e) => warn("handle event:", e.message));
   });
 
   ws.on("close", (code, reason) => {
     warn(`WebSocket مغلق code=${code} reason=${reason?.toString() || ""}`);
+    state.lastError = `ws_closed_${code}`;
     scheduleReconnect();
   });
 
   ws.on("error", (e) => {
+    state.lastError = e.message;
     warn("WebSocket خطأ:", e.message);
     // close سيُستدعى بعدها وسيُجدول reconnect
   });
@@ -285,5 +293,9 @@ export function getYeastarApiStatus() {
     expiresIn: state.expireAt ? Math.max(0, Math.round((state.expireAt - Date.now()) / 1000)) : 0,
     wsState: state.ws ? state.ws.readyState : -1,   // 0:CONNECTING 1:OPEN 2:CLOSING 3:CLOSED
     topics: c.topics,
+    lastConnectedAt: state.lastConnectedAt || null,
+    lastEventAt:     state.lastEventAt || null,
+    lastError:       state.lastError || null,
+    disabled:        String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true",
   };
 }

@@ -29,6 +29,9 @@ let state = {
   stopped: true,
   io: null,
   actionId: 0,
+  lastConnectedAt: 0,
+  lastEventAt: 0,
+  lastError: null,
 };
 
 function log(...a)  { console.log("[ami]", ...a); }
@@ -155,6 +158,8 @@ function connect() {
 
   socket.connect(c.port, c.host, () => {
     log("TCP connected, sending Login...");
+    state.lastConnectedAt = Date.now();
+    state.lastError = null;
     sendAction({ Action: "Login", Username: c.user, Secret: c.pass, Events: "on" });
   });
 
@@ -165,7 +170,7 @@ function connect() {
     }
   });
 
-  socket.on("error", (e) => warn("socket error:", e.message));
+  socket.on("error", (e) => { state.lastError = e.message; warn("socket error:", e.message); });
 
   socket.on("close", () => {
     warn("socket closed");
@@ -219,6 +224,7 @@ async function handleAmiMessage(msg) {
   if (msg.Event) {
     const normalized = amiToNormalized(msg);
     if (!normalized) return;
+    state.lastEventAt = Date.now();
     try {
       await processPbxEvent(normalized, state.io);
     } catch (e) {
@@ -254,5 +260,8 @@ export function getAmiStatus() {
     loggedIn: state.loggedIn,
     host: cfg().host || null,
     port: cfg().port,
+    lastConnectedAt: state.lastConnectedAt || null,
+    lastEventAt:     state.lastEventAt || null,
+    lastError:       state.lastError || null,
   };
 }
