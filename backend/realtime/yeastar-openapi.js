@@ -65,14 +65,17 @@ function cfg() {
 
 // -------------- HTTP: get/refresh token --------------
 async function fetchToken() {
-  const { base, user, pass } = cfg();
-  if (!base || !user || !pass) throw new Error("missing_yeastar_api_env");
+  const { base, authMode, clientId, clientSecret, user, pass } = cfg();
+  if (!base || !authMode) throw new Error("missing_yeastar_api_env");
 
   const url = `${base}/openapi/v1.0/get_token`;
+  const body = authMode === "oauth"
+    ? { client_id: clientId, client_secret: clientSecret }
+    : { username: user, password: pass };
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user, password: pass }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`get_token_http_${res.status}`);
   const data = await res.json();
@@ -249,14 +252,14 @@ async function handleIncomingEvent(msg) {
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
-  const { base, user, pass } = cfg();
-  if (!base || !user || !pass) {
-    log("⏭️  Yeastar Open API معطّل (لم تُضبط YEASTAR_API_BASE/USER/PASS)");
+  const { base, authMode } = cfg();
+  if (!base || !authMode) {
+    log("⏭️  Yeastar Open API معطّل (لم تُضبط YEASTAR_BASE_URL مع CLIENT_ID/SECRET أو API_USER/PASS)");
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`بدء التكامل مع PBX: ${base}`);
+  log(`بدء التكامل مع PBX: ${base} (auth=${authMode})`);
   try {
     await fetchToken();
     connectWs();
@@ -274,11 +277,13 @@ export function stopYeastarOpenApi() {
 }
 
 export function getYeastarApiStatus() {
+  const c = cfg();
   return {
-    configured: Boolean(cfg().base && cfg().user && cfg().pass),
+    configured: Boolean(c.base && c.authMode),
+    authMode: c.authMode || "none",
     hasToken: Boolean(state.accessToken),
     expiresIn: state.expireAt ? Math.max(0, Math.round((state.expireAt - Date.now()) / 1000)) : 0,
     wsState: state.ws ? state.ws.readyState : -1,   // 0:CONNECTING 1:OPEN 2:CLOSING 3:CLOSED
-    topics: cfg().topics,
+    topics: c.topics,
   };
 }
