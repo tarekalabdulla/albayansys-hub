@@ -30,6 +30,10 @@ import { query } from "./db/pool.js";
 const app = express();
 const server = http.createServer(app);
 
+// نحن خلف Nginx reverse proxy → نثق بأول hop فقط
+// (يحلّ ValidationError: X-Forwarded-For من express-rate-limit)
+app.set("trust proxy", 1);
+
 const ORIGINS = (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).filter(Boolean);
 
 app.use(helmet());
