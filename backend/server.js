@@ -172,6 +172,10 @@ if (String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true")
   startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
 }
 
+// شغّل AMI service (يبدأ تلقائياً فقط إذا ضُبطت YEASTAR_AMI_HOST/USERNAME/PASSWORD)
+// مصدر إضافي للمراقبة اللحظية بجوار Open API و Webhook
+try { startAmiService(io); } catch (e) { console.error("[ami] start failed:", e.message); }
+
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
   console.log(`✅ API يعمل على :${PORT}`);
