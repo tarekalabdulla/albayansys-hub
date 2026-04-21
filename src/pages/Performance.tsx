@@ -280,7 +280,7 @@ const Performance = () => {
       <AgentDetailModal
         agentId={selectedAgent}
         open={selectedAgent !== null}
-        onClose={() => setSelectedAgent(null)}
+        onClose={closeAgent}
       />
     </AppLayout>
   );
