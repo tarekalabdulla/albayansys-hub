@@ -97,9 +97,7 @@ const Login = () => {
 
       <div className="w-full max-w-md anim-scale-in relative z-10">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-24 h-24 rounded-2xl gradient-primary shadow-glow flex items-center justify-center mb-4 p-3">
-            <img src={logo} alt="شعار حلول البيان" className="w-full h-full object-contain" />
-          </div>
+          <img src={logo} alt="شعار حلول البيان" className="w-20 h-20 object-contain mb-4" />
           <h1 className="text-3xl font-bold text-gradient tracking-tight">Hulul Abayan</h1>
           <p className="text-sm text-muted-foreground mt-1">نظام إدارة مركز الاتصال</p>
         </div>
