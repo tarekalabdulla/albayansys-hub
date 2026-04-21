@@ -40,6 +40,7 @@ interface ConfigEnvelope {
     clientIdIsSet?: boolean;
     clientSecretIsSet?: boolean;
     webhookSecretIsSet?: boolean;
+    webhookPath?: string;
     allowedIps?: string[];
     enabled?: boolean;
     lastSyncAt?: string;
@@ -51,6 +52,7 @@ interface ConfigEnvelope {
     clientSecretSet: boolean;
     webhookTokenSet: boolean;
     webhookSecretSet: boolean;
+    webhookPath: string | null;
     allowedIps: string[];
   };
   status: {
