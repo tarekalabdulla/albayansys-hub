@@ -23,7 +23,11 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, Webhook as WebhookIcon, Shield, History, ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
+import {
+  Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
+} from "recharts";
 
 // ---------------- Types ----------------
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
