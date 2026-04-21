@@ -18,9 +18,14 @@ router.post("/login", async (req, res) => {
   }
   const { identifier, password } = parsed.data;
 
+  // يقبل: identifier (اسم المستخدم) أو email أو ext (رقم التحويلة)
+  const idTrimmed = identifier.toLowerCase().trim();
   const { rows } = await query(
-    "SELECT id, identifier, password_hash, role, display_name, is_active FROM users WHERE identifier = $1",
-    [identifier.toLowerCase().trim()]
+    `SELECT id, identifier, password_hash, role, display_name, is_active
+       FROM users
+      WHERE identifier = $1 OR email = $1 OR ext = $2
+      LIMIT 1`,
+    [idTrimmed, identifier.trim()]
   );
   const user = rows[0];
   if (!user || !user.is_active) {

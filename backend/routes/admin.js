@@ -191,9 +191,12 @@ router.post("/reset", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // البيانات التشغيلية فقط — لا تشمل المستخدمين/المشرفين/الإعدادات
+    // لكن تشمل agents لأن صفحة Monitoring تعرضهم وهم بيانات وهمية افتراضياً
     const dataTables = [
       "recordings", "calls", "alerts", "mails",
       "ai_recommendations", "sentiment_daily",
+      "supervisor_agents", "agents",
     ];
     for (const t of dataTables) {
       try {
