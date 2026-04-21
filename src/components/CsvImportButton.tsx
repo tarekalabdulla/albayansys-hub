@@ -98,9 +98,10 @@ export function CsvImportButton({
       const result = await onImport(rows);
 
       // عرض ملخص النتائج
-      const errorPreview = result.errors.slice(0, 5).map((e) => {
+      const errorPreview = result.errors.slice(0, 5).map((e: any) => {
         const reason = e.reason === "duplicate" ? "مكرر" : e.reason === "invalid" ? "غير صالح" : "خطأ";
-        return `صف ${e.row}: ${reason}`;
+        const fields = e.fields ? ` (${e.fields})` : "";
+        return `صف ${e.row}: ${reason}${fields}`;
       }).join("<br/>");
 
       await Swal.fire({
