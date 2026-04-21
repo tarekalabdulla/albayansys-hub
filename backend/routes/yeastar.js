@@ -373,4 +373,32 @@ router.get("/sync/history", requireRole("admin"), async (_req, res) => {
   }
 });
 
+// -------------------- GET /sync/trend --------------------
+// إجمالي المكالمات المزامنة (المُدخَلة في pbx_call_logs) آخر 7 أيام
+router.get("/sync/trend", requireRole("admin"), async (_req, res) => {
+  try {
+    const { rows } = await query(
+      `WITH days AS (
+         SELECT generate_series(
+           (CURRENT_DATE - INTERVAL '6 days')::date,
+           CURRENT_DATE::date,
+           INTERVAL '1 day'
+         )::date AS day
+       )
+       SELECT
+         to_char(d.day, 'YYYY-MM-DD') AS day,
+         COALESCE(COUNT(p.id), 0)::int AS total
+       FROM days d
+       LEFT JOIN pbx_call_logs p
+         ON DATE(p.created_at) = d.day
+       GROUP BY d.day
+       ORDER BY d.day ASC`
+    );
+    res.json({ items: rows });
+  } catch (e) {
+    console.error("[yeastar/sync/trend]", e);
+    res.status(500).json({ error: "load_failed", message: e.message });
+  }
+});
+
 export default router;
