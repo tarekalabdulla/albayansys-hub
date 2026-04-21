@@ -10,15 +10,22 @@ import {
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
 } from "lucide-react";
-import { AGENTS } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
+import { USE_REAL_API } from "@/lib/config";
 
 const Index = () => {
-  const total = AGENTS.length;
-  const inCall = AGENTS.filter((a) => a.status === "in_call").length;
-  const answered = AGENTS.reduce((s, a) => s + a.answered, 0);
-  const missed = AGENTS.reduce((s, a) => s + a.missed, 0);
-  const avg = Math.round(AGENTS.reduce((s, a) => s + a.avgDuration, 0) / AGENTS.length);
+  const agents = useLiveAgents();
+
+  const total = agents.length;
+  const inCall = agents.filter((a) => a.status === "in_call").length;
+  const answered = agents.reduce((s, a) => s + a.answered, 0);
+  const missed = agents.reduce((s, a) => s + a.missed, 0);
+  const avg = agents.length === 0
+    ? 0
+    : Math.round(agents.reduce((s, a) => s + a.avgDuration, 0) / agents.length);
   const avgM = Math.floor(avg / 60), avgS = avg % 60;
+  const avgLabel = agents.length === 0 ? "—" : `${avgM}:${String(avgS).padStart(2, "0")}`;
+  const slaLabel = USE_REAL_API ? "—" : "92%";
 
   return (
     <AppLayout
@@ -51,12 +58,12 @@ const Index = () => {
 
       {/* Stats */}
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
-        <StatCard label="إجمالي الموظفين" value={total} icon={Users} accent="info" trend={{ value: 5, positive: true }} />
+        <StatCard label="إجمالي الموظفين" value={total} icon={Users} accent="info" />
         <StatCard label="في مكالمة الآن" value={inCall} icon={PhoneCall} accent="primary" />
-        <StatCard label="مكالمات مجابة" value={answered} icon={PhoneIncoming} accent="success" trend={{ value: 12, positive: true }} />
-        <StatCard label="مكالمات فائتة" value={missed} icon={PhoneMissed} accent="destructive" trend={{ value: 3, positive: false }} />
-        <StatCard label="متوسط المدة" value={`${avgM}:${String(avgS).padStart(2, "0")}`} icon={Timer} accent="warning" />
-        <StatCard label="نسبة SLA" value="92%" icon={Gauge} accent="success" trend={{ value: 2, positive: true }} />
+        <StatCard label="مكالمات مجابة" value={answered} icon={PhoneIncoming} accent="success" />
+        <StatCard label="مكالمات فائتة" value={missed} icon={PhoneMissed} accent="destructive" />
+        <StatCard label="متوسط المدة" value={avgLabel} icon={Timer} accent="warning" />
+        <StatCard label="نسبة SLA" value={slaLabel} icon={Gauge} accent="success" />
       </section>
 
       {/* Charts */}
