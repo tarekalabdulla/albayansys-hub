@@ -272,4 +272,47 @@ export const aiAnalyticsApi = {
   },
 };
 
+// ============================================================
+// ADMIN — Backup / Restore / Reset
+// ============================================================
+export interface BackupFile {
+  app: string;
+  version: number;
+  exportedAt: string;
+  counts: Record<string, number>;
+  data: Record<string, Record<string, unknown>[]>;
+}
+
+export interface RestoreReport {
+  ok: boolean;
+  mode: "merge" | "replace";
+  restored: Record<string, number>;
+  skipped: Record<string, number>;
+  errors: Array<{ table: string; code?: string; message?: string }>;
+}
+
+export interface ResetReport {
+  ok: boolean;
+  scope: "data" | "all";
+  deleted: Record<string, number>;
+}
+
+export const adminApi = {
+  /** يُنزّل ملف JSON كامل لكل البيانات */
+  backup: async (): Promise<BackupFile> => {
+    const { data } = await api.get("/admin/backup");
+    return data;
+  },
+  /** يستعيد البيانات من ملف نسخة احتياطية */
+  restore: async (backup: BackupFile, mode: "merge" | "replace" = "merge"): Promise<RestoreReport> => {
+    const { data } = await api.post("/admin/restore", { backup, mode });
+    return data;
+  },
+  /** تصفير: data = مكالمات/تسجيلات فقط — all = كل شيء عدا حساب admin */
+  reset: async (scope: "data" | "all" = "data"): Promise<ResetReport> => {
+    const { data } = await api.post("/admin/reset", { scope, confirm: "RESET" });
+    return data;
+  },
+};
+
 export const isRealApi = USE_REAL_API;
