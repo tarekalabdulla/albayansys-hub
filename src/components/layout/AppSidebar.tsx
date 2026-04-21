@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
-import { getRole, ROLE_LABELS, type Role } from "@/lib/auth";
+import { getRole, getSession, ROLE_LABELS, type Role } from "@/lib/auth";
 
 interface NavItem {
   to: string;
@@ -45,8 +45,16 @@ interface AppSidebarProps {
 
 export function AppSidebar({ open, onClose }: AppSidebarProps) {
   const role = getRole();
+  const session = getSession();
   const visibleNav = NAV.filter((item) => role && item.roles.includes(role));
   const roleLabel = role ? ROLE_LABELS[role] : "زائر";
+  const displayName = session?.displayName || session?.identifier || "مستخدم";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2);
 
   return (
     <>
@@ -106,10 +114,10 @@ export function AppSidebar({ open, onClose }: AppSidebarProps) {
         <div className="absolute bottom-0 inset-x-0 p-4 border-t border-sidebar-border">
           <div className="glass rounded-xl p-3 flex items-center gap-3">
             <div className="w-10 h-10 rounded-full gradient-primary grid place-items-center text-sm font-bold text-primary-foreground">
-              س.ع
+              {initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-sidebar-foreground truncate">سلمان العامر</p>
+              <p className="text-sm font-semibold text-sidebar-foreground truncate">{displayName}</p>
               <p className="text-[11px] text-sidebar-foreground/60">{roleLabel}</p>
             </div>
           </div>
