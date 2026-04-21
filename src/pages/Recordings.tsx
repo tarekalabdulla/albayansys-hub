@@ -71,6 +71,7 @@ export default function Recordings() {
         templateSample={RECORDINGS_TEMPLATE_SAMPLE}
         templateFileName="recordings-template.csv"
         onImport={async (rows) => recordingsApi.bulkCreate(rows)}
+        askDuplicateMode={false}
         onSuccess={loadRecordings}
       />
     </div>

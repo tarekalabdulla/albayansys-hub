@@ -140,6 +140,8 @@ function normalizeRole(v) {
 const bulkSchema = z.object({
   rows: z.array(z.record(z.any())).min(1).max(2000),
   defaultPassword: z.string().min(6).max(128).optional(),
+  // سلوك التكرار: skip (افتراضي) = تخطي، update = تحديث المستخدم الموجود
+  duplicateMode: z.enum(["skip", "update"]).default("skip"),
 });
 
 router.post("/bulk", requireRole("admin"), async (req, res) => {
@@ -148,12 +150,11 @@ router.post("/bulk", requireRole("admin"), async (req, res) => {
     return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
   }
 
-  const { rows, defaultPassword } = parsed.data;
-  const results = { created: 0, skipped: 0, errors: [] };
+  const { rows, defaultPassword, duplicateMode } = parsed.data;
+  const results = { created: 0, updated: 0, skipped: 0, errors: [] };
 
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i];
-    // كلمة المرور: قبول الأرقام/سلاسل قصيرة، ومدّها تلقائياً إذا كانت أقل من 6 أحرف
     let pwd = raw.password ?? raw.Password ?? defaultPassword ?? "Hulul@1234";
     pwd = String(pwd).trim();
     if (pwd.length === 0) pwd = defaultPassword || "Hulul@1234";
@@ -171,7 +172,6 @@ router.post("/bulk", requireRole("admin"), async (req, res) => {
       department: raw.department ?? raw.Department ?? raw["القسم"] ?? undefined,
       ext: raw.ext ?? raw.Ext ?? raw["التحويلة"] ?? undefined,
     };
-    // تحويل phone/ext إلى نصوص (CSV قد يأتي كأرقام)
     if (candidate.phone !== undefined) candidate.phone = String(candidate.phone).trim();
     if (candidate.ext !== undefined) candidate.ext = String(candidate.ext).trim();
 
@@ -191,15 +191,60 @@ router.post("/bulk", requireRole("admin"), async (req, res) => {
       (d.ext ? `ext-${d.ext}` : null) ||
       `user-${Date.now()}-${i}`
     ).toString().toLowerCase().trim();
+
     try {
       const hash = await bcrypt.hash(d.password, 10);
-      await query(
-        `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [identifier, hash, d.name, d.email || null, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
-      );
-      results.created++;
+
+      if (duplicateMode === "update") {
+        // UPSERT بناءً على identifier (الذي يُشتق من email غالباً)
+        const upsert = await query(
+          `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (identifier) DO UPDATE SET
+             password_hash = EXCLUDED.password_hash,
+             display_name  = EXCLUDED.display_name,
+             email         = EXCLUDED.email,
+             role          = EXCLUDED.role,
+             is_active     = EXCLUDED.is_active,
+             phone         = EXCLUDED.phone,
+             department    = EXCLUDED.department,
+             ext           = EXCLUDED.ext
+           RETURNING (xmax = 0) AS inserted`,
+          [identifier, hash, d.name, d.email || null, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
+        );
+        if (upsert.rows[0]?.inserted) results.created++;
+        else results.updated++;
+      } else {
+        await query(
+          `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [identifier, hash, d.name, d.email || null, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
+        );
+        results.created++;
+      }
     } catch (e) {
+      // في وضع update، إذا تعارض على email (وليس identifier) — جرّب UPDATE بناءً على email
+      if (duplicateMode === "update" && e.code === "23505" && d.email) {
+        try {
+          const hash2 = await bcrypt.hash(d.password, 10);
+          const upd = await query(
+            `UPDATE users SET
+               password_hash = $1,
+               display_name  = $2,
+               role          = $3,
+               is_active     = $4,
+               phone         = $5,
+               department    = $6,
+               ext           = $7
+             WHERE LOWER(email) = LOWER($8)`,
+            [hash2, d.name, d.role, d.active, d.phone || null, d.department || null, d.ext || null, d.email]
+          );
+          if (upd.rowCount > 0) {
+            results.updated++;
+            continue;
+          }
+        } catch (_e2) { /* تجاهل ثم اسجل خطأ مكرر */ }
+      }
       results.skipped++;
       if (e.code === "23505") {
         results.errors.push({ row: i + 2, reason: "duplicate", email: d.email });

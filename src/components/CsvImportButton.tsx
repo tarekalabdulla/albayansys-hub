@@ -14,9 +14,12 @@ import {
 
 export interface BulkResult {
   created: number;
+  updated?: number;
   skipped: number;
   errors: Array<{ row: number; reason: string; [k: string]: unknown }>;
 }
+
+export type DuplicateMode = "skip" | "update";
 
 interface Props {
   /** نوع البيانات المستوردة (للعرض) */
@@ -24,7 +27,7 @@ interface Props {
   /** أسماء الأعمدة الإلزامية للتحقق قبل الإرسال */
   requiredHeaders: string[];
   /** دالة تستقبل المصفوفة وترسلها للـ backend */
-  onImport: (rows: CsvRow[]) => Promise<BulkResult>;
+  onImport: (rows: CsvRow[], opts: { duplicateMode: DuplicateMode }) => Promise<BulkResult>;
   /** بيانات قالب التنزيل */
   templateHeaders: string[];
   templateSample: Record<string, string>[];
@@ -34,6 +37,8 @@ interface Props {
   className?: string;
   /** عرض زر تنزيل القالب بجانب الاستيراد */
   showTemplate?: boolean;
+  /** السماح بسؤال المستخدم عن سلوك التكرار (افتراضياً: نعم لـ users) */
+  askDuplicateMode?: boolean;
 }
 
 export function CsvImportButton({
@@ -46,6 +51,7 @@ export function CsvImportButton({
   onSuccess,
   className,
   showTemplate = true,
+  askDuplicateMode = true,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -59,7 +65,7 @@ export function CsvImportButton({
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    e.target.value = ""; // إعادة الضبط للسماح بنفس الملف لاحقاً
+    e.target.value = "";
 
     setBusy(true);
     try {
@@ -71,7 +77,6 @@ export function CsvImportButton({
         return;
       }
 
-      // تحقق من وجود الأعمدة الإلزامية
       const headers = Object.keys(rows[0] || {});
       const missing = requiredHeaders.filter((h) => !headers.includes(h));
       if (missing.length > 0) {
@@ -83,33 +88,59 @@ export function CsvImportButton({
         return;
       }
 
-      // تأكيد قبل الإرسال
-      const confirm = await Swal.fire({
-        icon: "question",
-        title: `استيراد ${rows.length} ${label}؟`,
-        text: "سيتم إنشاء السجلات الجديدة وتجاهل المكررة.",
-        showCancelButton: true,
-        confirmButtonText: "متابعة",
-        cancelButtonText: "إلغاء",
-        confirmButtonColor: "hsl(174 72% 38%)",
-      });
-      if (!confirm.isConfirmed) return;
+      // اختيار سلوك التكرار
+      let duplicateMode: DuplicateMode = "skip";
+      if (askDuplicateMode) {
+        const choice = await Swal.fire({
+          icon: "question",
+          title: `استيراد ${rows.length} ${label}`,
+          html: `
+            <div style="text-align:right;font-size:14px">
+              ماذا نفعل عند وجود سجل مكرر (نفس البريد/المعرّف)؟
+            </div>
+          `,
+          showCancelButton: true,
+          showDenyButton: true,
+          confirmButtonText: "🔄 تحديث الموجود",
+          denyButtonText: "⏭️ تخطي المكرر",
+          cancelButtonText: "إلغاء",
+          confirmButtonColor: "hsl(174 72% 38%)",
+          denyButtonColor: "hsl(220 14% 50%)",
+          reverseButtons: true,
+        });
+        if (choice.isDismissed) return;
+        duplicateMode = choice.isConfirmed ? "update" : "skip";
+      } else {
+        const confirm = await Swal.fire({
+          icon: "question",
+          title: `استيراد ${rows.length} ${label}؟`,
+          text: "سيتم إنشاء السجلات الجديدة وتجاهل المكررة.",
+          showCancelButton: true,
+          confirmButtonText: "متابعة",
+          cancelButtonText: "إلغاء",
+          confirmButtonColor: "hsl(174 72% 38%)",
+        });
+        if (!confirm.isConfirmed) return;
+      }
 
-      const result = await onImport(rows);
+      const result = await onImport(rows, { duplicateMode });
 
-      // عرض ملخص النتائج
       const errorPreview = result.errors.slice(0, 5).map((e: any) => {
         const reason = e.reason === "duplicate" ? "مكرر" : e.reason === "invalid" ? "غير صالح" : "خطأ";
         const fields = e.fields ? ` (${e.fields})` : "";
         return `صف ${e.row}: ${reason}${fields}`;
       }).join("<br/>");
 
+      const updatedLine = (result.updated ?? 0) > 0
+        ? `<br/>🔄 تم تحديث: <b>${result.updated}</b>`
+        : "";
+
       await Swal.fire({
-        icon: result.created > 0 ? "success" : "warning",
-        title: `تم استيراد ${result.created} من ${rows.length}`,
+        icon: (result.created + (result.updated ?? 0)) > 0 ? "success" : "warning",
+        title: `تم معالجة ${result.created + (result.updated ?? 0)} من ${rows.length}`,
         html: `
           <div style="text-align:right">
-            ✅ تم إنشاء: <b>${result.created}</b><br/>
+            ✅ تم إنشاء: <b>${result.created}</b>${updatedLine}<br/>
             ⏭️ تم تخطي: <b>${result.skipped}</b>
             ${errorPreview ? `<br/><br/><div style="font-size:12px;color:#888">${errorPreview}${result.errors.length > 5 ? `<br/>... +${result.errors.length - 5}` : ""}</div>` : ""}
           </div>
@@ -117,7 +148,7 @@ export function CsvImportButton({
         confirmButtonColor: "hsl(174 72% 38%)",
       });
 
-      if (result.created > 0) onSuccess?.();
+      if ((result.created + (result.updated ?? 0)) > 0) onSuccess?.();
     } catch (err: any) {
       Swal.fire({
         icon: "error",

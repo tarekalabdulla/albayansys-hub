@@ -54,14 +54,22 @@ export const usersApi = {
   changePassword: async (oldPassword: string, newPassword: string): Promise<void> => {
     await api.patch("/users/me/password", { oldPassword, newPassword });
   },
-  bulkCreate: async (rows: Record<string, unknown>[], defaultPassword?: string): Promise<BulkImportResult> => {
-    const { data } = await api.post("/users/bulk", { rows, defaultPassword });
+  bulkCreate: async (
+    rows: Record<string, unknown>[],
+    opts?: { defaultPassword?: string; duplicateMode?: "skip" | "update" },
+  ): Promise<BulkImportResult> => {
+    const { data } = await api.post("/users/bulk", {
+      rows,
+      defaultPassword: opts?.defaultPassword,
+      duplicateMode: opts?.duplicateMode ?? "skip",
+    });
     return data;
   },
 };
 
 export interface BulkImportResult {
   created: number;
+  updated?: number;
   skipped: number;
   errors: Array<{ row: number; reason: string; [k: string]: unknown }>;
 }
