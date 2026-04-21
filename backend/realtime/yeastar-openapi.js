@@ -1,23 +1,24 @@
 // ============================================================
 // Yeastar P-Series Open API client
 // ------------------------------------------------------------
-// المرحلة 2: بدلاً من انتظار webhooks، نستخدم Open API:
+// نستخدم Open API:
 //   1) نطلب access_token من /openapi/v1.0/get_token (تجديد تلقائي)
 //   2) نفتح WebSocket على /openapi/v1.0/subscribe?access_token=...
 //   3) نشترك بالأحداث (CDR / ExtensionStatus / CallStatus...)
 //   4) نُمرّر الأحداث الواردة لنفس معالج الـ webhook (handleNormalizedEvent)
 //
-// المرجع: Yeastar P-Series Open API Developer Guide
-//   POST {host}/openapi/v1.0/get_token
-//     body: { username, password }   →  { access_token, refresh_token, expire_time }
-//   WS   {host}/openapi/v1.0/subscribe?access_token=...
-//     send: {"topic_list":[30012,30013,30014,...]}   (call/extension events)
+// ENV المطلوبة (طريقتان للمصادقة):
+//   --- (أ) OAuth (موصى به) ---
+//   YEASTAR_BASE_URL      = https://hululalbayan.ras.yeastar.com
+//   YEASTAR_CLIENT_ID     = ...
+//   YEASTAR_CLIENT_SECRET = ...
 //
-// ENV المطلوبة:
-//   YEASTAR_API_BASE   = https://pbx.example.com:8088   (بدون شرطة في النهاية)
-//   YEASTAR_API_USER   = اسم مستخدم Open API
-//   YEASTAR_API_PASS   = كلمة المرور
-//   YEASTAR_API_TOPICS = 30012,30013,30014   (اختياري — افتراضي: مكالمات+امتدادات)
+//   --- (ب) username/password (قديم) ---
+//   YEASTAR_API_BASE = https://pbx.example.com:8088
+//   YEASTAR_API_USER = ...
+//   YEASTAR_API_PASS = ...
+//
+//   YEASTAR_API_TOPICS = 30012,30013,30014   (اختياري)
 // ============================================================
 import WebSocket from "ws";
 import { handleNormalizedEvent } from "../routes/webhooks-yeastar.js";
@@ -45,10 +46,18 @@ function warn(...args) {
 }
 
 function cfg() {
+  const base = (process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
+    .replace(/\/+$/, "");
+  const clientId     = process.env.YEASTAR_CLIENT_ID || "";
+  const clientSecret = process.env.YEASTAR_CLIENT_SECRET || "";
+  const user = process.env.YEASTAR_API_USER || "";
+  const pass = process.env.YEASTAR_API_PASS || "";
+  // وضع المصادقة: OAuth إذا توفّر client_id+secret، وإلا username/password
+  const authMode = clientId && clientSecret ? "oauth"
+                 : (user && pass)            ? "basic"
+                 : "";
   return {
-    base: (process.env.YEASTAR_API_BASE || "").replace(/\/+$/, ""),
-    user: process.env.YEASTAR_API_USER || "",
-    pass: process.env.YEASTAR_API_PASS || "",
+    base, authMode, clientId, clientSecret, user, pass,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
@@ -56,14 +65,17 @@ function cfg() {
 
 // -------------- HTTP: get/refresh token --------------
 async function fetchToken() {
-  const { base, user, pass } = cfg();
-  if (!base || !user || !pass) throw new Error("missing_yeastar_api_env");
+  const { base, authMode, clientId, clientSecret, user, pass } = cfg();
+  if (!base || !authMode) throw new Error("missing_yeastar_api_env");
 
   const url = `${base}/openapi/v1.0/get_token`;
+  const body = authMode === "oauth"
+    ? { client_id: clientId, client_secret: clientSecret }
+    : { username: user, password: pass };
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user, password: pass }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`get_token_http_${res.status}`);
   const data = await res.json();
@@ -240,14 +252,14 @@ async function handleIncomingEvent(msg) {
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
-  const { base, user, pass } = cfg();
-  if (!base || !user || !pass) {
-    log("⏭️  Yeastar Open API معطّل (لم تُضبط YEASTAR_API_BASE/USER/PASS)");
+  const { base, authMode } = cfg();
+  if (!base || !authMode) {
+    log("⏭️  Yeastar Open API معطّل (لم تُضبط YEASTAR_BASE_URL مع CLIENT_ID/SECRET أو API_USER/PASS)");
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`بدء التكامل مع PBX: ${base}`);
+  log(`بدء التكامل مع PBX: ${base} (auth=${authMode})`);
   try {
     await fetchToken();
     connectWs();
@@ -265,11 +277,13 @@ export function stopYeastarOpenApi() {
 }
 
 export function getYeastarApiStatus() {
+  const c = cfg();
   return {
-    configured: Boolean(cfg().base && cfg().user && cfg().pass),
+    configured: Boolean(c.base && c.authMode),
+    authMode: c.authMode || "none",
     hasToken: Boolean(state.accessToken),
     expiresIn: state.expireAt ? Math.max(0, Math.round((state.expireAt - Date.now()) / 1000)) : 0,
     wsState: state.ws ? state.ws.readyState : -1,   // 0:CONNECTING 1:OPEN 2:CLOSING 3:CLOSED
-    topics: cfg().topics,
+    topics: c.topics,
   };
 }
