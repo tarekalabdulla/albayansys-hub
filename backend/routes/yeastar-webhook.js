@@ -14,6 +14,7 @@ import { Router } from "express";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { processPbxEvent } from "../services/pbxEventProcessor.js";
+import { recordWebhookEvent, recordWebhookRejection } from "./webhooks-yeastar.js";
 
 const router = Router();
 
@@ -116,6 +117,7 @@ function handleEvent(req, res) {
   if (expectedToken) {
     if (!providedToken || providedToken !== expectedToken) {
       console.warn("[yeastar-webhook-v2] invalid token from", req.ip);
+      recordWebhookRejection("invalid_token");
       return res.status(401).json({ error: "invalid_token" });
     }
   }
@@ -124,6 +126,7 @@ function handleEvent(req, res) {
   const sig = req.headers["x-yeastar-signature"] || req.headers["x-signature"] || "";
   if (!verifyHmac(req.rawBody || Buffer.from(""), sig)) {
     console.warn("[yeastar-webhook-v2] invalid HMAC from", req.ip);
+    recordWebhookRejection("invalid_signature");
     return res.status(401).json({ error: "invalid_signature" });
   }
 
@@ -133,10 +136,12 @@ function handleEvent(req, res) {
   // 4) معالجة async (لا تأثير على رد PBX)
   setImmediate(async () => {
     try {
+      recordWebhookEvent(req.ip);
       const normalized = normalizeYeastarEvent(req.body || {});
       await processPbxEvent(normalized, io);
     } catch (e) {
       console.error("[yeastar-webhook-v2] async processing failed:", e.message);
+      recordWebhookRejection(`processing_failed:${e.message}`);
     }
   });
 }

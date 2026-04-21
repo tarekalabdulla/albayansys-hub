@@ -375,6 +375,7 @@ async function handleYeastarEvent(req, res) {
       eventType: "ip_rejected", payload: { ip }, ip,
       sigOk: false, processed: false, error: "ip_not_allowed",
     });
+    recordWebhookRejection(`ip_not_allowed:${ip}`);
     return res.status(403).json({ error: "ip_not_allowed" });
   }
 
@@ -386,6 +387,7 @@ async function handleYeastarEvent(req, res) {
       eventType: "sig_rejected", payload: req.body || {}, ip,
       sigOk: false, processed: false, error: `hmac_${reason}`,
     });
+    recordWebhookRejection(`hmac_${reason}`);
     // تتبّع الإخفاقات وأنشئ تنبيه عند تجاوز العتبة (10 فشل/دقيقة)
     trackHmacFailure(ip, io).catch((e) => console.error("[webhook] trackHmacFailure:", e.message));
     return res.status(401).json({ error: "invalid_signature", reason });
@@ -393,9 +395,11 @@ async function handleYeastarEvent(req, res) {
 
   // 3) فوّض للمعالج الموحّد
   try {
+    recordWebhookEvent(ip);
     const result = await handleNormalizedEvent(req.body || {}, io, "yeastar-webhook");
     return res.json(result);
   } catch {
+    recordWebhookRejection("processing_failed");
     return res.status(500).json({ error: "processing_failed" });
   }
 }
