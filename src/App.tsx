@@ -20,6 +20,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import Integrations from "./pages/Integrations";
+import Yeastar from "./pages/Yeastar";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,7 @@ const App = () => (
           <Route path="/supervisors" element={<ProtectedRoute allowedRoles={["admin"]}><Supervisors /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><Settings /></ProtectedRoute>} />
           <Route path="/integrations" element={<ProtectedRoute allowedRoles={["admin"]}><Integrations /></ProtectedRoute>} />
+          <Route path="/yeastar" element={<ProtectedRoute allowedRoles={["admin"]}><Yeastar /></ProtectedRoute>} />
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
