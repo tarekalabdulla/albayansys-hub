@@ -124,6 +124,9 @@ const configSchema = z.object({
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
   webhookSecret:  z.string().trim().max(512).optional(),
+  webhookPath:    z.string().trim().max(255)
+                    .regex(/^\/[A-Za-z0-9/_\-{}.:]*$/, "must start with / and contain url-safe chars")
+                    .optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
   enabled:        z.boolean().optional(),
 }).strict();
