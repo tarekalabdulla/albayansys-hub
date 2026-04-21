@@ -144,21 +144,41 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
   );
 }
 
+type RoleFilter = "all" | "agents_only" | "staff_only";
+
+const ROLE_FILTERS: Array<{ id: RoleFilter; label: string; hint: string }> = [
+  { id: "all",         label: "كل الأدوار", hint: "إظهار الجميع" },
+  { id: "agents_only", label: "الموظفون فقط", hint: "إخفاء الإدارة والمشرفين" },
+  { id: "staff_only",  label: "الإدارة والمشرفون", hint: "إظهار الإداريين والمشرفين فقط" },
+];
+
 const Monitoring = () => {
   const agents = useLiveAgents();
   const alerts = useLiveAlerts(5);
   const [filter, setFilter] = useState<"all" | AgentStatus>("all");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("agents_only");
   const [query, setQuery] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: agents.length };
-    agents.forEach((a) => { c[a.status] = (c[a.status] || 0) + 1; });
-    return c;
-  }, [agents]);
+  // helper: تحديد الدور الفعلي للموظف (من role أو fallback من supervisor label)
+  const isStaff = (a: Agent) =>
+    a.role === "admin" || a.role === "supervisor" ||
+    a.supervisor === "إدارة" || a.supervisor === "مشرف";
 
-  const filtered = agents.filter((a) => {
+  const roleFiltered = useMemo(() => {
+    if (roleFilter === "agents_only") return agents.filter((a) => !isStaff(a));
+    if (roleFilter === "staff_only")  return agents.filter((a) => isStaff(a));
+    return agents;
+  }, [agents, roleFilter]);
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: roleFiltered.length };
+    roleFiltered.forEach((a) => { c[a.status] = (c[a.status] || 0) + 1; });
+    return c;
+  }, [roleFiltered]);
+
+  const filtered = roleFiltered.filter((a) => {
     if (filter !== "all" && a.status !== filter) return false;
     if (query && !a.name.includes(query) && !a.ext.includes(query)) return false;
     return true;
