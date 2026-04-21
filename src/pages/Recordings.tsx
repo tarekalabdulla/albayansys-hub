@@ -108,9 +108,10 @@ export default function Recordings() {
         <div className="rounded-2xl border border-border bg-card p-10 text-center">
           <Mic className="w-14 h-14 mx-auto text-muted-foreground/40 mb-3" />
           <p className="text-base font-bold mb-1">لا توجد تسجيلات بعد</p>
-          <p className="text-sm text-muted-foreground">
-            ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) أو استيراد التسجيلات.
+          <p className="text-sm text-muted-foreground mb-5">
+            ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) — أو استورد دفعة يدوياً عبر CSV.
           </p>
+          <div className="flex items-center justify-center">{importBtn}</div>
         </div>
       </AppLayout>
     );
@@ -141,8 +142,11 @@ export default function Recordings() {
                 >{c}</button>
               ))}
             </div>
-            <div className="text-[11px] text-muted-foreground text-center pt-1 border-t border-border">
-              {filtered.length} تسجيل من أصل {recordings.length}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-border">
+              <div className="text-[11px] text-muted-foreground">
+                {filtered.length} من {recordings.length}
+              </div>
+              {importBtn}
             </div>
           </div>
 
