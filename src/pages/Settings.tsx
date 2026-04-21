@@ -451,7 +451,7 @@ const Settings = () => {
               templateHeaders={USERS_TEMPLATE_HEADERS}
               templateSample={USERS_TEMPLATE_SAMPLE}
               templateFileName="users-template.csv"
-              onImport={async (rows) => usersApi.bulkCreate(rows)}
+              onImport={async (rows, opts) => usersApi.bulkCreate(rows, { duplicateMode: opts.duplicateMode })}
               onSuccess={async () => {
                 try { setUsers(await usersApi.list()); } catch { /* ignore */ }
               }}
