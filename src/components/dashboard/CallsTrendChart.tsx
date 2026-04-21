@@ -9,6 +9,7 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
+import { USE_REAL_API } from "@/lib/config";
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend,
@@ -26,8 +27,11 @@ function cssVarA(name: string, alpha: number): string {
 const DAYS = ["السبت", "الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة"];
 
 export function CallsTrendChart() {
-  const answered = [142, 168, 195, 210, 188, 230, 175];
-  const missed   = [12, 18, 9, 22, 14, 11, 8];
+  // في وضع الإنتاج (API حقيقي): أصفار حتى يتم ربط مصدر البيانات الفعلي
+  const answered = USE_REAL_API ? [0, 0, 0, 0, 0, 0, 0] : [142, 168, 195, 210, 188, 230, 175];
+  const missed   = USE_REAL_API ? [0, 0, 0, 0, 0, 0, 0] : [12, 18, 9, 22, 14, 11, 8];
+
+  const isEmpty = USE_REAL_API;
 
   return (
     <div className="glass-card p-6 anim-fade-in">
@@ -42,53 +46,59 @@ export function CallsTrendChart() {
         </div>
       </div>
       <div className="h-[260px]">
-        <Line
-          data={{
-            labels: DAYS,
-            datasets: [
-              {
-                label: "مجابة",
-                data: answered,
-                borderColor: cssVar("--primary"),
-                backgroundColor: cssVarA("--primary", 0.18),
-                fill: true,
-                tension: 0.4,
-                borderWidth: 2.5,
-                pointBackgroundColor: cssVar("--primary"),
-                pointRadius: 4,
+        {isEmpty ? (
+          <div className="h-full grid place-items-center">
+            <p className="text-sm text-muted-foreground">لا توجد بيانات بعد</p>
+          </div>
+        ) : (
+          <Line
+            data={{
+              labels: DAYS,
+              datasets: [
+                {
+                  label: "مجابة",
+                  data: answered,
+                  borderColor: cssVar("--primary"),
+                  backgroundColor: cssVarA("--primary", 0.18),
+                  fill: true,
+                  tension: 0.4,
+                  borderWidth: 2.5,
+                  pointBackgroundColor: cssVar("--primary"),
+                  pointRadius: 4,
+                },
+                {
+                  label: "فائتة",
+                  data: missed,
+                  borderColor: cssVar("--destructive"),
+                  backgroundColor: cssVarA("--destructive", 0.12),
+                  fill: true,
+                  tension: 0.4,
+                  borderWidth: 2,
+                  pointBackgroundColor: cssVar("--destructive"),
+                  pointRadius: 3,
+                },
+              ],
+            }}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: { rtl: true, bodyFont: { family: "Cairo" }, titleFont: { family: "Cairo" } },
               },
-              {
-                label: "فائتة",
-                data: missed,
-                borderColor: cssVar("--destructive"),
-                backgroundColor: cssVarA("--destructive", 0.12),
-                fill: true,
-                tension: 0.4,
-                borderWidth: 2,
-                pointBackgroundColor: cssVar("--destructive"),
-                pointRadius: 3,
+              scales: {
+                x: {
+                  ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
+                  grid: { display: false },
+                },
+                y: {
+                  ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
+                  grid: { color: cssVarA("--border", 0.6) },
+                },
               },
-            ],
-          }}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: { rtl: true, bodyFont: { family: "Cairo" }, titleFont: { family: "Cairo" } },
-            },
-            scales: {
-              x: {
-                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
-                grid: { display: false },
-              },
-              y: {
-                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
-                grid: { color: cssVarA("--border", 0.6) },
-              },
-            },
-          }}
-        />
+            }}
+          />
+        )}
       </div>
     </div>
   );
