@@ -20,21 +20,23 @@ export interface ApiUser {
   bio?: string | null;
 }
 
+export interface CreateUserPayload {
+  name: string;
+  email?: string;       // اختياري الآن
+  password: string;
+  role: UserRole;
+  active?: boolean;
+  phone?: string;
+  department?: string;
+  ext?: string;
+}
+
 export const usersApi = {
   list: async (): Promise<ApiUser[]> => {
     const { data } = await api.get("/users");
     return data.users;
   },
-  create: async (payload: {
-    name: string;
-    email: string;
-    password: string;
-    role: UserRole;
-    active?: boolean;
-    phone?: string;
-    department?: string;
-    ext?: string;
-  }): Promise<ApiUser> => {
+  create: async (payload: CreateUserPayload): Promise<ApiUser> => {
     const { data } = await api.post("/users", payload);
     return data.user;
   },
