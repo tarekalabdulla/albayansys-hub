@@ -180,6 +180,7 @@ export default function Yeastar() {
         clientId: c.clientId || "",
         clientSecret: "",
         webhookSecret: "",
+        webhookPath: c.webhookPath || cfg.env.webhookPath || DEFAULT_WH_PATH,
         allowedIpsText: (c.allowedIps?.length ? c.allowedIps : cfg.env.allowedIps).join(", "),
       }));
     } catch (e) {
