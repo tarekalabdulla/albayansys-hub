@@ -89,8 +89,10 @@ app.get("/api/yeastar/status", (_req, res) => {
 // نُسجّل على عدّة prefixes لمرونة إعداد Yeastar PBX:
 //   /api/webhooks/yeastar           (الأصلي)
 //   /api/webhook/call-event         (المُستخدم حالياً في لوحة PBX)
+//   /api/yeastar/webhook/call-event (الجديد production-grade مع URL token)
 app.use("/api/webhooks", webhooksYeastarRoutes);
 app.use("/api/webhook", webhooksYeastarRoutes);
+app.use("/api/yeastar", yeastarWebhookV2Routes);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
@@ -104,6 +106,7 @@ app.use("/api/mails", mailsRoutes);
 app.use("/api/recordings", recordingsRoutes);
 app.use("/api/ai-analytics", aiAnalyticsRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/pbx", pbxRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);
