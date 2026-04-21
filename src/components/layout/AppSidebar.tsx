@@ -13,6 +13,7 @@ import {
   Bell,
   PhoneCall,
   Radio,
+  Server,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { to: "/mail", label: "البريد الداخلي", icon: Mail, roles: ["admin", "supervisor", "agent"] },
   { to: "/profile", label: "ملفي الشخصي", icon: User, roles: ["admin", "supervisor", "agent"] },
   { to: "/integrations", label: "حالة الاتصالات", icon: Radio, roles: ["admin"] },
+  { to: "/yeastar", label: "Yeastar PBX", icon: Server, roles: ["admin"] },
   { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings, roles: ["admin"] },
 ];
 
