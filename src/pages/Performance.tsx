@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AGENTS as MOCK_AGENTS, formatDuration } from "@/lib/mockData";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
