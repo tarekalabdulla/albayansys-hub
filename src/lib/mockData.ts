@@ -12,6 +12,7 @@ export interface Agent {
   missed: number;
   avgDuration: number; // seconds
   supervisor: string;
+  role?: "admin" | "supervisor" | "agent";
 }
 
 export interface CallLog {

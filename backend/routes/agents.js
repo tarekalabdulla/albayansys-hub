@@ -7,13 +7,16 @@ const router = Router();
 
 router.use(authRequired);
 
-// GET /api/agents — قائمة جميع الموظفين
+// GET /api/agents — قائمة جميع الموظفين (مع دور المستخدم المرتبط)
 router.get("/", async (_req, res) => {
   const { rows } = await query(
-    `SELECT id, name, ext, avatar, status,
-            EXTRACT(EPOCH FROM status_since) * 1000 AS "statusSince",
-            answered, missed, avg_duration AS "avgDuration", supervisor
-     FROM agents ORDER BY name`
+    `SELECT a.id, a.name, a.ext, a.avatar, a.status,
+            EXTRACT(EPOCH FROM a.status_since) * 1000 AS "statusSince",
+            a.answered, a.missed, a.avg_duration AS "avgDuration", a.supervisor,
+            COALESCE(u.role::text, 'agent') AS role
+     FROM agents a
+     LEFT JOIN users u ON u.id = a.user_id
+     ORDER BY a.name`
   );
   res.json({ agents: rows });
 });
@@ -21,10 +24,13 @@ router.get("/", async (_req, res) => {
 // GET /api/agents/:id
 router.get("/:id", async (req, res) => {
   const { rows } = await query(
-    `SELECT id, name, ext, avatar, status,
-            EXTRACT(EPOCH FROM status_since) * 1000 AS "statusSince",
-            answered, missed, avg_duration AS "avgDuration", supervisor
-     FROM agents WHERE id = $1`,
+    `SELECT a.id, a.name, a.ext, a.avatar, a.status,
+            EXTRACT(EPOCH FROM a.status_since) * 1000 AS "statusSince",
+            a.answered, a.missed, a.avg_duration AS "avgDuration", a.supervisor,
+            COALESCE(u.role::text, 'agent') AS role
+     FROM agents a
+     LEFT JOIN users u ON u.id = a.user_id
+     WHERE a.id = $1`,
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: "not_found" });

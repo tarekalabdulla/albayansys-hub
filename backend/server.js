@@ -130,10 +130,13 @@ io.on("connection", async (socket) => {
   // ابعث snapshot أولي
   try {
     const { rows } = await query(
-      `SELECT id, name, ext, avatar, status,
-              EXTRACT(EPOCH FROM status_since) * 1000 AS "statusSince",
-              answered, missed, avg_duration AS "avgDuration", supervisor
-       FROM agents ORDER BY name`
+      `SELECT a.id, a.name, a.ext, a.avatar, a.status,
+              EXTRACT(EPOCH FROM a.status_since) * 1000 AS "statusSince",
+              a.answered, a.missed, a.avg_duration AS "avgDuration", a.supervisor,
+              COALESCE(u.role::text, 'agent') AS role
+       FROM agents a
+       LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.name`
     );
     socket.emit("agent:list", rows);
   } catch (e) {
