@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import {
-  RefreshCw, CheckCircle2, XCircle, MinusCircle, Clock,
+  RefreshCw, CheckCircle2, XCircle, MinusCircle, Clock, Play, Loader2,
   Webhook as WebhookIcon, Wifi, PhoneCall, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
 
@@ -106,6 +107,9 @@ export default function Integrations() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting]   = useState<Record<string, boolean>>({});
+  const [results, setResults]   = useState<Record<string, { ok: boolean; message: string; durationMs: number; at: number } | undefined>>({});
+  const { toast } = useToast();
 
   async function load() {
     setLoading(true);
@@ -126,6 +130,28 @@ export default function Integrations() {
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, []);
+
+  async function runTest(kind: "webhook" | "openapi" | "ami") {
+    setTesting((s) => ({ ...s, [kind]: true }));
+    try {
+      const { data } = await api.post<{ ok: boolean; message: string; durationMs: number }>(
+        `/integrations/test/${kind}`,
+      );
+      setResults((s) => ({ ...s, [kind]: { ...data, at: Date.now() } }));
+      toast({
+        title: data.ok ? "نجح الاختبار" : "فشل الاختبار",
+        description: data.message,
+        variant: data.ok ? "default" : "destructive",
+      });
+      load();
+    } catch (e) {
+      const msg = (e as { message?: string })?.message || "تعذّر تنفيذ الاختبار";
+      setResults((s) => ({ ...s, [kind]: { ok: false, message: msg, durationMs: 0, at: Date.now() } }));
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    } finally {
+      setTesting((s) => ({ ...s, [kind]: false }));
+    }
+  }
 
   const w = data?.webhook;
   const o = data?.openapi;
