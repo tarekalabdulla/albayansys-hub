@@ -4,6 +4,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useLiveAlerts } from "@/hooks/useLiveAgents";
+import { USE_REAL_API } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -26,13 +27,16 @@ interface AlertRule {
   agent?: string;
 }
 
-const STATIC_ALERTS: AlertRule[] = [
+// تنبيهات تجريبية تظهر فقط في وضع التطوير (Mock)
+const MOCK_STATIC_ALERTS: AlertRule[] = [
   { id: "a1", level: "danger",  title: "تجاوز SLA حرج", message: "6 مكالمات في الانتظار لأكثر من دقيقتين", time: "منذ 3 د", agent: "النظام" },
   { id: "a2", level: "danger",  title: "موظف غير مستجيب", message: "الموظف خالد لم يستجب لـ 4 مكالمات متتالية", time: "منذ 7 د", agent: "خالد الدوسري" },
   { id: "a3", level: "warning", title: "خمول مطوّل", message: "الموظفة هند خاملة منذ 14 دقيقة", time: "منذ 12 د", agent: "هند الرشيد" },
   { id: "a4", level: "warning", title: "تجاوز مدة الاستراحة", message: "الموظف يوسف تجاوز 25 دقيقة استراحة", time: "منذ 18 د", agent: "يوسف الغامدي" },
   { id: "a5", level: "info",    title: "تحديث متاح", message: "نسخة جديدة من النظام جاهزة للتثبيت", time: "منذ ساعة", agent: "النظام" },
 ];
+
+const STATIC_ALERTS: AlertRule[] = USE_REAL_API ? [] : MOCK_STATIC_ALERTS;
 
 const Alerts = () => {
   const liveAlerts = useLiveAlerts(10);
