@@ -101,6 +101,7 @@ router.get("/config", requireRole("admin"), async (_req, res) => {
         clientSecretSet: Boolean(process.env.YEASTAR_CLIENT_SECRET),
         webhookTokenSet: Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
         webhookSecretSet: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+        webhookPath: process.env.YEASTAR_WEBHOOK_PATH || null,
         allowedIps: (process.env.YEASTAR_ALLOWED_IPS || "")
           .split(",").map((s) => s.trim()).filter(Boolean),
       },
