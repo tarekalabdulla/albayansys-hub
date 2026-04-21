@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, Webhook as WebhookIcon, Shield, History, ShieldCheck,
-  TrendingUp,
+  TrendingUp, Copy, RotateCcw,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
