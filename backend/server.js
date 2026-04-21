@@ -21,10 +21,13 @@ import mailsRoutes from "./routes/mails.js";
 import recordingsRoutes from "./routes/recordings.js";
 import aiAnalyticsRoutes from "./routes/ai-analytics.js";
 import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
+import yeastarWebhookV2Routes from "./routes/yeastar-webhook.js";
+import pbxRoutes from "./routes/pbx.js";
 import adminRoutes from "./routes/admin.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
+import { startAmiService } from "./services/amiService.js";
 import { query } from "./db/pool.js";
 
 const app = express();
@@ -86,8 +89,10 @@ app.get("/api/yeastar/status", (_req, res) => {
 // نُسجّل على عدّة prefixes لمرونة إعداد Yeastar PBX:
 //   /api/webhooks/yeastar           (الأصلي)
 //   /api/webhook/call-event         (المُستخدم حالياً في لوحة PBX)
+//   /api/yeastar/webhook/call-event (الجديد production-grade مع URL token)
 app.use("/api/webhooks", webhooksYeastarRoutes);
 app.use("/api/webhook", webhooksYeastarRoutes);
+app.use("/api/yeastar", yeastarWebhookV2Routes);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
@@ -101,6 +106,7 @@ app.use("/api/mails", mailsRoutes);
 app.use("/api/recordings", recordingsRoutes);
 app.use("/api/ai-analytics", aiAnalyticsRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/pbx", pbxRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);
@@ -165,6 +171,10 @@ if (String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true")
 } else {
   startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
 }
+
+// شغّل AMI service (يبدأ تلقائياً فقط إذا ضُبطت YEASTAR_AMI_HOST/USERNAME/PASSWORD)
+// مصدر إضافي للمراقبة اللحظية بجوار Open API و Webhook
+try { startAmiService(io); } catch (e) { console.error("[ami] start failed:", e.message); }
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
