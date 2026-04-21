@@ -202,7 +202,10 @@ router.patch("/me/password", async (req, res) => {
 // ============================================================
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(128).optional(),
-  email: z.string().trim().email().max(255).optional(),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z.string().trim().email().max(255).nullable().optional(),
+  ),
   role: z.enum(["admin", "supervisor", "agent"]).optional(),
   active: z.boolean().optional(),
   phone: z.string().trim().max(32).nullable().optional(),
