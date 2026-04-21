@@ -144,6 +144,7 @@ export default function Yeastar() {
   const [saving, setSaving]   = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [history, setHistory] = useState<SyncReport[]>([]);
+  const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
   // form state (يعكس DB)
   const [form, setForm] = useState({
@@ -158,12 +159,14 @@ export default function Yeastar() {
 
   async function load() {
     try {
-      const [{ data: cfg }, { data: hist }] = await Promise.all([
+      const [{ data: cfg }, { data: hist }, { data: tr }] = await Promise.all([
         api.get<ConfigEnvelope>("/yeastar/config"),
         api.get<{ items: SyncReport[] }>("/yeastar/sync/history"),
+        api.get<{ items: { day: string; total: number }[] }>("/yeastar/sync/trend"),
       ]);
       setData(cfg);
       setHistory(hist.items || []);
+      setTrend(tr.items || []);
       const c = cfg.config || {};
       setForm((p) => ({
         ...p,
