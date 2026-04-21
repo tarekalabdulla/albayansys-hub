@@ -728,8 +728,16 @@ const Settings = () => {
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="أحمد العتيبي" />
             </div>
             <div>
-              <label className="text-xs font-semibold mb-1.5 block">البريد الإلكتروني</label>
+              <label className="text-xs font-semibold mb-1.5 block">
+                البريد الإلكتروني <span className="text-muted-foreground font-normal">(اختياري)</span>
+              </label>
               <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" dir="ltr" placeholder="user@hb.sa" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block">
+                رقم التحويلة <span className="text-muted-foreground font-normal">(اختياري — يُستخدم للدخول إن لم يوجد بريد)</span>
+              </label>
+              <Input value={form.ext} onChange={(e) => setForm({ ...form, ext: e.target.value })} dir="ltr" placeholder="1001" inputMode="numeric" />
             </div>
             <div>
               <label className="text-xs font-semibold mb-1.5 block">
