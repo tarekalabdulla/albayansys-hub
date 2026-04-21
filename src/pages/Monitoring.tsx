@@ -111,7 +111,14 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
             </p>
           </button>
           <p className="text-[11px] text-muted-foreground">
-            تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span> · {agent.supervisor}
+            تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span>
+            <span className="mx-1 text-border">·</span>
+            <span className="inline-flex items-center gap-1">
+              <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-medium", getRoleBadge(agent).class)}>
+                {getRoleBadge(agent).label}
+              </span>
+              <span className="text-muted-foreground">{agent.supervisor}</span>
+            </span>
           </p>
           <span className={cn(
             "inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border",
