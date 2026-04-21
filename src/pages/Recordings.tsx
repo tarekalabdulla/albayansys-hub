@@ -10,6 +10,8 @@ import {
   Search, Phone, Clock, Calendar, FileText, Sparkles, Filter, ChevronLeft, Loader2, Mic,
 } from "lucide-react";
 import { recordingsApi, type ApiRecording } from "@/lib/dataApi";
+import { CsvImportButton } from "@/components/CsvImportButton";
+import { RECORDINGS_TEMPLATE_HEADERS, RECORDINGS_TEMPLATE_SAMPLE } from "@/lib/csvImport";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = ["الكل", "استفسار", "شكوى", "دعم فني", "مبيعات", "متابعة"] as const;
@@ -45,15 +47,30 @@ export default function Recordings() {
   const [seekTo, setSeekTo] = useState<number | null>(null);
   const [mobilePanel, setMobilePanel] = useState<"list" | "detail">("list");
 
-  useEffect(() => {
+  const loadRecordings = () => {
+    setLoading(true);
     recordingsApi.list()
       .then((list) => {
         setRecordings(list);
-        if (list.length) setSelectedId(list[0].id);
+        if (list.length && !selectedId) setSelectedId(list[0].id);
       })
       .catch(() => setRecordings([]))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadRecordings(); }, []);
+
+  const importBtn = (
+    <CsvImportButton
+      label="تسجيل"
+      requiredHeaders={["agentName", "customerNumber"]}
+      templateHeaders={RECORDINGS_TEMPLATE_HEADERS}
+      templateSample={RECORDINGS_TEMPLATE_SAMPLE}
+      templateFileName="recordings-template.csv"
+      onImport={async (rows) => recordingsApi.bulkCreate(rows)}
+      onSuccess={loadRecordings}
+    />
+  );
 
   const filtered = useMemo(() => {
     return recordings.filter((r) => {
@@ -91,9 +108,10 @@ export default function Recordings() {
         <div className="rounded-2xl border border-border bg-card p-10 text-center">
           <Mic className="w-14 h-14 mx-auto text-muted-foreground/40 mb-3" />
           <p className="text-base font-bold mb-1">لا توجد تسجيلات بعد</p>
-          <p className="text-sm text-muted-foreground">
-            ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) أو استيراد التسجيلات.
+          <p className="text-sm text-muted-foreground mb-5">
+            ستظهر هنا تلقائياً عند ربط نظام تسجيل المكالمات (PBX) — أو استورد دفعة يدوياً عبر CSV.
           </p>
+          <div className="flex items-center justify-center">{importBtn}</div>
         </div>
       </AppLayout>
     );
@@ -124,8 +142,11 @@ export default function Recordings() {
                 >{c}</button>
               ))}
             </div>
-            <div className="text-[11px] text-muted-foreground text-center pt-1 border-t border-border">
-              {filtered.length} تسجيل من أصل {recordings.length}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-border">
+              <div className="text-[11px] text-muted-foreground">
+                {filtered.length} من {recordings.length}
+              </div>
+              {importBtn}
             </div>
           </div>
 

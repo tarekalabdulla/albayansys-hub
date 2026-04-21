@@ -48,7 +48,17 @@ export const usersApi = {
   changePassword: async (oldPassword: string, newPassword: string): Promise<void> => {
     await api.patch("/users/me/password", { oldPassword, newPassword });
   },
+  bulkCreate: async (rows: Record<string, unknown>[], defaultPassword?: string): Promise<BulkImportResult> => {
+    const { data } = await api.post("/users/bulk", { rows, defaultPassword });
+    return data;
+  },
 };
+
+export interface BulkImportResult {
+  created: number;
+  skipped: number;
+  errors: Array<{ row: number; reason: string; [k: string]: unknown }>;
+}
 
 // ============================================================
 // SUPERVISORS
@@ -184,6 +194,14 @@ export const recordingsApi = {
       const { data } = await api.get(`/recordings/${id}`);
       return data.recording;
     } catch { return null; }
+  },
+  create: async (payload: Record<string, unknown>): Promise<{ id: string }> => {
+    const { data } = await api.post("/recordings", payload);
+    return data;
+  },
+  bulkCreate: async (rows: Record<string, unknown>[]): Promise<BulkImportResult> => {
+    const { data } = await api.post("/recordings/bulk", { rows });
+    return data;
   },
   remove: async (id: string): Promise<void> => {
     await api.delete(`/recordings/${id}`);

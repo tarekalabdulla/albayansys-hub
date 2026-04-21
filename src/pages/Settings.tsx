@@ -29,6 +29,8 @@ import {
   usersApi, settingsApi, isRealApi,
   type ApiUser, type UserRole, type SettingsKey,
 } from "@/lib/dataApi";
+import { CsvImportButton } from "@/components/CsvImportButton";
+import { USERS_TEMPLATE_HEADERS, USERS_TEMPLATE_SAMPLE } from "@/lib/csvImport";
 
 const ROLE_LABEL: Record<UserRole, string> = {
   admin: "مدير النظام",
@@ -279,9 +281,22 @@ const Settings = () => {
               <p className="text-xs text-muted-foreground">{users.length} مستخدم</p>
             </div>
           </div>
-          <Button onClick={openAdd} className="gradient-primary text-primary-foreground">
-            <UserPlus className="w-4 h-4 ml-2" /> إضافة مستخدم
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <CsvImportButton
+              label="موظف"
+              requiredHeaders={["name", "email"]}
+              templateHeaders={USERS_TEMPLATE_HEADERS}
+              templateSample={USERS_TEMPLATE_SAMPLE}
+              templateFileName="users-template.csv"
+              onImport={async (rows) => usersApi.bulkCreate(rows)}
+              onSuccess={async () => {
+                try { setUsers(await usersApi.list()); } catch { /* ignore */ }
+              }}
+            />
+            <Button onClick={openAdd} className="gradient-primary text-primary-foreground">
+              <UserPlus className="w-4 h-4 ml-2" /> إضافة مستخدم
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           {loadingUsers ? (

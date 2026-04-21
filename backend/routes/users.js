@@ -81,6 +81,80 @@ router.post("/", requireRole("admin"), async (req, res) => {
 });
 
 // ============================================================
+// POST /api/users/bulk — استيراد دفعة مستخدمين من CSV (admin)
+// يتجاهل الصفوف الفاشلة ويُرجع تقريراً
+// ============================================================
+const bulkRowSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  email: z.string().trim().email().max(255),
+  password: z.string().min(6).max(128).default("Hulul@1234"),
+  role: z.enum(["admin", "supervisor", "agent"]).default("agent"),
+  active: z.boolean().default(true),
+  phone: z.string().trim().max(32).optional(),
+  department: z.string().trim().max(128).optional(),
+  ext: z.string().trim().max(16).optional(),
+});
+
+const bulkSchema = z.object({
+  rows: z.array(z.record(z.any())).min(1).max(2000),
+  defaultPassword: z.string().min(6).max(128).optional(),
+});
+
+router.post("/bulk", requireRole("admin"), async (req, res) => {
+  const parsed = bulkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+  }
+
+  const { rows, defaultPassword } = parsed.data;
+  const results = { created: 0, skipped: 0, errors: [] };
+
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i];
+    const candidate = {
+      name: raw.name ?? raw.Name ?? raw["الاسم"],
+      email: raw.email ?? raw.Email ?? raw["البريد"],
+      password: raw.password ?? defaultPassword ?? "Hulul@1234",
+      role: raw.role ?? raw.Role ?? "agent",
+      active: raw.active === undefined || raw.active === ""
+        ? true
+        : (raw.active === true || raw.active === "true" || raw.active === 1 || raw.active === "1"),
+      phone: raw.phone ?? raw.Phone ?? undefined,
+      department: raw.department ?? raw.Department ?? raw["القسم"] ?? undefined,
+      ext: raw.ext ?? raw.Ext ?? raw["التحويلة"] ?? undefined,
+    };
+
+    const v = bulkRowSchema.safeParse(candidate);
+    if (!v.success) {
+      results.skipped++;
+      results.errors.push({ row: i + 2, reason: "invalid", details: v.error.flatten().fieldErrors });
+      continue;
+    }
+
+    const d = v.data;
+    const identifier = d.email.toLowerCase().trim();
+    try {
+      const hash = await bcrypt.hash(d.password, 10);
+      await query(
+        `INSERT INTO users (identifier, password_hash, display_name, email, role, is_active, phone, department, ext)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [identifier, hash, d.name, d.email, d.role, d.active, d.phone || null, d.department || null, d.ext || null]
+      );
+      results.created++;
+    } catch (e) {
+      results.skipped++;
+      if (e.code === "23505") {
+        results.errors.push({ row: i + 2, reason: "duplicate", email: d.email });
+      } else {
+        results.errors.push({ row: i + 2, reason: "db_error", message: e.message });
+      }
+    }
+  }
+
+  res.json(results);
+});
+
+// ============================================================
 // PATCH /api/users/me/password — تغيير كلمة المرور (يجب أن يكون قبل /:id)
 // ============================================================
 const pwdSchema = z.object({
