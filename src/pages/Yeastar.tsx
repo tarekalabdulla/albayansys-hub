@@ -212,6 +212,7 @@ export default function Yeastar() {
         clientId: form.clientId.trim(),
         ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
         ...(form.webhookSecret ? { webhookSecret: form.webhookSecret } : {}),
+        webhookPath: (form.webhookPath || DEFAULT_WH_PATH).trim(),
         allowedIps,
       });
       toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar." });
