@@ -148,6 +148,8 @@ router.put("/config", requireRole("admin"), async (req, res) => {
 // ============================================================================
 // POST /sync — العملية الموحّدة
 // ============================================================================
+const DEFAULT_WEBHOOK_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
+
 function getEffective(cfg) {
   // الأولوية: DB ← .env
   return {
@@ -156,6 +158,7 @@ function getEffective(cfg) {
     clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
+    webhookPath:   cfg.webhookPath   || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH,
   };
 }
 
