@@ -1,23 +1,24 @@
 // ============================================================
 // Yeastar P-Series Open API client
 // ------------------------------------------------------------
-// المرحلة 2: بدلاً من انتظار webhooks، نستخدم Open API:
+// نستخدم Open API:
 //   1) نطلب access_token من /openapi/v1.0/get_token (تجديد تلقائي)
 //   2) نفتح WebSocket على /openapi/v1.0/subscribe?access_token=...
 //   3) نشترك بالأحداث (CDR / ExtensionStatus / CallStatus...)
 //   4) نُمرّر الأحداث الواردة لنفس معالج الـ webhook (handleNormalizedEvent)
 //
-// المرجع: Yeastar P-Series Open API Developer Guide
-//   POST {host}/openapi/v1.0/get_token
-//     body: { username, password }   →  { access_token, refresh_token, expire_time }
-//   WS   {host}/openapi/v1.0/subscribe?access_token=...
-//     send: {"topic_list":[30012,30013,30014,...]}   (call/extension events)
+// ENV المطلوبة (طريقتان للمصادقة):
+//   --- (أ) OAuth (موصى به) ---
+//   YEASTAR_BASE_URL      = https://hululalbayan.ras.yeastar.com
+//   YEASTAR_CLIENT_ID     = ...
+//   YEASTAR_CLIENT_SECRET = ...
 //
-// ENV المطلوبة:
-//   YEASTAR_API_BASE   = https://pbx.example.com:8088   (بدون شرطة في النهاية)
-//   YEASTAR_API_USER   = اسم مستخدم Open API
-//   YEASTAR_API_PASS   = كلمة المرور
-//   YEASTAR_API_TOPICS = 30012,30013,30014   (اختياري — افتراضي: مكالمات+امتدادات)
+//   --- (ب) username/password (قديم) ---
+//   YEASTAR_API_BASE = https://pbx.example.com:8088
+//   YEASTAR_API_USER = ...
+//   YEASTAR_API_PASS = ...
+//
+//   YEASTAR_API_TOPICS = 30012,30013,30014   (اختياري)
 // ============================================================
 import WebSocket from "ws";
 import { handleNormalizedEvent } from "../routes/webhooks-yeastar.js";
@@ -45,10 +46,18 @@ function warn(...args) {
 }
 
 function cfg() {
+  const base = (process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
+    .replace(/\/+$/, "");
+  const clientId     = process.env.YEASTAR_CLIENT_ID || "";
+  const clientSecret = process.env.YEASTAR_CLIENT_SECRET || "";
+  const user = process.env.YEASTAR_API_USER || "";
+  const pass = process.env.YEASTAR_API_PASS || "";
+  // وضع المصادقة: OAuth إذا توفّر client_id+secret، وإلا username/password
+  const authMode = clientId && clientSecret ? "oauth"
+                 : (user && pass)            ? "basic"
+                 : "";
   return {
-    base: (process.env.YEASTAR_API_BASE || "").replace(/\/+$/, ""),
-    user: process.env.YEASTAR_API_USER || "",
-    pass: process.env.YEASTAR_API_PASS || "",
+    base, authMode, clientId, clientSecret, user, pass,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
