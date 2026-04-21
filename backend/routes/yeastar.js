@@ -101,6 +101,7 @@ router.get("/config", requireRole("admin"), async (_req, res) => {
         clientSecretSet: Boolean(process.env.YEASTAR_CLIENT_SECRET),
         webhookTokenSet: Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
         webhookSecretSet: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+        webhookPath: process.env.YEASTAR_WEBHOOK_PATH || null,
         allowedIps: (process.env.YEASTAR_ALLOWED_IPS || "")
           .split(",").map((s) => s.trim()).filter(Boolean),
       },
@@ -124,6 +125,9 @@ const configSchema = z.object({
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
   webhookSecret:  z.string().trim().max(512).optional(),
+  webhookPath:    z.string().trim().max(255)
+                    .regex(/^\/[A-Za-z0-9/_\-{}.:]*$/, "must start with / and contain url-safe chars")
+                    .optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
   enabled:        z.boolean().optional(),
 }).strict();
@@ -145,6 +149,8 @@ router.put("/config", requireRole("admin"), async (req, res) => {
 // ============================================================================
 // POST /sync — العملية الموحّدة
 // ============================================================================
+const DEFAULT_WEBHOOK_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
+
 function getEffective(cfg) {
   // الأولوية: DB ← .env
   return {
@@ -153,6 +159,7 @@ function getEffective(cfg) {
     clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
+    webhookPath:   cfg.webhookPath   || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH,
   };
 }
 
@@ -246,9 +253,14 @@ async function upsertCdrRow(c) {
   }
 }
 
-async function selfTestWebhook(baseUrlReq, token, secret, timeoutMs = 8_000) {
+async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutMs = 8_000) {
   if (!token) return { ok: false, error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
-  const url = `${baseUrlReq}/api/yeastar/webhook/call-event/${encodeURIComponent(token)}`;
+  const tpl = (pathTemplate || DEFAULT_WEBHOOK_PATH).trim();
+  // استبدل {TOKEN} أو ألحقه إذا لم يكن موجوداً
+  const pathWithToken = tpl.includes("{TOKEN}")
+    ? tpl.replace("{TOKEN}", encodeURIComponent(token))
+    : `${tpl.replace(/\/+$/, "")}/${encodeURIComponent(token)}`;
+  const url = `${baseUrlReq}${pathWithToken.startsWith("/") ? "" : "/"}${pathWithToken}`;
   const body = JSON.stringify({
     type: 30012,
     msg: { call_id: `SYNC-${Date.now()}`, caller_num: "0", callee_num: "0", call_status: "test", _self_test: true },
@@ -262,9 +274,9 @@ async function selfTestWebhook(baseUrlReq, token, secret, timeoutMs = 8_000) {
   try {
     const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
     if (r.ok) return { ok: true, url };
-    return { ok: false, error: `HTTP ${r.status}` };
+    return { ok: false, error: `HTTP ${r.status} (${url})` };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, error: `${e.message} (${url})` };
   } finally {
     clearTimeout(tm);
   }
@@ -302,7 +314,7 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
 
   // ---- 2) Webhook self-test
   const baseReq = `${req.protocol}://${req.get("host") || `127.0.0.1:${process.env.PORT || 4000}`}`;
-  const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret);
+  const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret, eff.webhookPath);
   report.steps.webhook = w.ok
     ? { ok: true,  message: `Webhook استقبل الاختبار من ${w.url}` }
     : { ok: false, message: w.error || "فشل اختبار webhook" };
