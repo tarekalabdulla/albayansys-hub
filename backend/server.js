@@ -21,10 +21,13 @@ import mailsRoutes from "./routes/mails.js";
 import recordingsRoutes from "./routes/recordings.js";
 import aiAnalyticsRoutes from "./routes/ai-analytics.js";
 import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
+import yeastarWebhookV2Routes from "./routes/yeastar-webhook.js";
+import pbxRoutes from "./routes/pbx.js";
 import adminRoutes from "./routes/admin.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
+import { startAmiService } from "./services/amiService.js";
 import { query } from "./db/pool.js";
 
 const app = express();
