@@ -149,6 +149,7 @@ export default function Yeastar() {
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
   // form state (يعكس DB)
+  const DEFAULT_WH_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
   const [form, setForm] = useState({
     enabled: true,
     pbxIp: "",
@@ -156,6 +157,7 @@ export default function Yeastar() {
     clientId: "",
     clientSecret: "",
     webhookSecret: "",
+    webhookPath: DEFAULT_WH_PATH,
     allowedIpsText: "",
   });
 
