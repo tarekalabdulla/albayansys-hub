@@ -24,6 +24,7 @@ import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
 import yeastarWebhookV2Routes from "./routes/yeastar-webhook.js";
 import pbxRoutes from "./routes/pbx.js";
 import adminRoutes from "./routes/admin.js";
+import integrationsRoutes from "./routes/integrations.js";
 import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
@@ -149,6 +150,7 @@ app.use("/api/recordings", recordingsRoutes);
 app.use("/api/ai-analytics", aiAnalyticsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/pbx", pbxRoutes);
+app.use("/api/integrations", integrationsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error("[error]", err);

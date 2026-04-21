@@ -22,6 +22,33 @@ import { query } from "../db/pool.js";
 const router = Router();
 
 // ------------------------------------------------------------
+// Telemetry — يُستخدم في /api/integrations/status
+// ------------------------------------------------------------
+const telemetry = {
+  lastEventAt: 0,
+  lastEventFrom: null,   // ip
+  lastErrorAt: 0,
+  lastError: null,
+  totalEvents: 0,
+  totalRejected: 0,
+};
+export function getWebhookStatus() {
+  return {
+    secretConfigured: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+    tokenConfigured:  Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
+    allowedIps:       (process.env.YEASTAR_ALLOWED_IPS || "").split(",").map((s) => s.trim()).filter(Boolean),
+    lastEventAt:      telemetry.lastEventAt || null,
+    lastEventFrom:    telemetry.lastEventFrom,
+    lastErrorAt:      telemetry.lastErrorAt || null,
+    lastError:        telemetry.lastError,
+    totalEvents:      telemetry.totalEvents,
+    totalRejected:    telemetry.totalRejected,
+  };
+}
+export function recordWebhookEvent(ip)     { telemetry.lastEventAt = Date.now(); telemetry.lastEventFrom = ip || null; telemetry.totalEvents += 1; }
+export function recordWebhookRejection(reason) { telemetry.lastErrorAt = Date.now(); telemetry.lastError = reason || "unknown"; telemetry.totalRejected += 1; }
+
+// ------------------------------------------------------------
 // Rate limiting — 100 req/sec لكل IP (ad-hoc؛ in-memory)
 // يحمي من DoS عبر إغراق endpoint بطلبات مزيّفة.
 // ملاحظة: in-memory store غير مثالي للنشر متعدد العمليات
@@ -348,6 +375,7 @@ async function handleYeastarEvent(req, res) {
       eventType: "ip_rejected", payload: { ip }, ip,
       sigOk: false, processed: false, error: "ip_not_allowed",
     });
+    recordWebhookRejection(`ip_not_allowed:${ip}`);
     return res.status(403).json({ error: "ip_not_allowed" });
   }
 
@@ -359,6 +387,7 @@ async function handleYeastarEvent(req, res) {
       eventType: "sig_rejected", payload: req.body || {}, ip,
       sigOk: false, processed: false, error: `hmac_${reason}`,
     });
+    recordWebhookRejection(`hmac_${reason}`);
     // تتبّع الإخفاقات وأنشئ تنبيه عند تجاوز العتبة (10 فشل/دقيقة)
     trackHmacFailure(ip, io).catch((e) => console.error("[webhook] trackHmacFailure:", e.message));
     return res.status(401).json({ error: "invalid_signature", reason });
@@ -366,9 +395,11 @@ async function handleYeastarEvent(req, res) {
 
   // 3) فوّض للمعالج الموحّد
   try {
+    recordWebhookEvent(ip);
     const result = await handleNormalizedEvent(req.body || {}, io, "yeastar-webhook");
     return res.json(result);
   } catch {
+    recordWebhookRejection("processing_failed");
     return res.status(500).json({ error: "processing_failed" });
   }
 }

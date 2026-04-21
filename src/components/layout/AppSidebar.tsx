@@ -12,6 +12,7 @@ import {
   User,
   Bell,
   PhoneCall,
+  Radio,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { to: "/recordings", label: "تسجيلات المكالمات", icon: Mic, roles: ["admin", "supervisor", "agent"] },
   { to: "/mail", label: "البريد الداخلي", icon: Mail, roles: ["admin", "supervisor", "agent"] },
   { to: "/profile", label: "ملفي الشخصي", icon: User, roles: ["admin", "supervisor", "agent"] },
+  { to: "/integrations", label: "حالة الاتصالات", icon: Radio, roles: ["admin"] },
   { to: "/settings", label: "الإعدادات والمستخدمين", icon: Settings, roles: ["admin"] },
 ];
 
