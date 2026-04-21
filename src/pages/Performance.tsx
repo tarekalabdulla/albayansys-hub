@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AGENTS, formatDuration } from "@/lib/mockData";
+import { AGENTS as MOCK_AGENTS, formatDuration } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
+import { USE_REAL_API } from "@/lib/config";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -46,9 +48,14 @@ const Performance = () => {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
+  // في وضع الإنتاج: استخدم الموظفين الحيين فقط (فارغ حتى يبث الـ backend)
+  // في وضع التطوير: استخدم البيانات الوهمية
+  const liveAgents = useLiveAgents();
+  const sourceAgents = USE_REAL_API ? liveAgents : MOCK_AGENTS;
+
   const rows: Row[] = useMemo(
     () =>
-      AGENTS.map((a) => {
+      sourceAgents.map((a) => {
         const total = a.answered + a.missed;
         return {
           id: a.id,
@@ -61,12 +68,12 @@ const Performance = () => {
           rate: total === 0 ? 0 : Math.round((a.answered / total) * 100),
         };
       }),
-    [],
+    [sourceAgents],
   );
 
   const supervisors = useMemo(
-    () => Array.from(new Set(AGENTS.map((a) => a.supervisor))),
-    [],
+    () => Array.from(new Set(sourceAgents.map((a) => a.supervisor))),
+    [sourceAgents],
   );
 
   const filtered = useMemo(() => {
