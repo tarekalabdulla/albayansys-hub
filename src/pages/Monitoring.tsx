@@ -240,7 +240,7 @@ const Monitoring = () => {
       </section>
 
       {/* Toolbar */}
-      <section className="glass-card p-4 mb-5">
+      <section className="glass-card p-4 mb-5 space-y-3">
         <div className="flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -273,6 +273,26 @@ const Monitoring = () => {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Role filter — إخفاء/إظهار الإداريين والمشرفين */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-border/50">
+          <span className="text-[11px] text-muted-foreground ml-1">عرض:</span>
+          {ROLE_FILTERS.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setRoleFilter(f.id)}
+              title={f.hint}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all",
+                roleFilter === f.id
+                  ? "bg-primary/15 text-primary border-primary/40"
+                  : "bg-background/60 border-border hover:border-primary/40",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       </section>
 
