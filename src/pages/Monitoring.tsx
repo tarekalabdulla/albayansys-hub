@@ -49,6 +49,21 @@ const DOT_BY_STATUS: Record<AgentStatus, string> = {
   offline: "bg-muted-foreground",
 };
 
+// شارات الدور (badge) — ألوان مميزة لكل دور
+const ROLE_BADGE: Record<string, { label: string; class: string }> = {
+  admin:      { label: "إدارة", class: "bg-rose-500/15 text-rose-500 border-rose-500/30" },
+  supervisor: { label: "مشرف",  class: "bg-violet-500/15 text-violet-500 border-violet-500/30" },
+  agent:      { label: "موظف",  class: "bg-sky-500/15 text-sky-500 border-sky-500/30" },
+};
+
+function getRoleBadge(agent: Agent): { label: string; class: string } {
+  if (agent.role && ROLE_BADGE[agent.role]) return ROLE_BADGE[agent.role];
+  // Fallback من اسم المشرف
+  if (agent.supervisor === "إدارة") return ROLE_BADGE.admin;
+  if (agent.supervisor === "مشرف") return ROLE_BADGE.supervisor;
+  return ROLE_BADGE.agent;
+}
+
 function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => void }) {
   const timer = useLiveTimer(agent.statusSince);
   const isLive = agent.status === "in_call" || agent.status === "online";
@@ -96,7 +111,14 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
             </p>
           </button>
           <p className="text-[11px] text-muted-foreground">
-            تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span> · {agent.supervisor}
+            تحويلة <span dir="ltr" className="font-semibold">{agent.ext}</span>
+            <span className="mx-1 text-border">·</span>
+            <span className="inline-flex items-center gap-1">
+              <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full border font-medium", getRoleBadge(agent).class)}>
+                {getRoleBadge(agent).label}
+              </span>
+              <span className="text-muted-foreground">{agent.supervisor}</span>
+            </span>
           </p>
           <span className={cn(
             "inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full border",
