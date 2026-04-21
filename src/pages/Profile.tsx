@@ -17,7 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { usersApi, isRealApi } from "@/lib/dataApi";
-import { getSession } from "@/lib/auth";
+import { getSession, setSession } from "@/lib/auth";
 
 interface ProfileData {
   id: string;
@@ -137,6 +137,7 @@ export default function Profile() {
         ext: profile.ext.trim() || null,
         bio: profile.bio.trim() || null,
       });
+      if (session) setSession(session.identifier, session.role, trimmedName);
       toast({ title: "تم الحفظ", description: "تم تحديث بياناتك الشخصية" });
     } catch (e: any) {
       const code = e?.response?.data?.error;
@@ -211,26 +212,40 @@ export default function Profile() {
 
   return (
     <AppLayout title="الملف الشخصي" subtitle="معلوماتك وكلمة المرور والمهام">
-      <div className="space-y-6">
-        {/* Header */}
-        <Card className="overflow-hidden">
-          <div className="h-24 gradient-primary" />
-          <CardContent className="p-6 -mt-12">
-            <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-              <Avatar className="w-24 h-24 ring-4 ring-background shadow-elegant">
-                <AvatarFallback className="bg-primary text-primary-foreground text-2xl font-bold">{initials}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-2xl font-extrabold">{profile.name}</h2>
-                <p className="text-sm text-muted-foreground">{profile.role}</p>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  {profile.email && <Badge variant="outline" className="gap-1"><Mail className="w-3 h-3" />{profile.email}</Badge>}
-                  {profile.ext && <Badge variant="outline" className="gap-1"><Phone className="w-3 h-3" />تحويلة {profile.ext}</Badge>}
-                  {profile.department && (
-                    <Badge variant="outline" className="gap-1 bg-success/10 text-success border-success/30">
-                      <ShieldCheck className="w-3 h-3" />{profile.department}
-                    </Badge>
-                  )}
+      <div className="space-y-6" dir="rtl">
+        <Card className="overflow-hidden border-border/70 shadow-card">
+          <div className="h-28 gradient-primary" />
+          <CardContent className="-mt-14 p-6 sm:p-8">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                <Avatar className="h-24 w-24 ring-4 ring-background shadow-elegant sm:h-28 sm:w-28">
+                  <AvatarFallback className="bg-primary text-2xl font-bold text-primary-foreground">{initials}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 space-y-2 text-right">
+                  <div>
+                    <h2 className="text-2xl font-extrabold sm:text-3xl">{profile.name}</h2>
+                    <p className="text-sm text-muted-foreground">{profile.role}</p>
+                  </div>
+                  <div className="flex flex-wrap justify-start gap-2">
+                    {profile.email && <Badge variant="outline" className="gap-1"><Mail className="h-3 w-3" />{profile.email}</Badge>}
+                    {profile.ext && <Badge variant="outline" className="gap-1"><Phone className="h-3 w-3" />تحويلة {profile.ext}</Badge>}
+                    {profile.department && (
+                      <Badge variant="outline" className="gap-1 border-success/30 bg-success/10 text-success">
+                        <ShieldCheck className="h-3 w-3" />{profile.department}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:min-w-72">
+                <div className="rounded-lg border border-border/60 bg-background/70 p-3 text-right">
+                  <p className="text-xs text-muted-foreground">التحويلة</p>
+                  <p className="mt-1 text-lg font-bold">{profile.ext || "—"}</p>
+                </div>
+                <div className="rounded-lg border border-border/60 bg-background/70 p-3 text-right">
+                  <p className="text-xs text-muted-foreground">القسم</p>
+                  <p className="mt-1 truncate text-lg font-bold">{profile.department || "—"}</p>
                 </div>
               </div>
             </div>
@@ -238,77 +253,95 @@ export default function Profile() {
         </Card>
 
         <Tabs defaultValue="info" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 max-w-xl">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="info" className="gap-1.5"><User className="w-4 h-4" />المعلومات</TabsTrigger>
             <TabsTrigger value="security" className="gap-1.5"><KeyRound className="w-4 h-4" />الأمان</TabsTrigger>
             <TabsTrigger value="tasks" className="gap-1.5"><ListChecks className="w-4 h-4" />المهام</TabsTrigger>
           </TabsList>
 
-          {/* INFO */}
           <TabsContent value="info" className="mt-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">البيانات الشخصية</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>الاسم الكامل</Label>
-                    <Input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.5fr_minmax(0,0.85fr)]">
+              <Card className="border-border/70 shadow-card">
+                <CardHeader><CardTitle className="text-right text-base">البيانات الشخصية</CardTitle></CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5 text-right">
+                      <Label>الاسم الكامل</Label>
+                      <Input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} className="text-right" />
+                    </div>
+                    <div className="space-y-1.5 text-right">
+                      <Label>البريد الإلكتروني</Label>
+                      <Input type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} dir="ltr" className="text-right" />
+                    </div>
+                    <div className="space-y-1.5 text-right">
+                      <Label className="flex items-center justify-end gap-1.5"><Phone className="h-3.5 w-3.5" />التحويلة الداخلية</Label>
+                      <Input value={profile.ext} onChange={(e) => setProfile({ ...profile, ext: e.target.value })} placeholder="1001" className="text-right" />
+                    </div>
+                    <div className="space-y-1.5 text-right">
+                      <Label>رقم الجوال</Label>
+                      <Input value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} dir="ltr" className="text-right" />
+                    </div>
+                    <div className="space-y-1.5 text-right sm:col-span-2">
+                      <Label>القسم</Label>
+                      <Input value={profile.department} onChange={(e) => setProfile({ ...profile, department: e.target.value })} className="text-right" />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>البريد الإلكتروني</Label>
-                    <Input type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} />
+                  <div className="space-y-1.5 text-right">
+                    <Label>نبذة</Label>
+                    <Textarea value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} rows={4} className="text-right" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" />التحويلة الداخلية</Label>
-                    <Input value={profile.ext} onChange={(e) => setProfile({ ...profile, ext: e.target.value })} placeholder="1001" />
+                  <div className="flex justify-start">
+                    <Button onClick={saveProfile} className="gap-1.5" disabled={saving}>
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      حفظ التغييرات
+                    </Button>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>رقم الجوال</Label>
-                    <Input value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} dir="ltr" className="text-right" />
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/70 shadow-card">
+                <CardHeader><CardTitle className="text-right text-base">ملخص سريع</CardTitle></CardHeader>
+                <CardContent className="space-y-4 text-right">
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs text-muted-foreground">الدور</p>
+                    <p className="mt-1 font-bold">{profile.role || "—"}</p>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>القسم</Label>
-                    <Input value={profile.department} onChange={(e) => setProfile({ ...profile, department: e.target.value })} />
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs text-muted-foreground">البريد</p>
+                    <p className="mt-1 break-all font-bold">{profile.email || "—"}</p>
                   </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>نبذة</Label>
-                  <Textarea value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} rows={3} />
-                </div>
-                <div className="flex justify-end">
-                  <Button onClick={saveProfile} className="gap-1.5" disabled={saving}>
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    حفظ التغييرات
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="rounded-lg border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs text-muted-foreground">الجوال</p>
+                    <p className="mt-1 font-bold" dir="ltr">{profile.phone || "—"}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
-          {/* SECURITY */}
           <TabsContent value="security" className="mt-4">
-            <Card>
-              <CardHeader><CardTitle className="text-base">تغيير كلمة المرور</CardTitle></CardHeader>
-              <CardContent className="space-y-4 max-w-md">
+            <Card className="border-border/70 shadow-card">
+              <CardHeader><CardTitle className="text-right text-base">تغيير كلمة المرور</CardTitle></CardHeader>
+              <CardContent className="max-w-md space-y-4 text-right">
                 <div className="space-y-1.5">
                   <Label>كلمة المرور الحالية</Label>
                   <div className="relative">
-                    <Input type={showPwd ? "text" : "password"} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="pl-10" />
-                    <button type="button" onClick={() => setShowPwd((v) => !v)} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <Input type={showPwd ? "text" : "password"} value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="pr-10 text-right" />
+                    <button type="button" onClick={() => setShowPwd((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>كلمة المرور الجديدة</Label>
-                  <Input type={showPwd ? "text" : "password"} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} />
+                  <Input type={showPwd ? "text" : "password"} value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="text-right" />
                   <p className="text-[10px] text-muted-foreground">6 أحرف على الأقل.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>تأكيد كلمة المرور</Label>
-                  <Input type={showPwd ? "text" : "password"} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} />
+                  <Input type={showPwd ? "text" : "password"} value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} className="text-right" />
                 </div>
-                <div className="flex justify-end pt-2">
+                <div className="flex justify-start pt-2">
                   <Button onClick={changePassword} className="gap-1.5" disabled={changingPwd}>
                     {changingPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
                     تحديث كلمة المرور
@@ -318,11 +351,10 @@ export default function Profile() {
             </Card>
           </TabsContent>
 
-          {/* TASKS */}
           <TabsContent value="tasks" className="mt-4">
-            <Card>
+            <Card className="border-border/70 shadow-card">
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">قائمة مهامك</CardTitle>
                   <Badge variant="secondary" className="gap-1">
                     <CheckCircle2 className="w-3 h-3" />{doneCount}/{tasks.length} • {progress}%
@@ -330,25 +362,25 @@ export default function Profile() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
                   <div className="h-full gradient-primary transition-all" style={{ width: `${progress}%` }} />
                 </div>
                 <div className="flex gap-2">
-                  <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="أضف مهمة..." />
-                  <Button onClick={addTask} className="gap-1.5 shrink-0"><Plus className="w-4 h-4" />إضافة</Button>
+                  <Input value={newTask} onChange={(e) => setNewTask(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addTask()} placeholder="أضف مهمة..." className="text-right" />
+                  <Button onClick={addTask} className="shrink-0 gap-1.5"><Plus className="w-4 h-4" />إضافة</Button>
                 </div>
-                <div className="rounded-lg border border-border divide-y divide-border">
+                <div className="divide-y divide-border rounded-lg border border-border">
                   {tasks.map((t) => (
                     <div key={t.id} className={cn("flex items-center gap-3 px-3 py-2.5", t.done && "bg-muted/30")}>
-                      <Checkbox checked={t.done} onCheckedChange={() => toggleTask(t.id)} />
-                      <span className={cn("flex-1 text-sm", t.done && "line-through text-muted-foreground")}>{t.text}</span>
-                      <Badge variant="outline" className={cn("text-[10px] h-5", prioCls(t.priority))}>{t.priority}</Badge>
                       <Button variant="ghost" size="icon" onClick={() => removeTask(t.id)} className="h-7 w-7 text-destructive hover:text-destructive">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
+                      <Badge variant="outline" className={cn("h-5 text-[10px]", prioCls(t.priority))}>{t.priority}</Badge>
+                      <span className={cn("flex-1 text-right text-sm", t.done && "line-through text-muted-foreground")}>{t.text}</span>
+                      <Checkbox checked={t.done} onCheckedChange={() => toggleTask(t.id)} />
                     </div>
                   ))}
-                  {tasks.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground">لا توجد مهام</div>}
+                  {tasks.length === 0 && <div className="py-8 text-center text-sm text-muted-foreground">لا توجد مهام</div>}
                 </div>
               </CardContent>
             </Card>
