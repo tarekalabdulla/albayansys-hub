@@ -313,7 +313,7 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
 
   // ---- 2) Webhook self-test
   const baseReq = `${req.protocol}://${req.get("host") || `127.0.0.1:${process.env.PORT || 4000}`}`;
-  const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret);
+  const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret, eff.webhookPath);
   report.steps.webhook = w.ok
     ? { ok: true,  message: `Webhook استقبل الاختبار من ${w.url}` }
     : { ok: false, message: w.error || "فشل اختبار webhook" };
