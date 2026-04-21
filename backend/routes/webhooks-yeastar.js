@@ -22,6 +22,33 @@ import { query } from "../db/pool.js";
 const router = Router();
 
 // ------------------------------------------------------------
+// Telemetry — يُستخدم في /api/integrations/status
+// ------------------------------------------------------------
+const telemetry = {
+  lastEventAt: 0,
+  lastEventFrom: null,   // ip
+  lastErrorAt: 0,
+  lastError: null,
+  totalEvents: 0,
+  totalRejected: 0,
+};
+export function getWebhookStatus() {
+  return {
+    secretConfigured: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+    tokenConfigured:  Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
+    allowedIps:       (process.env.YEASTAR_ALLOWED_IPS || "").split(",").map((s) => s.trim()).filter(Boolean),
+    lastEventAt:      telemetry.lastEventAt || null,
+    lastEventFrom:    telemetry.lastEventFrom,
+    lastErrorAt:      telemetry.lastErrorAt || null,
+    lastError:        telemetry.lastError,
+    totalEvents:      telemetry.totalEvents,
+    totalRejected:    telemetry.totalRejected,
+  };
+}
+export function recordWebhookEvent(ip)     { telemetry.lastEventAt = Date.now(); telemetry.lastEventFrom = ip || null; telemetry.totalEvents += 1; }
+export function recordWebhookRejection(reason) { telemetry.lastErrorAt = Date.now(); telemetry.lastError = reason || "unknown"; telemetry.totalRejected += 1; }
+
+// ------------------------------------------------------------
 // Rate limiting — 100 req/sec لكل IP (ad-hoc؛ in-memory)
 // يحمي من DoS عبر إغراق endpoint بطلبات مزيّفة.
 // ملاحظة: in-memory store غير مثالي للنشر متعدد العمليات
