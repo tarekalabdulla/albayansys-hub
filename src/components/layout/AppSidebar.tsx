@@ -11,6 +11,7 @@ import {
   UserCog,
   User,
   Bell,
+  PhoneCall,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: "/", label: "لوحة المعلومات", icon: LayoutDashboard, end: true, roles: ["admin", "supervisor", "agent"] },
   { to: "/live", label: "التقرير الحي", icon: Activity, roles: ["admin", "supervisor", "agent"] },
+  { to: "/live-monitor", label: "مكالمات حيّة (PBX)", icon: PhoneCall, roles: ["admin", "supervisor"] },
   { to: "/monitoring", label: "مراقبة الموظفين", icon: MonitorPlay, roles: ["admin", "supervisor"] },
   { to: "/performance", label: "جدول الأداء", icon: BarChart3, roles: ["admin", "supervisor"] },
   { to: "/alerts", label: "الإشعارات التنبيهية", icon: Bell, roles: ["admin", "supervisor"] },

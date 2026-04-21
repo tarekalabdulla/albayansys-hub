@@ -128,16 +128,10 @@ export default function LiveMonitor() {
   const integrationOnline = wsConnected || amiOk || (status?.yeastarApi?.configured ?? false);
 
   return (
-    <AppLayout>
+    <AppLayout title="مراقبة المكالمات الحيّة" subtitle="المكالمات الجارية الآن مع تحديث لحظي عبر PBX">
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-bold">مراقبة المكالمات الحيّة</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              المكالمات الجارية الآن مع تحديث لحظي عبر PBX
-            </p>
-          </div>
+        <div className="flex items-center justify-end gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Badge
               variant="outline"
