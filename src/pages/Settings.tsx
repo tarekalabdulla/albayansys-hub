@@ -82,8 +82,6 @@ const Settings = () => {
 
   // Settings state (يُحمَّل من DB)
   const [settingsLoading, setSettingsLoading] = useState(true);
-  const [pbxP, setPbxP] = useState({ enabled: true, host: "", port: "8088", apiUser: "apiuser", useTLS: true, apiSecret: "" });
-  const [pbxS, setPbxS] = useState({ enabled: false, host: "", amiPort: "5038", amiUser: "admin", cdrUrl: "", amiSecret: "" });
   const [googleAi, setGoogleAi] = useState({ enabled: false, model: "gemini-1.5-pro", apiKey: "" });
   const [webhook, setWebhook] = useState({ url: "" });
   const fileRef = useRef<HTMLInputElement>(null);
