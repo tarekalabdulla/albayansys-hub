@@ -19,11 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  UserPlus, Pencil, Trash2, Server, Webhook, Database, Download, Upload,
-  Save, Shield, Sparkles, PhoneCall, Wifi, KeyRound, CheckCircle2, Loader2,
+  UserPlus, Pencil, Trash2, Webhook, Database, Download,
+  Save, Shield, Sparkles, KeyRound, Loader2,
   RotateCcw, AlertTriangle,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import {
