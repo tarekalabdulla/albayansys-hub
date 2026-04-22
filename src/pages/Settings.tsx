@@ -224,20 +224,6 @@ const Settings = () => {
     }
   };
 
-  const savePbxP = () => {
-    const payload: Record<string, unknown> = {
-      enabled: pbxP.enabled, host: pbxP.host, port: pbxP.port, apiUser: pbxP.apiUser, useTLS: pbxP.useTLS,
-    };
-    if (pbxP.apiSecret) payload.apiSecret = pbxP.apiSecret;
-    persist("pbx_p_series", payload, "P560");
-  };
-  const savePbxS = () => {
-    const payload: Record<string, unknown> = {
-      enabled: pbxS.enabled, host: pbxS.host, amiPort: pbxS.amiPort, amiUser: pbxS.amiUser, cdrUrl: pbxS.cdrUrl,
-    };
-    if (pbxS.amiSecret) payload.amiSecret = pbxS.amiSecret;
-    persist("pbx_s_series", payload, "S20");
-  };
   const saveGoogleAi = () => {
     if (googleAi.enabled && !googleAi.apiKey.trim() && !(googleAi as any).apiKeyIsSet) {
       Swal.fire({ icon: "warning", title: "المفتاح مطلوب" });
