@@ -19,11 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  UserPlus, Pencil, Trash2, Server, Webhook, Database, Download, Upload,
-  Save, Shield, Sparkles, PhoneCall, Wifi, KeyRound, CheckCircle2, Loader2,
+  UserPlus, Pencil, Trash2, Webhook, Database, Download,
+  Save, Shield, Sparkles, KeyRound, Loader2,
   RotateCcw, AlertTriangle,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import Swal from "sweetalert2";
 import {
@@ -83,8 +82,6 @@ const Settings = () => {
 
   // Settings state (يُحمَّل من DB)
   const [settingsLoading, setSettingsLoading] = useState(true);
-  const [pbxP, setPbxP] = useState({ enabled: true, host: "", port: "8088", apiUser: "apiuser", useTLS: true, apiSecret: "" });
-  const [pbxS, setPbxS] = useState({ enabled: false, host: "", amiPort: "5038", amiUser: "admin", cdrUrl: "", amiSecret: "" });
   const [googleAi, setGoogleAi] = useState({ enabled: false, model: "gemini-1.5-pro", apiKey: "" });
   const [webhook, setWebhook] = useState({ url: "" });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -100,8 +97,6 @@ const Settings = () => {
       try {
         const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
         setUsers(u);
-        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
-        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
         if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
         if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
       } catch (e: any) {
@@ -229,20 +224,6 @@ const Settings = () => {
     }
   };
 
-  const savePbxP = () => {
-    const payload: Record<string, unknown> = {
-      enabled: pbxP.enabled, host: pbxP.host, port: pbxP.port, apiUser: pbxP.apiUser, useTLS: pbxP.useTLS,
-    };
-    if (pbxP.apiSecret) payload.apiSecret = pbxP.apiSecret;
-    persist("pbx_p_series", payload, "P560");
-  };
-  const savePbxS = () => {
-    const payload: Record<string, unknown> = {
-      enabled: pbxS.enabled, host: pbxS.host, amiPort: pbxS.amiPort, amiUser: pbxS.amiUser, cdrUrl: pbxS.cdrUrl,
-    };
-    if (pbxS.amiSecret) payload.amiSecret = pbxS.amiSecret;
-    persist("pbx_s_series", payload, "S20");
-  };
   const saveGoogleAi = () => {
     if (googleAi.enabled && !googleAi.apiKey.trim() && !(googleAi as any).apiKeyIsSet) {
       Swal.fire({ icon: "warning", title: "المفتاح مطلوب" });
@@ -351,8 +332,6 @@ const Settings = () => {
       try {
         const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
         setUsers(u);
-        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
-        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
         if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
         if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
       } catch { /* ignore */ }
@@ -517,100 +496,6 @@ const Settings = () => {
             </table>
           )}
         </div>
-      </section>
-
-      {/* PBX Settings */}
-      <section className="glass-card p-5 mb-5">
-        <div className="flex items-center gap-2 mb-4">
-          <PhoneCall className="w-4 h-4 text-primary" />
-          <div>
-            <h3 className="text-base font-bold">إعدادات السنترال (Yeastar)</h3>
-            <p className="text-xs text-muted-foreground">تُحفظ في قاعدة البيانات وتبقى بعد إعادة التشغيل.</p>
-          </div>
-        </div>
-
-        <Tabs defaultValue="p560" dir="rtl" className="w-full">
-          <TabsList className="grid grid-cols-2 w-full max-w-md mb-5">
-            <TabsTrigger value="p560" className="gap-2"><Server className="w-3.5 h-3.5" /> P560</TabsTrigger>
-            <TabsTrigger value="s20" className="gap-2"><Server className="w-3.5 h-3.5" /> S20</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="p560" className="space-y-4 mt-0">
-            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className={cn("w-4 h-4", pbxP.enabled ? "text-success" : "text-muted-foreground")} />
-                <span className="text-sm font-medium">تفعيل P-Series</span>
-              </div>
-              <Switch checked={pbxP.enabled} onCheckedChange={(v) => setPbxP({ ...pbxP, enabled: v })} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">عنوان IP / Host</label>
-                <Input value={pbxP.host} onChange={(e) => setPbxP({ ...pbxP, host: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ API</label>
-                <Input value={pbxP.port} onChange={(e) => setPbxP({ ...pbxP, port: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">API Username</label>
-                <Input value={pbxP.apiUser} onChange={(e) => setPbxP({ ...pbxP, apiUser: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
-                  API Secret {(pbxP as any).apiSecretIsSet && <span className="text-success">(محفوظ)</span>}
-                </label>
-                <Input value={pbxP.apiSecret} onChange={(e) => setPbxP({ ...pbxP, apiSecret: e.target.value })} type="password" dir="ltr" className="bg-background/60" placeholder={(pbxP as any).apiSecretIsSet ? "اتركه فارغًا للإبقاء" : "••••••••"} />
-              </div>
-            </div>
-            <div className="flex items-center justify-between p-3 rounded-xl bg-background/40 border border-border">
-              <div className="flex items-center gap-2"><Wifi className="w-4 h-4 text-info" /><span className="text-xs font-medium">HTTPS / TLS</span></div>
-              <Switch checked={pbxP.useTLS} onCheckedChange={(v) => setPbxP({ ...pbxP, useTLS: v })} />
-            </div>
-            <Button onClick={savePbxP} className="w-full gradient-primary text-primary-foreground" disabled={settingsLoading}>
-              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات P560
-            </Button>
-          </TabsContent>
-
-          <TabsContent value="s20" className="space-y-4 mt-0">
-            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className={cn("w-4 h-4", pbxS.enabled ? "text-success" : "text-muted-foreground")} />
-                <span className="text-sm font-medium">تفعيل S-Series</span>
-              </div>
-              <Switch checked={pbxS.enabled} onCheckedChange={(v) => setPbxS({ ...pbxS, enabled: v })} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Host</label>
-                <Input value={pbxS.host} onChange={(e) => setPbxS({ ...pbxS, host: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">منفذ AMI</label>
-                <Input value={pbxS.amiPort} onChange={(e) => setPbxS({ ...pbxS, amiPort: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">AMI User</label>
-                <Input value={pbxS.amiUser} onChange={(e) => setPbxS({ ...pbxS, amiUser: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
-                  AMI Secret {(pbxS as any).amiSecretIsSet && <span className="text-success">(محفوظ)</span>}
-                </label>
-                <Input value={pbxS.amiSecret} onChange={(e) => setPbxS({ ...pbxS, amiSecret: e.target.value })} type="password" dir="ltr" className="bg-background/60" placeholder="••••••••" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                  <Webhook className="w-3 h-3" /> CDR URL
-                </label>
-                <Input value={pbxS.cdrUrl} onChange={(e) => setPbxS({ ...pbxS, cdrUrl: e.target.value })} dir="ltr" className="bg-background/60" />
-              </div>
-            </div>
-            <Button onClick={savePbxS} className="w-full gradient-primary text-primary-foreground" disabled={settingsLoading}>
-              <Save className="w-4 h-4 ml-2" /> حفظ إعدادات S20
-            </Button>
-          </TabsContent>
-        </Tabs>
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
