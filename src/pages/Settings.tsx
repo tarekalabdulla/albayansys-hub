@@ -97,8 +97,6 @@ const Settings = () => {
       try {
         const [u, s] = await Promise.all([usersApi.list(), settingsApi.getAll()]);
         setUsers(u);
-        if (s.pbx_p_series) setPbxP((p) => ({ ...p, ...(s.pbx_p_series as any) }));
-        if (s.pbx_s_series) setPbxS((p) => ({ ...p, ...(s.pbx_s_series as any) }));
         if (s.google_ai) setGoogleAi((p) => ({ ...p, ...(s.google_ai as any) }));
         if (s.webhook) setWebhook((p) => ({ ...p, ...(s.webhook as any) }));
       } catch (e: any) {
