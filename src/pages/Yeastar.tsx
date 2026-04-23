@@ -253,6 +253,32 @@ export default function Yeastar() {
     }
   }
 
+  async function onTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const payload: Record<string, string> = {};
+      if (form.baseUrl.trim())      payload.baseUrl = form.baseUrl.trim();
+      if (form.clientId.trim())     payload.clientId = form.clientId.trim();
+      if (form.clientSecret.trim()) payload.clientSecret = form.clientSecret.trim();
+      const { data: r } = await api.post<{ result: TestResult }>("/yeastar/sync/test", payload);
+      setTestResult(r.result);
+      toast({
+        title: r.result.token.ok && r.result.cdr.ok ? "اختبار ناجح" : "اختبار اكتمل بأخطاء",
+        description: `Token: ${r.result.token.ok ? "✓" : "✗"} • CDR: ${r.result.cdr.fetched} سجل`,
+        variant: r.result.token.ok && r.result.cdr.ok ? "default" : "destructive",
+      });
+    } catch (e) {
+      const msg = (e as { response?: { data?: { error?: string; message?: string } }; message?: string })?.response?.data?.message
+        || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (e as { message?: string })?.message
+        || "تعذّر الاختبار";
+      toast({ title: "فشل الاختبار", description: msg, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   const status = data ? deriveStatus(data) : null;
   const c = data?.config || {};
 
