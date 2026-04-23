@@ -44,6 +44,14 @@ interface ConfigEnvelope {
     enabled?: boolean;
     lastSyncAt?: string;
     lastSyncOk?: boolean;
+    // Phase 1 additions
+    enableWebhook?: boolean;
+    enableOpenAPI?: boolean;
+    enableAMI?: boolean;
+    amiHost?: string;
+    amiPort?: number;
+    amiUsername?: string;
+    amiPasswordIsSet?: boolean;
   };
   env: {
     baseUrl: string | null;
