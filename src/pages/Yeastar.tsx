@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
-  Server, KeyRound, History, ShieldCheck, TrendingUp, Plug,
+  Server, KeyRound, History, ShieldCheck, TrendingUp, Plug, Zap, PhoneCall,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
@@ -138,12 +138,34 @@ function StepRow({ label, ok, message }: { label: string; ok: boolean; message: 
 // ============================================================================
 // Component
 // ============================================================================
+interface TestResult {
+  durationMs: number;
+  baseUrl: string;
+  token: { ok: boolean; message: string; expiresIn: number; tokenPreview: string };
+  cdr: {
+    ok: boolean;
+    message: string;
+    fetched: number;
+    sample: Array<{
+      time: string | null;
+      caller: string;
+      callee: string;
+      duration: number;
+      talk: number;
+      status: string;
+      direction: string;
+    }>;
+  };
+}
+
 export default function Yeastar() {
   const { toast } = useToast();
   const [data, setData]       = useState<ConfigEnvelope | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
