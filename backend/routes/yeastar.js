@@ -25,6 +25,7 @@ import { authRequired, requireRole } from "../middleware/auth.js";
 import { getYeastarApiStatus } from "../realtime/yeastar-openapi.js";
 import { getAmiStatus } from "../services/amiService.js";
 import { getWebhookStatus } from "./webhooks-yeastar.js";
+import { invalidateConfig } from "../services/runtimeConfig.js";
 
 const router = Router();
 router.use(authRequired);
@@ -147,7 +148,10 @@ router.put("/config", requireRole("admin"), async (req, res) => {
   }
   try {
     const merged = await saveConfig(parsed.data, req.user.sub);
-    res.json({ ok: true, config: stripSecrets(merged) });
+    // طبّق الإعدادات الجديدة فوراً على كل الخدمات (Webhook + AMI + ...)
+    // subscribeConfig listeners ستتولى إعادة تشغيل AMI تلقائياً.
+    await invalidateConfig();
+    res.json({ ok: true, config: stripSecrets(merged), applied: true });
   } catch (e) {
     console.error("[yeastar/config:put]", e);
     res.status(500).json({ error: "save_failed", message: e.message });
