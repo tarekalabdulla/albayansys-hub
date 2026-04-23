@@ -22,8 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
-  Server, KeyRound, Webhook as WebhookIcon, Shield, History, ShieldCheck,
-  TrendingUp, Copy, RotateCcw,
+  Server, KeyRound, History, ShieldCheck, TrendingUp, Plug,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
@@ -148,17 +147,11 @@ export default function Yeastar() {
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
-  // form state (يعكس DB)
-  const DEFAULT_WH_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
+  // form state — حقول API فقط (Yeastar P-Series Open API)
   const [form, setForm] = useState({
-    enabled: true,
-    pbxIp: "",
     baseUrl: "",
     clientId: "",
     clientSecret: "",
-    webhookSecret: "",
-    webhookPath: DEFAULT_WH_PATH,
-    allowedIpsText: "",
   });
 
   async function load() {
@@ -172,17 +165,11 @@ export default function Yeastar() {
       setHistory(hist.items || []);
       setTrend(tr.items || []);
       const c = cfg.config || {};
-      setForm((p) => ({
-        ...p,
-        enabled: c.enabled !== false,
-        pbxIp: c.pbxIp || "",
+      setForm({
         baseUrl: c.baseUrl || cfg.env.baseUrl || "",
         clientId: c.clientId || "",
         clientSecret: "",
-        webhookSecret: "",
-        webhookPath: c.webhookPath || cfg.env.webhookPath || DEFAULT_WH_PATH,
-        allowedIpsText: (c.allowedIps?.length ? c.allowedIps : cfg.env.allowedIps).join(", "),
-      }));
+      });
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
         || (e as { message?: string })?.message
@@ -200,24 +187,19 @@ export default function Yeastar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function onSave() {
+  async function onSave(thenSync = false) {
     setSaving(true);
     try {
-      const allowedIps = form.allowedIpsText
-        .split(/[,\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 20);
       await api.put("/yeastar/config", {
-        enabled: form.enabled,
-        pbxIp: form.pbxIp.trim(),
+        enabled: true,
         baseUrl: form.baseUrl.trim(),
         clientId: form.clientId.trim(),
         ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
-        ...(form.webhookSecret ? { webhookSecret: form.webhookSecret } : {}),
-        webhookPath: (form.webhookPath || DEFAULT_WH_PATH).trim(),
-        allowedIps,
       });
-      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar." });
-      setForm((p) => ({ ...p, clientSecret: "", webhookSecret: "" }));
-      load();
+      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar API." });
+      setForm((p) => ({ ...p, clientSecret: "" }));
+      await load();
+      if (thenSync) await onSync();
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
         || (e as { message?: string })?.message
