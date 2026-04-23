@@ -214,6 +214,16 @@ export default function Yeastar() {
         baseUrl: c.baseUrl || cfg.env.baseUrl || "",
         clientId: c.clientId || "",
         clientSecret: "",
+        webhookSecret: "",
+        webhookPath: c.webhookPath || cfg.env.webhookPath || "/api/yeastar/webhook/call-event/{TOKEN}",
+        allowedIpsText: (c.allowedIps && c.allowedIps.length ? c.allowedIps : cfg.env.allowedIps).join("\n"),
+        enableWebhook: c.enableWebhook !== false, // default true
+        enableOpenAPI: c.enableOpenAPI !== false, // default true
+        enableAMI:     Boolean(c.enableAMI),       // default false
+        amiHost:       c.amiHost || "",
+        amiPort:       Number(c.amiPort) || 5038,
+        amiUsername:   c.amiUsername || "",
+        amiPassword:   "",
       });
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
