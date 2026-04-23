@@ -246,14 +246,27 @@ async function handleAmiMessage(msg) {
 // Public API
 // ----------------------------------------------------------------------------
 export function startAmiService(io) {
-  if (!isAmiConfigured()) {
-    log("⏭️  AMI disabled (YEASTAR_AMI_HOST/USERNAME/PASSWORD not set)");
+  if (io) state.io = io;
+  if (!isAmiEnabled()) {
+    const c = cfg();
+    if (!c.enabled) log("⏭️  AMI disabled by setting (enableAMI=false)");
+    else log("⏭️  AMI not configured (host/user/pass missing)");
+    // اشترك مع ذلك حتى يبدأ تلقائياً عند تفعيله من اللوحة
+    if (!state._subscribed) {
+      state._subscribed = true;
+      subscribeConfig(() => reloadAmiService());
+    }
     return;
   }
-  state.io = io;
   state.stopped = false;
   state.reconnectMs = RECONNECT_MIN_MS;
+  state._lastTarget = { ...cfg() };
   connect();
+
+  if (!state._subscribed) {
+    state._subscribed = true;
+    subscribeConfig(() => reloadAmiService());
+  }
 }
 
 export function stopAmiService() {
@@ -262,13 +275,47 @@ export function stopAmiService() {
   cleanup();
 }
 
+/**
+ * أعد تشغيل خدمة AMI بناءً على آخر إعدادات (DB ∪ .env).
+ * يُستدعى تلقائياً عند تغيير الإعدادات من /api/yeastar/config.
+ */
+export function reloadAmiService() {
+  const c = cfg();
+  const sameTarget =
+    state._lastTarget &&
+    state._lastTarget.host === c.host &&
+    state._lastTarget.port === c.port &&
+    state._lastTarget.user === c.user &&
+    state._lastTarget.pass === c.pass &&
+    state._lastTarget.enabled === c.enabled;
+
+  if (sameTarget && !state.stopped && state.socket) return; // لا تغيير
+
+  state._lastTarget = { host: c.host, port: c.port, user: c.user, pass: c.pass, enabled: c.enabled };
+
+  log("🔄 reloading AMI (config changed)");
+  state.stopped = true;
+  try { state.socket?.destroy(); } catch {}
+  cleanup();
+
+  if (isAmiEnabled()) {
+    state.stopped = false;
+    state.reconnectMs = RECONNECT_MIN_MS;
+    connect();
+  } else {
+    log("⏭️  AMI now disabled — not reconnecting");
+  }
+}
+
 export function getAmiStatus() {
+  const c = cfg();
   return {
     configured: isAmiConfigured(),
-    connected: Boolean(state.socket && !state.socket.destroyed),
-    loggedIn: state.loggedIn,
-    host: cfg().host || null,
-    port: cfg().port,
+    enabled:    c.enabled,
+    connected:  Boolean(state.socket && !state.socket.destroyed),
+    loggedIn:   state.loggedIn,
+    host:       c.host || null,
+    port:       c.port,
     lastConnectedAt: state.lastConnectedAt || null,
     lastEventAt:     state.lastEventAt || null,
     lastError:       state.lastError || null,
