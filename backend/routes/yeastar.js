@@ -175,11 +175,27 @@ function getEffective(cfg) {
   };
 }
 
-async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 10_000) {
+function maskSecret(s) {
+  if (!s || typeof s !== "string") return "(empty)";
+  if (s.length <= 6) return "***";
+  return `${s.slice(0, 3)}***${s.slice(-2)} (len=${s.length})`;
+}
+
+// OAuth حصراً — Yeastar P-Series Open API لا يقبل username/password.
+// payload: { client_id, client_secret }
+async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 15_000) {
+  const url = `${baseUrl}/openapi/v1.0/get_token`;
+  console.log(
+    "[yeastar/sync] get_token →", url,
+    "auth=oauth",
+    "client_id=" + maskSecret(clientId),
+    "client_secret=" + maskSecret(clientSecret),
+    `timeout=${timeoutMs}ms`,
+  );
   const ctrl = new AbortController();
   const tm = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(`${baseUrl}/openapi/v1.0/get_token`, {
+    const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
@@ -187,12 +203,19 @@ async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 10_
     });
     const data = await r.json().catch(() => ({}));
     const token = data.access_token || data.data?.access_token;
+    console.log(
+      `[yeastar/sync] get_token response http=${r.status}`,
+      `errcode=${data.errcode ?? "-"}`,
+      `errmsg="${data.errmsg ?? ""}"`,
+      `hasToken=${Boolean(token)}`,
+    );
     if (r.ok && token) {
       return { ok: true, token, expiresIn: data.expire_time || data.data?.expire_time || 1800 };
     }
     return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
   } catch (e) {
-    return { ok: false, error: e.message };
+    const reason = e.name === "AbortError" ? `timeout_${timeoutMs}ms` : e.message;
+    return { ok: false, error: reason };
   } finally {
     clearTimeout(tm);
   }
@@ -265,8 +288,8 @@ async function upsertCdrRow(c) {
   }
 }
 
-async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutMs = 8_000) {
-  if (!token) return { ok: false, error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
+async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutMs = 30_000) {
+  if (!token) return { ok: false, status: "disabled", error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
   const tpl = (pathTemplate || DEFAULT_WEBHOOK_PATH).trim();
   // استبدل {TOKEN} أو ألحقه إذا لم يكن موجوداً
   const pathWithToken = tpl.includes("{TOKEN}")
@@ -281,14 +304,25 @@ async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutM
   if (secret) {
     headers["X-Yeastar-Signature"] = "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
   }
+  console.log(
+    `[yeastar/sync] webhook self-test → ${url}`,
+    `secret=${secret ? maskSecret(secret) : "(none)"}`,
+    `timeout=${timeoutMs}ms`,
+  );
   const ctrl = new AbortController();
   const tm = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
-    if (r.ok) return { ok: true, url };
-    return { ok: false, error: `HTTP ${r.status} (${url})` };
+    if (r.ok) return { ok: true, status: "endpoint_reachable", url, httpStatus: r.status };
+    if (r.status === 401) return { ok: false, status: "invalid_signature", url, httpStatus: 401, error: `HMAC mismatch (HTTP 401) — السرّ المُرسَل لا يطابق إعداد الخادم` };
+    if (r.status === 403) return { ok: false, status: "rejected_request", url, httpStatus: 403, error: `IP غير مسموح (HTTP 403)` };
+    if (r.status === 503) return { ok: false, status: "rejected_request", url, httpStatus: 503, error: `Webhook معطّل من لوحة التحكم (HTTP 503)` };
+    return { ok: false, status: "rejected_request", url, httpStatus: r.status, error: `HTTP ${r.status} (${url})` };
   } catch (e) {
-    return { ok: false, error: `${e.message} (${url})` };
+    if (e.name === "AbortError") {
+      return { ok: false, status: "no_callback_received", url, error: `timeout_${timeoutMs}ms — لم تُستقبل استجابة من ${url}` };
+    }
+    return { ok: false, status: "endpoint_unreachable", url, error: `${e.message} (${url})` };
   } finally {
     clearTimeout(tm);
   }
