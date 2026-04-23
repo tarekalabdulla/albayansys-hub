@@ -2,18 +2,20 @@
 // yeastarService — Yeastar P-Series HTTP/OAuth client (REST API)
 // ----------------------------------------------------------------------------
 // مسؤوليات:
-//   * إدارة access_token (caching + auto-refresh)
+//   * إدارة access_token (caching + auto-refresh) — OAuth حصراً
 //   * طلبات HTTPS موحّدة مع User-Agent + retry
 //   * نقطة موحّدة لكل استدعاءات API الإضافية (CDR fetch, recordings download...)
 //
-// لا يُلمَس realtime/yeastar-openapi.js (الذي يدير WebSocket).
-// هذه الخدمة مكمّلة — للاستدعاءات الـ on-demand فقط.
+// ⚠️  لا نَدعم username/password. Open API لـ Yeastar P-Series يتطلّب
+//     client_id + client_secret؛ أي fallback لـ username/password كان يُعيد
+//     40002 PARAMETER ERROR.
 //
-// ENV المطلوبة:
+// ENV / DB المطلوبة (DB يفوز عند التعارض):
 //   YEASTAR_BASE_URL     = https://pbx.example.com[:port]
 //   YEASTAR_CLIENT_ID    = ...
 //   YEASTAR_CLIENT_SECRET= ...
 // ============================================================================
+import { getEffectiveConfigSync } from "./runtimeConfig.js";
 
 const USER_AGENT = "HululAlbayan-CallCenter/1.0 (+yeastar-integration)";
 const TOKEN_REFRESH_MARGIN_MS = 60_000;   // جدّد قبل الانتهاء بدقيقة
@@ -26,23 +28,29 @@ let cache = {
   expireAt: 0,
 };
 
-function log(...a)  { console.log("[yeastarService]", ...a); }
+function log(...a)  { console.log("[yeastarService]",  ...a); }
 function warn(...a) { console.warn("[yeastarService]", ...a); }
 
+function maskSecret(s) {
+  if (!s || typeof s !== "string") return "(empty)";
+  if (s.length <= 6) return "***";
+  return `${s.slice(0, 3)}***${s.slice(-2)} (len=${s.length})`;
+}
+
 function cfg() {
-  const base = (process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "").replace(/\/+$/, "");
+  const live = getEffectiveConfigSync() || {};
+  const base = (live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
+    .replace(/\/+$/, "");
   return {
     base,
-    clientId:     process.env.YEASTAR_CLIENT_ID     || "",
-    clientSecret: process.env.YEASTAR_CLIENT_SECRET || "",
-    user:         process.env.YEASTAR_API_USER      || "",
-    pass:         process.env.YEASTAR_API_PASS      || "",
+    clientId:     live.clientId     || process.env.YEASTAR_CLIENT_ID     || "",
+    clientSecret: live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "",
   };
 }
 
 export function isConfigured() {
   const c = cfg();
-  return Boolean(c.base && ((c.clientId && c.clientSecret) || (c.user && c.pass)));
+  return Boolean(c.base && c.clientId && c.clientSecret);
 }
 
 // ----------------------------------------------------------------------------
@@ -52,7 +60,7 @@ async function safeFetch(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
+    return await fetch(url, {
       ...options,
       headers: {
         "User-Agent": USER_AGENT,
@@ -61,32 +69,53 @@ async function safeFetch(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
       },
       signal: controller.signal,
     });
-    return res;
   } finally {
     clearTimeout(timer);
   }
 }
 
 // ----------------------------------------------------------------------------
-// Token management
+// Token management — OAuth حصراً
 // ----------------------------------------------------------------------------
 async function fetchTokenFresh() {
-  const { base, clientId, clientSecret, user, pass } = cfg();
+  const { base, clientId, clientSecret } = cfg();
   if (!base) throw new Error("yeastar_missing_base_url");
+  if (!clientId || !clientSecret) {
+    throw new Error("yeastar_missing_oauth_credentials (client_id + client_secret مطلوبان)");
+  }
 
-  const body = (clientId && clientSecret)
-    ? { client_id: clientId, client_secret: clientSecret }
-    : { username: user, password: pass };
+  const url = `${base}/openapi/v1.0/get_token`;
+  const payload = { client_id: clientId, client_secret: clientSecret };
 
-  const res = await safeFetch(`${base}/openapi/v1.0/get_token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  log(
+    "get_token →", url,
+    "auth=oauth",
+    "client_id=" + maskSecret(clientId),
+    "client_secret=" + maskSecret(clientSecret),
+  );
 
-  if (!res.ok) throw new Error(`get_token_http_${res.status}`);
-  const data = await res.json();
+  let res;
+  try {
+    res = await safeFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    const reason = e.name === "AbortError" ? `timeout_${DEFAULT_TIMEOUT_MS}ms` : e.message;
+    warn(`get_token network error: ${reason}`);
+    throw new Error(`get_token_network_${reason}`);
+  }
+
+  let data = {};
+  try { data = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    warn(`get_token HTTP ${res.status} errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}"`);
+    throw new Error(`get_token_http_${res.status}_errcode_${data.errcode ?? "?"}_${data.errmsg || ""}`);
+  }
   if (data.errcode && data.errcode !== 0) {
+    warn(`get_token rejected by PBX: errcode=${data.errcode} errmsg="${data.errmsg ?? ""}"`);
     throw new Error(`get_token_errcode_${data.errcode}_${data.errmsg || ""}`);
   }
 
@@ -98,7 +127,7 @@ async function fetchTokenFresh() {
   cache.accessToken  = accessToken;
   cache.refreshToken = refreshToken || null;
   cache.expireAt     = Date.now() + expireSec * 1000;
-  log(`token مُحدَّث (TTL=${expireSec}s)`);
+  log(`get_token OK — access_token=${maskSecret(accessToken)} ttl=${expireSec}s`);
   return accessToken;
 }
 
@@ -121,12 +150,12 @@ async function refreshIfNeeded() {
           cache.refreshToken = data.refresh_token || data.data?.refresh_token || cache.refreshToken;
           const ttl = data.expire_time || data.data?.expire_time || 1800;
           cache.expireAt = Date.now() + ttl * 1000;
-          log(`token جُدِّد عبر refresh (TTL=${ttl}s)`);
+          log(`refresh OK — new access_token=${maskSecret(cache.accessToken)} ttl=${ttl}s`);
           return cache.accessToken;
         }
       }
     } catch (e) {
-      warn("refresh failed, falling back to fetch:", e.message);
+      warn("refresh failed, falling back to fresh get_token:", e.message);
     }
   }
   return fetchTokenFresh();
@@ -156,6 +185,7 @@ export async function apiRequest(path, { method = "GET", body, query, timeoutMs 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const token = await getAccessToken();
     try {
+      log(`apiRequest ${method} ${url} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
       const res = await safeFetch(url, {
         method,
         headers: {
@@ -211,6 +241,7 @@ export async function downloadFile(path, { timeoutMs = 30_000 } = {}) {
 export function getServiceStatus() {
   return {
     configured: isConfigured(),
+    authMode: isConfigured() ? "oauth" : "none",
     hasToken: Boolean(cache.accessToken),
     expiresInSec: cache.expireAt ? Math.max(0, Math.round((cache.expireAt - Date.now()) / 1000)) : 0,
   };
