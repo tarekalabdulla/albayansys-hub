@@ -7,25 +7,26 @@
 //   3) نشترك بالأحداث (CDR / ExtensionStatus / CallStatus...)
 //   4) نُمرّر الأحداث الواردة لنفس معالج الـ webhook (handleNormalizedEvent)
 //
-// ENV المطلوبة (طريقتان للمصادقة):
-//   --- (أ) OAuth (موصى به) ---
+// ⚠️  منذ تعديل 2026-04: لم نعد ندعم username/password إطلاقاً.
+//     Yeastar P-Series Open API يتطلّب OAuth (client_id + client_secret).
+//     استخدام username/password كان يُعيد:
+//        40002 PARAMETER ERROR — username: required, password: required
+//     لأن الحقول التي يتوقعها الخادم هي client_id/client_secret حصراً.
+//
+// ENV / DB المطلوبة (الأولوية: DB ← env):
 //   YEASTAR_BASE_URL      = https://hululalbayan.ras.yeastar.com
 //   YEASTAR_CLIENT_ID     = ...
 //   YEASTAR_CLIENT_SECRET = ...
-//
-//   --- (ب) username/password (قديم) ---
-//   YEASTAR_API_BASE = https://pbx.example.com:8088
-//   YEASTAR_API_USER = ...
-//   YEASTAR_API_PASS = ...
-//
-//   YEASTAR_API_TOPICS = 30012,30013,30014   (اختياري)
+//   YEASTAR_API_TOPICS    = 30012,30013,30014   (اختياري)
 // ============================================================
 import WebSocket from "ws";
 import { handleNormalizedEvent } from "../routes/webhooks-yeastar.js";
+import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
 
 const RECONNECT_MIN_MS = 2_000;
 const RECONNECT_MAX_MS = 60_000;
 const TOKEN_REFRESH_MARGIN_MS = 60_000; // جدّد قبل الانتهاء بدقيقة
+const HTTP_TIMEOUT_MS = 15_000;
 
 let state = {
   accessToken: null,
@@ -41,60 +42,101 @@ let state = {
   lastError: null,
 };
 
-function log(...args) {
-  console.log("[yeastar-api]", ...args);
-}
-function warn(...args) {
-  console.warn("[yeastar-api]", ...args);
+function log(...args)  { console.log("[yeastar-api]",  ...args); }
+function warn(...args) { console.warn("[yeastar-api]", ...args); }
+
+// -------- إخفاء الأسرار في السجلات --------
+function maskSecret(s) {
+  if (!s || typeof s !== "string") return "(empty)";
+  if (s.length <= 6) return "***";
+  return `${s.slice(0, 3)}***${s.slice(-2)} (len=${s.length})`;
 }
 
 function cfg() {
-  const base = (process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
+  // DB ∪ env (DB يفوز إن كانت قيمة غير فارغة)
+  const live = getEffectiveConfigSync() || {};
+  const base = (live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
     .replace(/\/+$/, "");
-  const clientId     = process.env.YEASTAR_CLIENT_ID || "";
-  const clientSecret = process.env.YEASTAR_CLIENT_SECRET || "";
-  const user = process.env.YEASTAR_API_USER || "";
-  const pass = process.env.YEASTAR_API_PASS || "";
-  // وضع المصادقة: OAuth إذا توفّر client_id+secret، وإلا username/password
-  const authMode = clientId && clientSecret ? "oauth"
-                 : (user && pass)            ? "basic"
-                 : "";
+  const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
+  const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
+
+  // OAuth فقط — لم نعد ندعم username/password
+  const authMode = (clientId && clientSecret) ? "oauth" : "";
+
   return {
-    base, authMode, clientId, clientSecret, user, pass,
+    base, authMode, clientId, clientSecret,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
 }
 
+// -------------- HTTP helper مع timeout --------------
+async function httpJson(url, opts = {}, timeoutMs = HTTP_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(tm);
+  }
+}
+
 // -------------- HTTP: get/refresh token --------------
 async function fetchToken() {
-  const { base, authMode, clientId, clientSecret, user, pass } = cfg();
-  if (!base || !authMode) throw new Error("missing_yeastar_api_env");
+  const { base, authMode, clientId, clientSecret } = cfg();
+  if (!base) throw new Error("missing_yeastar_base_url");
+  if (authMode !== "oauth") {
+    throw new Error("missing_oauth_credentials (client_id + client_secret مطلوبان)");
+  }
 
   const url = `${base}/openapi/v1.0/get_token`;
-  const body = authMode === "oauth"
-    ? { client_id: clientId, client_secret: clientSecret }
-    : { username: user, password: pass };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`get_token_http_${res.status}`);
-  const data = await res.json();
-  // أشكال شائعة في Yeastar: { errcode:0, access_token, refresh_token, expire_time }
+  // ⚠️ payload صريح — حقول client_id/client_secret حصراً (لا username/password).
+  const payload = { client_id: clientId, client_secret: clientSecret };
+
+  log(
+    "get_token →", url,
+    "auth=oauth",
+    "client_id=" + maskSecret(clientId),
+    "client_secret=" + maskSecret(clientSecret),
+  );
+
+  let res;
+  try {
+    res = await httpJson(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    const reason = e.name === "AbortError" ? `timeout_${HTTP_TIMEOUT_MS}ms` : e.message;
+    warn(`get_token network error: ${reason}`);
+    throw new Error(`get_token_network_${reason}`);
+  }
+
+  let data = {};
+  try { data = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    warn(`get_token HTTP ${res.status} errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}"`);
+    throw new Error(`get_token_http_${res.status}_errcode_${data.errcode ?? "?"}_${data.errmsg || ""}`);
+  }
   if (data.errcode && data.errcode !== 0) {
+    warn(`get_token rejected by PBX: errcode=${data.errcode} errmsg="${data.errmsg ?? ""}"`);
     throw new Error(`get_token_errcode_${data.errcode}_${data.errmsg || ""}`);
   }
+
   const accessToken  = data.access_token  || data.data?.access_token;
   const refreshToken = data.refresh_token || data.data?.refresh_token;
   const expireSec    = data.expire_time   || data.data?.expire_time || 1800;
-  if (!accessToken) throw new Error("get_token_no_access_token");
+  if (!accessToken) {
+    warn("get_token returned no access_token; raw keys=", Object.keys(data || {}));
+    throw new Error("get_token_no_access_token");
+  }
 
   state.accessToken  = accessToken;
   state.refreshToken = refreshToken || null;
   state.expireAt     = Date.now() + (expireSec * 1000);
-  log(`access_token مُحدَّث (ينتهي خلال ${expireSec}s)`);
+  log(`get_token OK — access_token=${maskSecret(accessToken)} ttl=${expireSec}s`);
   scheduleRefresh(expireSec * 1000);
   return accessToken;
 }
@@ -103,7 +145,9 @@ async function refreshAccessToken() {
   const { base } = cfg();
   if (!state.refreshToken) return fetchToken();
   try {
-    const res = await fetch(`${base}/openapi/v1.0/refresh_token`, {
+    const url = `${base}/openapi/v1.0/refresh_token`;
+    log(`refresh_token →`, url, "refresh_token=" + maskSecret(state.refreshToken));
+    const res = await httpJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: state.refreshToken }),
@@ -117,11 +161,11 @@ async function refreshAccessToken() {
     state.accessToken  = accessToken;
     state.refreshToken = refreshToken;
     state.expireAt     = Date.now() + (expireSec * 1000);
-    log(`access_token جُدِّد بنجاح (ينتهي خلال ${expireSec}s)`);
+    log(`refresh OK — new access_token=${maskSecret(accessToken)} ttl=${expireSec}s`);
     scheduleRefresh(expireSec * 1000);
     return accessToken;
   } catch (e) {
-    warn("refresh فشل، نعيد get_token:", e.message);
+    warn("refresh failed, falling back to fresh get_token:", e.message);
     return fetchToken();
   }
 }
@@ -150,7 +194,7 @@ function connectWs() {
     return;
   }
   const url = buildWsUrl(state.accessToken);
-  log("فتح WebSocket إلى PBX...");
+  log("opening WebSocket to PBX subscribe endpoint…");
 
   const ws = new WebSocket(url, {
     handshakeTimeout: 10_000,
@@ -165,33 +209,33 @@ function connectWs() {
     const { topics } = cfg();
     const sub = JSON.stringify({ topic_list: topics });
     ws.send(sub);
-    log(`WebSocket مفتوح — اشتراك في topics: [${topics.join(", ")}]`);
+    log(`WebSocket OPEN — subscribed to topics: [${topics.join(", ")}]`);
   });
 
   ws.on("message", (data) => {
     let msg;
     try { msg = JSON.parse(data.toString()); }
-    catch { return warn("رسالة غير JSON تم تجاهلها"); }
+    catch { return warn("non-JSON ws message ignored"); }
     state.lastEventAt = Date.now();
     handleIncomingEvent(msg).catch((e) => warn("handle event:", e.message));
   });
 
   ws.on("close", (code, reason) => {
-    warn(`WebSocket مغلق code=${code} reason=${reason?.toString() || ""}`);
+    warn(`WebSocket CLOSED code=${code} reason=${reason?.toString() || ""}`);
     state.lastError = `ws_closed_${code}`;
     scheduleReconnect();
   });
 
   ws.on("error", (e) => {
     state.lastError = e.message;
-    warn("WebSocket خطأ:", e.message);
+    warn("WebSocket ERROR:", e.message);
     // close سيُستدعى بعدها وسيُجدول reconnect
   });
 
   // ping/keepalive — Yeastar قد يقطع الاتصال الخامل
   const pingTimer = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
-      try { ws.ping(); } catch { }
+      try { ws.ping(); } catch { /* noop */ }
     } else {
       clearInterval(pingTimer);
     }
@@ -203,7 +247,7 @@ function scheduleReconnect() {
   if (state.stopped) return;
   const delay = state.reconnectMs;
   state.reconnectMs = Math.min(state.reconnectMs * 2, RECONNECT_MAX_MS);
-  log(`إعادة الاتصال خلال ${Math.round(delay / 1000)}s...`);
+  log(`reconnect scheduled in ${Math.round(delay / 1000)}s…`);
   setTimeout(async () => {
     if (state.stopped) return;
     try {
@@ -213,36 +257,30 @@ function scheduleReconnect() {
       }
       connectWs();
     } catch (e) {
-      warn("reconnect فشل:", e.message);
+      warn("reconnect failed:", e.message);
       scheduleReconnect();
     }
   }, delay).unref();
 }
 
 // -------------- Event normalizer --------------
-// Yeastar Open API يرسل event بصيغة:
-//   { type: 30012, sn:"...", msg:{ ... event payload ... } }
-// نُحوّله إلى نفس shape الذي يفهمه webhook normalizer
 async function handleIncomingEvent(msg) {
   // أحياناً يرسل ack للاشتراك أولاً
   if (msg.errcode !== undefined && msg.type === undefined) {
-    if (msg.errcode === 0) log("اشتراك مؤكَّد من PBX");
-    else warn("ack خطأ من PBX:", msg);
+    if (msg.errcode === 0) log("PBX subscription ACK");
+    else warn("PBX ACK error:", msg);
     return;
   }
 
   const topic = msg.type;
   const payload = msg.msg || msg.data || msg;
 
-  // مخطط مبدئي — يُغطّي معظم أحداث المكالمات والامتدادات
-  // (Yeastar توثّق أرقام topic مثل 30012=CallStatus, 30013=ExtensionStatus...)
   let mapped = { ...payload };
   if (topic === 30012 || /call/i.test(payload.event_name || "")) {
-    // CallStatus event: status في الـ payload
     const st = (payload.call_status || payload.status || "").toString().toLowerCase();
-    if (/ringing/.test(st))      mapped.event = "ExtensionRing";
-    else if (/answer|talking/.test(st)) mapped.event = "ExtensionAnswer";
-    else if (/hangup|end|released/.test(st))   mapped.event = "ExtensionHangup";
+    if (/ringing/.test(st))                     mapped.event = "ExtensionRing";
+    else if (/answer|talking/.test(st))         mapped.event = "ExtensionAnswer";
+    else if (/hangup|end|released/.test(st))    mapped.event = "ExtensionHangup";
     mapped.uuid       = payload.call_id || payload.uuid || payload.linkedid;
     mapped.extension  = payload.extension || payload.callee_num || payload.member_num;
     mapped.caller     = payload.caller_num || payload.from_num;
@@ -254,25 +292,24 @@ async function handleIncomingEvent(msg) {
     mapped.status    = (payload.presence_status || payload.status || "").toString().toLowerCase();
   }
 
-  // مرّرها لمعالج webhook ليستفيد من نفس منطق DB + socket.io
   await handleNormalizedEvent(mapped, state.io, "yeastar-openapi");
 }
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
   const { base, authMode } = cfg();
-  if (!base || !authMode) {
-    log("⏭️  Yeastar Open API معطّل (لم تُضبط YEASTAR_BASE_URL مع CLIENT_ID/SECRET أو API_USER/PASS)");
+  if (!base || authMode !== "oauth") {
+    log("⏭️  Yeastar Open API DISABLED — يحتاج YEASTAR_BASE_URL + YEASTAR_CLIENT_ID + YEASTAR_CLIENT_SECRET");
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`بدء التكامل مع PBX: ${base} (auth=${authMode})`);
+  log(`starting OpenAPI integration: base=${base} auth=oauth`);
   try {
     await fetchToken();
     connectWs();
   } catch (e) {
-    warn("بدء فشل:", e.message);
+    warn("start failed:", e.message);
     scheduleReconnect();
   }
 }
@@ -280,14 +317,14 @@ export async function startYeastarOpenApi(io) {
 export function stopYeastarOpenApi() {
   state.stopped = true;
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
-  try { state.ws?.close(); } catch { }
+  try { state.ws?.close(); } catch { /* noop */ }
   state.ws = null;
 }
 
 export function getYeastarApiStatus() {
   const c = cfg();
   return {
-    configured: Boolean(c.base && c.authMode),
+    configured: Boolean(c.base && c.authMode === "oauth"),
     authMode: c.authMode || "none",
     hasToken: Boolean(state.accessToken),
     expiresIn: state.expireAt ? Math.max(0, Math.round((state.expireAt - Date.now()) / 1000)) : 0,
