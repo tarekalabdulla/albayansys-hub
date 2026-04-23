@@ -30,6 +30,7 @@ import { verifyToken } from "./middleware/auth.js";
 import { startSimulator } from "./realtime/simulator.js";
 import { startYeastarOpenApi, getYeastarApiStatus } from "./realtime/yeastar-openapi.js";
 import { startAmiService } from "./services/amiService.js";
+import { bootstrapConfig } from "./services/runtimeConfig.js";
 import { query } from "./db/pool.js";
 
 const app = express();
@@ -218,9 +219,15 @@ if (String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true")
   startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
 }
 
-// شغّل AMI service (يبدأ تلقائياً فقط إذا ضُبطت YEASTAR_AMI_HOST/USERNAME/PASSWORD)
-// مصدر إضافي للمراقبة اللحظية بجوار Open API و Webhook
-try { startAmiService(io); } catch (e) { console.error("[ami] start failed:", e.message); }
+// شغّل AMI service بعد تحميل runtimeConfig من DB (لتطبيق الإعدادات المحفوظة)
+bootstrapConfig()
+  .then(() => {
+    try { startAmiService(io); } catch (e) { console.error("[ami] start failed:", e.message); }
+  })
+  .catch((e) => {
+    console.warn("[runtimeConfig] bootstrap error:", e.message);
+    try { startAmiService(io); } catch (e2) { console.error("[ami] start failed:", e2.message); }
+  });
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 server.listen(PORT, () => {
