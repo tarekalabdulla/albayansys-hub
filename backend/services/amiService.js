@@ -39,17 +39,25 @@ function log(...a)  { console.log("[ami]", ...a); }
 function warn(...a) { console.warn("[ami]", ...a); }
 
 function cfg() {
+  // الأولوية: DB (runtimeConfig) ← .env
+  const rc = getEffectiveConfigSync();
   return {
-    host: process.env.YEASTAR_AMI_HOST || "",
-    port: parseInt(process.env.YEASTAR_AMI_PORT || "5038", 10),
-    user: process.env.YEASTAR_AMI_USERNAME || "",
-    pass: process.env.YEASTAR_AMI_PASSWORD || "",
+    host: rc.amiHost     || process.env.YEASTAR_AMI_HOST     || "",
+    port: rc.amiPort     || parseInt(process.env.YEASTAR_AMI_PORT || "5038", 10),
+    user: rc.amiUsername || process.env.YEASTAR_AMI_USERNAME || "",
+    pass: rc.amiPassword || process.env.YEASTAR_AMI_PASSWORD || "",
+    enabled: rc.enableAMI !== false,
   };
 }
 
 export function isAmiConfigured() {
   const c = cfg();
   return Boolean(c.host && c.user && c.pass);
+}
+
+export function isAmiEnabled() {
+  const c = cfg();
+  return c.enabled && Boolean(c.host && c.user && c.pass);
 }
 
 // ----------------------------------------------------------------------------
