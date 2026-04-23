@@ -18,8 +18,23 @@ import { Router } from "express";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { query } from "../db/pool.js";
+import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
 
 const router = Router();
+
+// helpers موحَّدة لقراءة الإعدادات الحيّة (من DB ∪ .env)
+function liveAllowedIps() {
+  const cfg = getEffectiveConfigSync();
+  return Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [];
+}
+function liveWebhookSecret() {
+  const cfg = getEffectiveConfigSync();
+  return cfg.webhookSecret || "";
+}
+function liveWebhookEnabled() {
+  const cfg = getEffectiveConfigSync();
+  return cfg.enableWebhook !== false; // true بالافتراضي
+}
 
 // ------------------------------------------------------------
 // Telemetry — يُستخدم في /api/integrations/status
@@ -33,10 +48,12 @@ const telemetry = {
   totalRejected: 0,
 };
 export function getWebhookStatus() {
+  const cfg = getEffectiveConfigSync();
   return {
-    secretConfigured: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+    secretConfigured: Boolean(cfg.webhookSecret),
     tokenConfigured:  Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
-    allowedIps:       (process.env.YEASTAR_ALLOWED_IPS || "").split(",").map((s) => s.trim()).filter(Boolean),
+    allowedIps:       Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [],
+    enabled:          cfg.enableWebhook !== false,
     lastEventAt:      telemetry.lastEventAt || null,
     lastEventFrom:    telemetry.lastEventFrom,
     lastErrorAt:      telemetry.lastErrorAt || null,
@@ -126,11 +143,7 @@ setInterval(() => {
 // ------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------
-const ALLOWED_IPS = (process.env.YEASTAR_ALLOWED_IPS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
+// ALLOWED_IPS لم تعد ثابتة عند الإقلاع — تُقرأ من runtimeConfig في كل request.
 function getClientIp(req) {
   // يدعم خلف Nginx (X-Forwarded-For)
   const xff = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
@@ -138,7 +151,7 @@ function getClientIp(req) {
 }
 
 function verifyHmac(rawBody, signatureHeader) {
-  const secret = process.env.YEASTAR_WEBHOOK_SECRET;
+  const secret = liveWebhookSecret();
   if (!secret) return { ok: false, reason: "no_secret_configured" };
   if (!signatureHeader) return { ok: false, reason: "missing_signature" };
 
@@ -369,8 +382,15 @@ async function handleYeastarEvent(req, res) {
   const ip = getClientIp(req);
   const io = req.app.get("io");
 
-  // 1) IP allowlist
-  if (ALLOWED_IPS.length && !ALLOWED_IPS.includes(ip)) {
+  // 0) toggle: قد تكون القناة معطّلة من لوحة التحكم
+  if (!liveWebhookEnabled()) {
+    recordWebhookRejection("webhook_disabled");
+    return res.status(503).json({ error: "webhook_disabled" });
+  }
+
+  // 1) IP allowlist (يُقرأ حياً من DB ∪ .env)
+  const allowed = liveAllowedIps();
+  if (allowed.length && !allowed.includes(ip)) {
     await logEvent({
       eventType: "ip_rejected", payload: { ip }, ip,
       sigOk: false, processed: false, error: "ip_not_allowed",
@@ -410,10 +430,12 @@ async function handleYeastarEvent(req, res) {
 
 // نقطة الفحص (للتأكد من أن endpoint يعمل بدون توقيع)
 router.get("/yeastar/health", (_req, res) => {
+  const cfg = getEffectiveConfigSync();
   res.json({
     ok: true,
-    secured: Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
-    allowedIps: ALLOWED_IPS.length || 0,
+    secured: Boolean(cfg.webhookSecret),
+    allowedIps: Array.isArray(cfg.allowedIps) ? cfg.allowedIps.length : 0,
+    enabled: cfg.enableWebhook !== false,
   });
 });
 
