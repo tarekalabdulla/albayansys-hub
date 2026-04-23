@@ -15,6 +15,7 @@
 // ============================================================================
 import net from "net";
 import { processPbxEvent } from "./pbxEventProcessor.js";
+import { getEffectiveConfigSync, subscribeConfig } from "./runtimeConfig.js";
 
 const RECONNECT_MIN_MS = 3_000;
 const RECONNECT_MAX_MS = 60_000;
