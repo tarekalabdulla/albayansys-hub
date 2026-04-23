@@ -180,11 +180,23 @@ export default function Yeastar() {
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
-  // form state — حقول API فقط (Yeastar P-Series Open API)
+  // form state — يشمل الآن: API + Webhook + AMI
   const [form, setForm] = useState({
     baseUrl: "",
     clientId: "",
     clientSecret: "",
+    // Webhook
+    webhookSecret: "",
+    webhookPath: "/api/yeastar/webhook/call-event/{TOKEN}",
+    allowedIpsText: "", // مفصول بأسطر/فواصل
+    enableWebhook: true,
+    enableOpenAPI: true,
+    // AMI
+    enableAMI: false,
+    amiHost: "",
+    amiPort: 5038,
+    amiUsername: "",
+    amiPassword: "",
   });
 
   async function load() {
