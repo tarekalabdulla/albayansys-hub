@@ -130,6 +130,14 @@ const configSchema = z.object({
                     .optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
   enabled:        z.boolean().optional(),
+  // Phase 1 additions — toggles لكل قناة + إعدادات AMI
+  enableWebhook:  z.boolean().optional(),
+  enableOpenAPI:  z.boolean().optional(),
+  enableAMI:      z.boolean().optional(),
+  amiHost:        z.string().trim().max(255).optional(),
+  amiPort:        z.number().int().min(1).max(65535).optional(),
+  amiUsername:    z.string().trim().max(128).optional(),
+  amiPassword:    z.string().trim().max(512).optional(),
 }).strict();
 
 router.put("/config", requireRole("admin"), async (req, res) => {
