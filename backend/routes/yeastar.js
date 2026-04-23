@@ -375,6 +375,84 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   res.json({ report });
 });
 
+// -------------------- POST /sync/test --------------------
+// اختبار الاتصال فقط (Token + CDR) دون حفظ — يستقبل بيانات الاعتماد في الـ body
+// أو يعود إلى المخزّنة في DB / .env إن لم تُرسَل.
+const testSchema = z.object({
+  baseUrl:      z.string().trim().max(255).optional(),
+  clientId:     z.string().trim().max(255).optional(),
+  clientSecret: z.string().trim().max(512).optional(),
+}).strict();
+
+router.post("/sync/test", requireRole("admin"), async (req, res) => {
+  const parsed = testSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
+  }
+  const t0 = Date.now();
+  try {
+    const cfg = await loadConfig();
+    const eff = getEffective(cfg);
+    const baseUrl      = (parsed.data.baseUrl?.trim() || eff.baseUrl || "").replace(/\/+$/, "");
+    const clientId     = parsed.data.clientId?.trim()     || eff.clientId;
+    const clientSecret = parsed.data.clientSecret?.trim() || eff.clientSecret;
+
+    const result = {
+      durationMs: 0,
+      baseUrl,
+      token: { ok: false, message: "", expiresIn: 0, tokenPreview: "" },
+      cdr:   { ok: false, message: "", fetched: 0, sample: [] },
+    };
+
+    if (!baseUrl || !clientId || !clientSecret) {
+      result.token.message = "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)";
+      result.cdr.message = "تخطّيت — التوكن غير متاح";
+      result.durationMs = Date.now() - t0;
+      return res.json({ result });
+    }
+
+    const t = await fetchAccessToken(baseUrl, clientId, clientSecret);
+    if (!t.ok) {
+      result.token = { ok: false, message: t.error || "فشل get_token", expiresIn: 0, tokenPreview: "" };
+      result.cdr.message = "تخطّيت — التوكن غير متاح";
+      result.durationMs = Date.now() - t0;
+      return res.json({ result });
+    }
+    result.token = {
+      ok: true,
+      message: `access_token صالح لـ ${t.expiresIn}s`,
+      expiresIn: t.expiresIn,
+      tokenPreview: `${t.token.slice(0, 8)}…${t.token.slice(-4)}`,
+    };
+
+    const cdr = await fetchRecentCdr(baseUrl, t.token, 5);
+    if (!cdr.ok) {
+      result.cdr = { ok: false, message: cdr.error || "فشل cdr/list", fetched: 0, sample: [] };
+    } else {
+      const sample = (cdr.list || []).slice(0, 5).map((c) => ({
+        time:      c.time || c.call_time || null,
+        caller:    c.caller_num || c.from_num || "",
+        callee:    c.callee_num || c.member_num || c.extension || "",
+        duration:  parseInt(c.duration || c.call_duration || 0, 10) || 0,
+        talk:      parseInt(c.talk_duration || c.billsec || 0, 10) || 0,
+        status:    c.status || c.call_status || "",
+        direction: c.direction || (c.call_type === "1" ? "outbound" : c.call_type === "2" ? "inbound" : ""),
+      }));
+      result.cdr = {
+        ok: true,
+        message: `تم سحب ${cdr.list.length} سجل CDR من Yeastar`,
+        fetched: cdr.list.length,
+        sample,
+      };
+    }
+    result.durationMs = Date.now() - t0;
+    res.json({ result });
+  } catch (e) {
+    console.error("[yeastar/sync/test]", e);
+    res.status(500).json({ error: "test_failed", message: e.message });
+  }
+});
+
 // -------------------- GET /sync/history --------------------
 router.get("/sync/history", requireRole("admin"), async (_req, res) => {
   try {
