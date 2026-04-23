@@ -498,7 +498,16 @@ export default function Yeastar() {
                 <ShieldCheck className="w-4 h-4 text-success" />
                 <span>السر يُخزَّن في DB فقط ولا يُرسَل للواجهة. التوكن يُجدَّد تلقائياً.</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="secondary"
+                  onClick={onTest}
+                  disabled={testing || saving || syncing}
+                  className="gap-2"
+                >
+                  {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                  {testing ? "جاري الاختبار..." : "اختبار الاتصال (بدون حفظ)"}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => onSave(true)}
@@ -514,6 +523,103 @@ export default function Yeastar() {
                 </Button>
               </div>
             </div>
+
+            {/* نتيجة آخر اختبار اتصال (بدون حفظ) */}
+            {testResult && (
+              <div className="mt-5 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-primary" />
+                    نتيجة اختبار الاتصال
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {testResult.baseUrl || "—"} • {testResult.durationMs}ms
+                  </p>
+                </div>
+
+                {/* Token */}
+                <div className={cn(
+                  "rounded-md border p-3",
+                  testResult.token.ok ? "border-success/30 bg-success/10" : "border-destructive/30 bg-destructive/10"
+                )}>
+                  <div className="flex items-center gap-2 mb-1">
+                    {testResult.token.ok
+                      ? <CheckCircle2 className="w-4 h-4 text-success" />
+                      : <XCircle className="w-4 h-4 text-destructive" />}
+                    <p className="text-sm font-medium text-foreground">access_token</p>
+                    {testResult.token.ok && (
+                      <Badge variant="outline" className="bg-success/15 text-success border-success/30 text-[10px]">
+                        ينتهي خلال {testResult.token.expiresIn}s
+                      </Badge>
+                    )}
+                  </div>
+                  <p className={cn("text-xs break-words",
+                    testResult.token.ok ? "text-muted-foreground" : "text-destructive")}>
+                    {testResult.token.message}
+                  </p>
+                  {testResult.token.tokenPreview && (
+                    <p className="text-[11px] text-muted-foreground mt-1 font-mono" dir="ltr">
+                      {testResult.token.tokenPreview}
+                    </p>
+                  )}
+                </div>
+
+                {/* CDR */}
+                <div className={cn(
+                  "rounded-md border p-3",
+                  testResult.cdr.ok ? "border-success/30 bg-success/10" : "border-destructive/30 bg-destructive/10"
+                )}>
+                  <div className="flex items-center gap-2 mb-2">
+                    {testResult.cdr.ok
+                      ? <CheckCircle2 className="w-4 h-4 text-success" />
+                      : <XCircle className="w-4 h-4 text-destructive" />}
+                    <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <PhoneCall className="w-3.5 h-3.5" /> CDR (آخر المكالمات)
+                    </p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {testResult.cdr.fetched} سجل
+                    </Badge>
+                  </div>
+                  <p className={cn("text-xs",
+                    testResult.cdr.ok ? "text-muted-foreground" : "text-destructive")}>
+                    {testResult.cdr.message}
+                  </p>
+
+                  {testResult.cdr.sample.length > 0 && (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-muted-foreground border-b border-border/60">
+                            <th className="text-start py-1.5 px-2">الوقت</th>
+                            <th className="text-start py-1.5 px-2">من</th>
+                            <th className="text-start py-1.5 px-2">إلى</th>
+                            <th className="text-start py-1.5 px-2">الاتجاه</th>
+                            <th className="text-start py-1.5 px-2">الحالة</th>
+                            <th className="text-start py-1.5 px-2">المدة</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {testResult.cdr.sample.map((row, i) => (
+                            <tr key={i} className="border-b border-border/30 last:border-0">
+                              <td className="py-1.5 px-2 text-foreground" dir="ltr">
+                                {row.time ? new Date(row.time).toLocaleString("ar") : "—"}
+                              </td>
+                              <td className="py-1.5 px-2 font-mono text-foreground" dir="ltr">{row.caller || "—"}</td>
+                              <td className="py-1.5 px-2 font-mono text-foreground" dir="ltr">{row.callee || "—"}</td>
+                              <td className="py-1.5 px-2 text-muted-foreground">{row.direction || "—"}</td>
+                              <td className="py-1.5 px-2 text-muted-foreground">{row.status || "—"}</td>
+                              <td className="py-1.5 px-2 tabular-nums text-foreground">
+                                {row.talk || row.duration}s
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* ====== سجل آخر المزامنات ====== */}
