@@ -245,14 +245,28 @@ export default function Yeastar() {
   async function onSave(thenSync = false) {
     setSaving(true);
     try {
+      const allowedIps = form.allowedIpsText
+        .split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20);
       await api.put("/yeastar/config", {
         enabled: true,
         baseUrl: form.baseUrl.trim(),
         clientId: form.clientId.trim(),
         ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+        // Webhook
+        ...(form.webhookSecret ? { webhookSecret: form.webhookSecret } : {}),
+        webhookPath: form.webhookPath.trim() || "/api/yeastar/webhook/call-event/{TOKEN}",
+        allowedIps,
+        enableWebhook: form.enableWebhook,
+        enableOpenAPI: form.enableOpenAPI,
+        // AMI
+        enableAMI: form.enableAMI,
+        amiHost: form.amiHost.trim(),
+        amiPort: Number(form.amiPort) || 5038,
+        amiUsername: form.amiUsername.trim(),
+        ...(form.amiPassword ? { amiPassword: form.amiPassword } : {}),
       });
-      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar API." });
-      setForm((p) => ({ ...p, clientSecret: "" }));
+      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar (API + Webhook + AMI)." });
+      setForm((p) => ({ ...p, clientSecret: "", webhookSecret: "", amiPassword: "" }));
       await load();
       if (thenSync) await onSync();
     } catch (e) {
