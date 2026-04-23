@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, History, ShieldCheck, TrendingUp, Plug, Zap, PhoneCall,
+  Webhook, Network,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
