@@ -15,6 +15,7 @@ import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 import { processPbxEvent } from "../services/pbxEventProcessor.js";
 import { recordWebhookEvent, recordWebhookRejection } from "./webhooks-yeastar.js";
+import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
 
 const router = Router();
 
@@ -52,7 +53,8 @@ const rawJson = (req, _res, next) => {
 // Helpers
 // ----------------------------------------------------------------------------
 function verifyHmac(rawBody, sigHeader) {
-  const secret = process.env.YEASTAR_WEBHOOK_SECRET;
+  const cfg = getEffectiveConfigSync();
+  const secret = cfg.webhookSecret || "";
   if (!secret) return true; // اختياري
   if (!sigHeader) return false;
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
@@ -110,6 +112,22 @@ function normalizeYeastarEvent(body) {
 // ----------------------------------------------------------------------------
 function handleEvent(req, res) {
   const io = req.app.get("io");
+  const cfg = getEffectiveConfigSync();
+
+  // 0) toggle
+  if (cfg.enableWebhook === false) {
+    recordWebhookRejection("webhook_disabled");
+    return res.status(503).json({ error: "webhook_disabled" });
+  }
+
+  // 0.5) IP allowlist (حيّ من DB ∪ .env)
+  const ip = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() || req.ip || "";
+  const allowed = Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [];
+  if (allowed.length && !allowed.includes(ip)) {
+    recordWebhookRejection(`ip_not_allowed:${ip}`);
+    return res.status(403).json({ error: "ip_not_allowed" });
+  }
+
   const expectedToken = process.env.YEASTAR_WEBHOOK_TOKEN || "";
   const providedToken = req.params.token || "";
 
@@ -150,10 +168,13 @@ function handleEvent(req, res) {
 // Routes
 // ----------------------------------------------------------------------------
 router.get("/health", (_req, res) => {
+  const cfg = getEffectiveConfigSync();
   res.json({
     ok: true,
+    enabled: cfg.enableWebhook !== false,
     tokenRequired: Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
-    hmacRequired:  Boolean(process.env.YEASTAR_WEBHOOK_SECRET),
+    hmacRequired:  Boolean(cfg.webhookSecret),
+    allowedIps:    Array.isArray(cfg.allowedIps) ? cfg.allowedIps.length : 0,
   });
 });
 
