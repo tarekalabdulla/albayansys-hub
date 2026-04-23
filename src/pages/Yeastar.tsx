@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +25,7 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, History, ShieldCheck, TrendingUp, Plug, Zap, PhoneCall,
+  Webhook, Network,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
@@ -44,6 +47,14 @@ interface ConfigEnvelope {
     enabled?: boolean;
     lastSyncAt?: string;
     lastSyncOk?: boolean;
+    // Phase 1 additions
+    enableWebhook?: boolean;
+    enableOpenAPI?: boolean;
+    enableAMI?: boolean;
+    amiHost?: string;
+    amiPort?: number;
+    amiUsername?: string;
+    amiPasswordIsSet?: boolean;
   };
   env: {
     baseUrl: string | null;
@@ -169,11 +180,23 @@ export default function Yeastar() {
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
-  // form state — حقول API فقط (Yeastar P-Series Open API)
+  // form state — يشمل الآن: API + Webhook + AMI
   const [form, setForm] = useState({
     baseUrl: "",
     clientId: "",
     clientSecret: "",
+    // Webhook
+    webhookSecret: "",
+    webhookPath: "/api/yeastar/webhook/call-event/{TOKEN}",
+    allowedIpsText: "", // مفصول بأسطر/فواصل
+    enableWebhook: true,
+    enableOpenAPI: true,
+    // AMI
+    enableAMI: false,
+    amiHost: "",
+    amiPort: 5038,
+    amiUsername: "",
+    amiPassword: "",
   });
 
   async function load() {
@@ -191,6 +214,16 @@ export default function Yeastar() {
         baseUrl: c.baseUrl || cfg.env.baseUrl || "",
         clientId: c.clientId || "",
         clientSecret: "",
+        webhookSecret: "",
+        webhookPath: c.webhookPath || cfg.env.webhookPath || "/api/yeastar/webhook/call-event/{TOKEN}",
+        allowedIpsText: (c.allowedIps && c.allowedIps.length ? c.allowedIps : cfg.env.allowedIps).join("\n"),
+        enableWebhook: c.enableWebhook !== false, // default true
+        enableOpenAPI: c.enableOpenAPI !== false, // default true
+        enableAMI:     Boolean(c.enableAMI),       // default false
+        amiHost:       c.amiHost || "",
+        amiPort:       Number(c.amiPort) || 5038,
+        amiUsername:   c.amiUsername || "",
+        amiPassword:   "",
       });
     } catch (e) {
       const msg = (e as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
@@ -212,14 +245,28 @@ export default function Yeastar() {
   async function onSave(thenSync = false) {
     setSaving(true);
     try {
+      const allowedIps = form.allowedIpsText
+        .split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).slice(0, 20);
       await api.put("/yeastar/config", {
         enabled: true,
         baseUrl: form.baseUrl.trim(),
         clientId: form.clientId.trim(),
         ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+        // Webhook
+        ...(form.webhookSecret ? { webhookSecret: form.webhookSecret } : {}),
+        webhookPath: form.webhookPath.trim() || "/api/yeastar/webhook/call-event/{TOKEN}",
+        allowedIps,
+        enableWebhook: form.enableWebhook,
+        enableOpenAPI: form.enableOpenAPI,
+        // AMI
+        enableAMI: form.enableAMI,
+        amiHost: form.amiHost.trim(),
+        amiPort: Number(form.amiPort) || 5038,
+        amiUsername: form.amiUsername.trim(),
+        ...(form.amiPassword ? { amiPassword: form.amiPassword } : {}),
       });
-      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar API." });
-      setForm((p) => ({ ...p, clientSecret: "" }));
+      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات Yeastar (API + Webhook + AMI)." });
+      setForm((p) => ({ ...p, clientSecret: "", webhookSecret: "", amiPassword: "" }));
       await load();
       if (thenSync) await onSync();
     } catch (e) {
@@ -620,6 +667,189 @@ export default function Yeastar() {
                 </div>
               </div>
             )}
+          </Card>
+
+          {/* ====== إعدادات Webhook ====== */}
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Webhook className="w-5 h-5 text-primary" />
+                إعدادات Webhook
+              </h2>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="enableWebhook" className="text-xs text-muted-foreground">تفعيل</Label>
+                <Switch
+                  id="enableWebhook"
+                  checked={form.enableWebhook}
+                  onCheckedChange={(v) => setForm((p) => ({ ...p, enableWebhook: v }))}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              من Yeastar: <b>Integrations → API → Webhook</b> — استخدم URL ينتهي بالـ token، وفعّل HMAC إن أمكن.
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <Label htmlFor="webhookPath" className="text-xs">Webhook Path</Label>
+                <Input
+                  id="webhookPath"
+                  dir="ltr"
+                  placeholder="/api/yeastar/webhook/call-event/{TOKEN}"
+                  value={form.webhookPath}
+                  onChange={(e) => setForm((p) => ({ ...p, webhookPath: e.target.value }))}
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  المسار الكامل بعد الدومين. <code>{"{TOKEN}"}</code> يُستبدَل بـ <code>YEASTAR_WEBHOOK_TOKEN</code>.
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="webhookSecret" className="text-xs flex items-center gap-2">
+                  Webhook Secret (HMAC)
+                  {(c.webhookSecretIsSet || data?.env.webhookSecretSet) && (
+                    <Badge variant="outline" className="bg-success/15 text-success border-success/30 text-[10px]">
+                      مضبوط
+                    </Badge>
+                  )}
+                </Label>
+                <Input
+                  id="webhookSecret"
+                  dir="ltr"
+                  type="password"
+                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                  value={form.webhookSecret}
+                  onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="allowedIps" className="text-xs">IPs مسموح بها (سطر/IP)</Label>
+                <Textarea
+                  id="allowedIps"
+                  dir="ltr"
+                  rows={3}
+                  placeholder={"مثال:\n203.0.113.10\n198.51.100.20"}
+                  value={form.allowedIpsText}
+                  onChange={(e) => setForm((p) => ({ ...p, allowedIpsText: e.target.value }))}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  اتركها فارغة لتعطيل فحص IP. حد أقصى 20 IP.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-md border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+              <p className="text-muted-foreground">
+                <b className="text-foreground">آخر حدث استُلم:</b>{" "}
+                {data?.status.webhook.lastEventAt
+                  ? fmtRelative(data.status.webhook.lastEventAt)
+                  : <span className="text-warning">لم يصل أي حدث بعد</span>}
+              </p>
+              <p className="text-muted-foreground">
+                <b className="text-foreground">إجمالي الأحداث المستلمة:</b>{" "}
+                {(data?.status.webhook.totalEvents || 0).toLocaleString("ar")}
+              </p>
+              <p className="text-muted-foreground">
+                <b className="text-foreground">Token:</b>{" "}
+                {data?.status.webhook.tokenConfigured
+                  ? <span className="text-success">مضبوط في .env</span>
+                  : <span className="text-destructive">غير مضبوط (YEASTAR_WEBHOOK_TOKEN)</span>}
+              </p>
+            </div>
+          </Card>
+
+          {/* ====== إعدادات AMI (Asterisk Manager Interface) ====== */}
+          <Card className="p-5">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Network className="w-5 h-5 text-primary" />
+                إعدادات AMI (مراقبة لحظية)
+              </h2>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="enableAMI" className="text-xs text-muted-foreground">تفعيل</Label>
+                <Switch
+                  id="enableAMI"
+                  checked={form.enableAMI}
+                  onCheckedChange={(v) => setForm((p) => ({ ...p, enableAMI: v }))}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              ⚠️ يعمل فقط إذا كان السيرفر يصل شبكياً إلى PBX على البورت 5038. <b>لا يعمل مع Yeastar Cloud RAS.</b>
+            </p>
+
+            <div className={cn("grid gap-4 md:grid-cols-2", !form.enableAMI && "opacity-50 pointer-events-none")}>
+              <div>
+                <Label htmlFor="amiHost" className="text-xs">AMI Host (IP/Hostname)</Label>
+                <Input
+                  id="amiHost"
+                  dir="ltr"
+                  placeholder="192.168.100.254"
+                  value={form.amiHost}
+                  onChange={(e) => setForm((p) => ({ ...p, amiHost: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="amiPort" className="text-xs">AMI Port</Label>
+                <Input
+                  id="amiPort"
+                  type="number"
+                  dir="ltr"
+                  placeholder="5038"
+                  value={form.amiPort}
+                  onChange={(e) => setForm((p) => ({ ...p, amiPort: parseInt(e.target.value, 10) || 5038 }))}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="amiUsername" className="text-xs">AMI Username</Label>
+                <Input
+                  id="amiUsername"
+                  dir="ltr"
+                  placeholder="من PBX → Settings → Security → AMI"
+                  value={form.amiUsername}
+                  onChange={(e) => setForm((p) => ({ ...p, amiUsername: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="amiPassword" className="text-xs flex items-center gap-2">
+                  AMI Password
+                  {c.amiPasswordIsSet && (
+                    <Badge variant="outline" className="bg-success/15 text-success border-success/30 text-[10px]">
+                      مضبوط
+                    </Badge>
+                  )}
+                </Label>
+                <Input
+                  id="amiPassword"
+                  dir="ltr"
+                  type="password"
+                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                  value={form.amiPassword}
+                  onChange={(e) => setForm((p) => ({ ...p, amiPassword: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-md border border-border/60 bg-muted/20 p-3 text-xs space-y-1">
+              <p className="text-muted-foreground">
+                <b className="text-foreground">حالة الاتصال:</b>{" "}
+                {!data?.status.ami.configured ? <span className="text-muted-foreground">معطّل</span>
+                : data.status.ami.loggedIn ? <span className="text-success">متصل ومسجَّل دخول</span>
+                : <span className="text-destructive">غير متصل</span>}
+              </p>
+              <p className="text-muted-foreground">
+                <b className="text-foreground">آخر اتصال ناجح:</b>{" "}
+                {data?.status.ami.lastConnectedAt ? fmtRelative(data.status.ami.lastConnectedAt) : "—"}
+              </p>
+              <p className="text-warning text-[11px] mt-2">
+                💡 إذا كان PBX خلف Yeastar Cloud RAS، اترك AMI معطّلاً واستخدم Webhook + OpenAPI فقط.
+              </p>
+            </div>
           </Card>
 
           {/* ====== سجل آخر المزامنات ====== */}
