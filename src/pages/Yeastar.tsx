@@ -387,44 +387,44 @@ export default function Yeastar() {
             </div>
           </Card>
 
-          {/* ====== نموذج الإعدادات ====== */}
+          {/* ====== نموذج إعدادات API (Yeastar P-Series) ====== */}
           <Card className="p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-1">
               <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-primary" />
-                إعدادات الاتصال
+                إعدادات API (Yeastar P560)
               </h2>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="enabled" className="text-sm">مُفعَّل</Label>
-                <Switch id="enabled" checked={form.enabled}
-                        onCheckedChange={(v) => setForm((p) => ({ ...p, enabled: v }))} />
-              </div>
             </div>
+            <p className="text-xs text-muted-foreground mb-4">
+              من واجهة Yeastar: <b>Integrations → API</b> — فعّل <code>API</code> ثم انسخ <code>Client ID</code> و <code>Client Secret</code> هنا.
+            </p>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="pbxIp" className="text-xs">PBX IP الداخلي (LAN)</Label>
-                <Input id="pbxIp" placeholder="192.168.1.10" dir="ltr"
-                       value={form.pbxIp}
-                       onChange={(e) => setForm((p) => ({ ...p, pbxIp: e.target.value }))} />
-                <p className="text-[11px] text-muted-foreground mt-1">يستخدم للعرض والتوثيق فقط</p>
-              </div>
-              <div>
-                <Label htmlFor="baseUrl" className="text-xs">Base URL لـ Open API</Label>
-                <Input id="baseUrl" placeholder="https://192.168.1.10:8088" dir="ltr"
-                       value={form.baseUrl}
-                       onChange={(e) => setForm((p) => ({ ...p, baseUrl: e.target.value }))} />
+              <div className="md:col-span-2">
+                <Label htmlFor="baseUrl" className="text-xs">Base URL</Label>
+                <Input
+                  id="baseUrl"
+                  placeholder="https://hululalbayan.ras.yeastar.com"
+                  dir="ltr"
+                  value={form.baseUrl}
+                  onChange={(e) => setForm((p) => ({ ...p, baseUrl: e.target.value }))}
+                />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  {data?.env.baseUrl ? `الافتراضي من .env: ${data.env.baseUrl}` : "يُستخدم لطلب التوكن واستدعاء CDR"}
+                  عنوان السنترال الكامل (RAS أو IP:port). بدون <code>/</code> في النهاية.
                 </p>
               </div>
 
               <div>
                 <Label htmlFor="clientId" className="text-xs">Client ID</Label>
-                <Input id="clientId" dir="ltr" placeholder="من Yeastar Open API"
-                       value={form.clientId}
-                       onChange={(e) => setForm((p) => ({ ...p, clientId: e.target.value }))} />
+                <Input
+                  id="clientId"
+                  dir="ltr"
+                  placeholder="من Yeastar Open API"
+                  value={form.clientId}
+                  onChange={(e) => setForm((p) => ({ ...p, clientId: e.target.value }))}
+                />
               </div>
+
               <div>
                 <Label htmlFor="clientSecret" className="text-xs flex items-center gap-2">
                   Client Secret
@@ -434,124 +434,38 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input id="clientSecret" dir="ltr" type="password" placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                       value={form.clientSecret}
-                       onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))} />
-              </div>
-
-              <div>
-                <Label htmlFor="webhookSecret" className="text-xs flex items-center gap-2">
-                  Webhook HMAC Secret
-                  {(c.webhookSecretIsSet || data?.env.webhookSecretSet) && (
-                    <Badge variant="outline" className="bg-success/15 text-success border-success/30 text-[10px]">
-                      مضبوط
-                    </Badge>
-                  )}
-                </Label>
-                <Input id="webhookSecret" dir="ltr" type="password" placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                       value={form.webhookSecret}
-                       onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))} />
-                <p className="text-[11px] text-muted-foreground mt-1">يُستخدم للتحقق من توقيع X-Yeastar-Signature</p>
-              </div>
-              <div>
-                <Label htmlFor="allowedIps" className="text-xs flex items-center gap-2">
-                  <Shield className="w-3.5 h-3.5" /> IP Restriction (مسموح بها)
-                </Label>
-                <Input id="allowedIps" dir="ltr"
-                       placeholder="192.168.1.10, 10.0.0.5"
-                       value={form.allowedIpsText}
-                       onChange={(e) => setForm((p) => ({ ...p, allowedIpsText: e.target.value }))} />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  افصلها بفواصل. اتركها فارغة للسماح بالكل (غير موصى به).
-                </p>
+                <Input
+                  id="clientSecret"
+                  dir="ltr"
+                  type="password"
+                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                  value={form.clientSecret}
+                  onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))}
+                />
               </div>
             </div>
 
             <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="w-4 h-4 text-success" />
-                <span>الأسرار تُخزَّن في DB فقط ولا تُرسَل للواجهة. تُجدَّد التوكنات تلقائياً قبل انتهائها.</span>
+                <span>السر يُخزَّن في DB فقط ولا يُرسَل للواجهة. التوكن يُجدَّد تلقائياً.</span>
               </div>
-              <Button onClick={onSave} disabled={saving} className="gap-2">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
-              </Button>
-            </div>
-          </Card>
-
-          {/* ====== Webhook reference (قابل للتحرير) ====== */}
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <h3 className="font-semibold text-foreground flex items-center gap-2">
-                <WebhookIcon className="w-5 h-5 text-primary" />
-                مسار Webhook الداخلي
-              </h3>
               <div className="flex items-center gap-2">
                 <Button
-                  type="button"
                   variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-8"
-                  onClick={() => setForm((p) => ({ ...p, webhookPath: DEFAULT_WH_PATH }))}
-                  title="إعادة المسار للقيمة الافتراضية"
+                  onClick={() => onSave(true)}
+                  disabled={saving || syncing}
+                  className="gap-2"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  افتراضي
+                  {(saving || syncing) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
+                  حفظ + اختبار الاتصال
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 h-8"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(form.webhookPath || DEFAULT_WH_PATH);
-                      toast({ title: "تم النسخ", description: "تم نسخ مسار Webhook." });
-                    } catch {
-                      toast({ title: "تعذّر النسخ", variant: "destructive" });
-                    }
-                  }}
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  نسخ
+                <Button onClick={() => onSave(false)} disabled={saving} className="gap-2">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
                 </Button>
               </div>
             </div>
-
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="webhookPath" className="text-xs">المسار (Path)</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs text-muted-foreground font-mono shrink-0" dir="ltr">POST</span>
-                  <Input
-                    id="webhookPath"
-                    dir="ltr"
-                    placeholder={DEFAULT_WH_PATH}
-                    value={form.webhookPath}
-                    onChange={(e) => setForm((p) => ({ ...p, webhookPath: e.target.value }))}
-                    className="font-mono text-xs"
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  يجب أن يبدأ بـ <code>/</code>. استخدم <code>{"{TOKEN}"}</code> كمكان لإدراج التوكن تلقائياً.
-                  اضغط <b>حفظ الإعدادات</b> ليُطبَّق المسار الجديد عند اختبار المزامنة.
-                </p>
-              </div>
-
-              {(c.webhookPath || data?.env.webhookPath) && (
-                <div className="rounded-lg bg-muted/40 border border-border/50 p-3 font-mono text-[11px] break-all" dir="ltr">
-                  <span className="text-muted-foreground">المسار الحالي المحفوظ: </span>
-                  {c.webhookPath || data?.env.webhookPath}
-                </div>
-              )}
-            </div>
-
-            <ul className="text-xs text-muted-foreground mt-4 space-y-1 list-disc pr-5">
-              <li>التوكن يُحقَّق من URL، والتوقيع HMAC من رأس <code>X-Yeastar-Signature</code>.</li>
-              <li>الأحداث المدعومة: 30008/30009/30011/30012/30013/30014/30025/30026/30029/30033.</li>
-              <li>السجلّ يُكتب في <code>pbx_events</code> مع <code>unique_key</code> لمنع التكرار.</li>
-              <li>تغيير المسار هنا يؤثر فقط على اختبار المزامنة الذاتي — لا يُعيد توجيه نقطة النهاية الفعلية في الكود.</li>
-            </ul>
           </Card>
 
           {/* ====== سجل آخر المزامنات ====== */}
