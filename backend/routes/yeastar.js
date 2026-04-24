@@ -485,8 +485,9 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
     `[yeastar/sync] effective:`,
     `baseUrl="${eff.baseUrl || "(empty)"}" (source=${eff.baseSource})`,
     `webhookPath="${eff.webhookPath}" (source=${eff.webhookPathSource})`,
-    `clientIdSet=${Boolean(eff.clientId)}`,
-    `clientSecretSet=${Boolean(eff.clientSecret)}`,
+    `authMode="${eff.authMode}"${eff.authExplicit ? "" : " (inferred)"}`,
+    `fields=[${eff.authFields.join(", ")}]`,
+    `missing=[${eff.authMissing.join(", ")}]`,
     `webhookTokenSet=${Boolean(eff.webhookToken)}`,
     `webhookSecretSet=${Boolean(eff.webhookSecret)}`,
   );
@@ -506,12 +507,21 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   };
 
   // ---- 1) Token
-  if (!eff.baseUrl || !eff.clientId || !eff.clientSecret) {
-    report.steps.token = { ok: false, message: "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)" };
+  if (!eff.baseUrl || eff.authMissing.length) {
+    const reason = !eff.baseUrl
+      ? "baseUrl غير مضبوط"
+      : `authMode="${eff.authMode}" — الحقول الناقصة: ${eff.authMissing.join(", ")}`;
+    report.steps.token = { ok: false, message: `بيانات الاعتماد غير مكتملة (${reason})` };
   } else {
-    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    const t = await fetchAccessToken(eff.baseUrl, {
+      effectiveMode: eff.authMode,
+      fields: eff.authFields,
+      payload: eff.authPayload,
+      missing: eff.authMissing,
+      explicit: eff.authExplicit,
+    });
     report.steps.token = t.ok
-      ? { ok: true,  message: `access_token صالح لـ ${t.expiresIn}s`, expiresIn: t.expiresIn }
+      ? { ok: true,  message: `access_token صالح لـ ${t.expiresIn}s (authMode=${t.authMode})`, expiresIn: t.expiresIn }
       : { ok: false, message: t.error || "فشل get_token" };
   }
 
