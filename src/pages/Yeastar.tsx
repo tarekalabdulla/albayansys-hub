@@ -8,7 +8,7 @@
 //   • سجل آخر 20 مزامنة (وقت + حالة كل خطوة)
 // أمن: الأسرار لا تظهر أبداً في الواجهة — فقط ستحصل على شارة "مضبوط/غير مضبوط".
 // ============================================================================
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
