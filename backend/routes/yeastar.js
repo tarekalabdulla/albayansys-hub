@@ -25,7 +25,11 @@ import { authRequired, requireRole } from "../middleware/auth.js";
 import { getYeastarApiStatus } from "../realtime/yeastar-openapi.js";
 import { getAmiStatus } from "../services/amiService.js";
 import { getWebhookStatus } from "./webhooks-yeastar.js";
-import { invalidateConfig } from "../services/runtimeConfig.js";
+import {
+  invalidateConfig,
+  sanitizeBaseUrl,
+  sanitizeWebhookPath,
+} from "../services/runtimeConfig.js";
 
 const router = Router();
 router.use(authRequired);
