@@ -124,21 +124,45 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
-function TestResult({ result }: { result?: { ok: boolean; message: string; durationMs: number; at: number } }) {
+// خريطة الحالة → (label, tone) لتمييز نتائج اختبار Webhook بصرياً
+const TEST_STATUS_META: Record<TestStatus, { label: string; tone: "success" | "warning" | "destructive" | "muted" }> = {
+  endpoint_reachable:   { label: "Webhook receiver متاح ✓",       tone: "success" },
+  invalid_signature:    { label: "receiver يعمل — توقيع HMAC خاطئ", tone: "warning" },
+  rejected_request:     { label: "receiver يعمل — الطلب مرفوض",   tone: "warning" },
+  endpoint_unreachable: { label: "تعذّر الوصول للـ endpoint",      tone: "destructive" },
+  no_callback_received: { label: "لم يصل أي callback خلال المهلة", tone: "destructive" },
+  timeout_only:         { label: "انقطع الاتصال قبل المهلة",       tone: "warning" },
+  disabled:             { label: "غير مضبوط",                     tone: "muted" },
+};
+
+function TestResult({ result }: { result?: TestResultData }) {
   if (!result) return null;
+  const meta = result.status ? TEST_STATUS_META[result.status] : null;
+  const tone = meta?.tone || (result.ok ? "success" : "destructive");
   return (
     <div
       className={cn(
         "rounded-lg border px-3 py-2 text-xs flex items-start gap-2",
-        result.ok
-          ? "bg-success/10 border-success/30 text-success"
-          : "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "success"     && "bg-success/10 border-success/30 text-success",
+        tone === "warning"     && "bg-warning/10 border-warning/30 text-warning",
+        tone === "destructive" && "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "muted"       && "bg-muted border-border text-muted-foreground",
       )}
     >
-      {result.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
-      <div className="flex-1">
-        <p className="font-semibold">{result.ok ? "نجح" : "فشل"} ({result.durationMs}ms)</p>
+      {tone === "success"
+        ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+        : tone === "warning"
+          ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+      <div className="flex-1 space-y-1">
+        <p className="font-semibold">
+          {meta?.label || (result.ok ? "نجح" : "فشل")}
+          {" "}<span className="opacity-70 font-normal">({result.durationMs}ms{result.httpStatus ? ` · HTTP ${result.httpStatus}` : ""})</span>
+        </p>
         <p className="opacity-90 break-all">{result.message}</p>
+        {result.correlationId && (
+          <p className="opacity-60 font-mono text-[10px]">id: {result.correlationId}</p>
+        )}
       </div>
     </div>
   );
