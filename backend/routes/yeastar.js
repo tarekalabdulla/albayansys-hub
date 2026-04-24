@@ -130,9 +130,7 @@ const configSchema = z.object({
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
   webhookSecret:  z.string().trim().max(512).optional(),
-  webhookPath:    z.string().trim().max(255)
-                    .regex(/^\/[A-Za-z0-9/_\-{}.:]*$/, "must start with / and contain url-safe chars")
-                    .optional(),
+  webhookPath:    z.string().trim().max(255).optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
   enabled:        z.boolean().optional(),
   // Phase 1 additions — toggles لكل قناة + إعدادات AMI
@@ -143,6 +141,9 @@ const configSchema = z.object({
   amiPort:        z.number().int().min(1).max(65535).optional(),
   amiUsername:    z.string().trim().max(128).optional(),
   amiPassword:    z.string().trim().max(512).optional(),
+  // داخلياً للحفظ بعد المزامنة (لا يأتي من الواجهة عادة)
+  lastSyncAt:     z.string().optional(),
+  lastSyncOk:     z.boolean().optional(),
 }).strict();
 
 router.put("/config", requireRole("admin"), async (req, res) => {
@@ -150,12 +151,71 @@ router.put("/config", requireRole("admin"), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
   }
+
+  // ⚠️  fix 2026-04 (B): تعقيم صارم قبل الحفظ في DB
+  // - baseUrl يجب أن يكون origin فقط (https://host[:port])
+  // - webhookPath يجب أن يكون pathname فقط (يبدأ بـ /)
+  // أي قيمة ملوّثة (webhook URL في خانة Base URL، أو origin في خانة webhookPath)
+  // تُرفض هنا قبل ضربها في DB.
+  const data = { ...parsed.data };
+  const warnings = [];
+
+  if (typeof data.baseUrl === "string" && data.baseUrl.trim()) {
+    const cleaned = sanitizeBaseUrl(data.baseUrl);
+    if (!cleaned) {
+      return res.status(400).json({
+        error: "invalid_base_url",
+        message:
+          `قيمة Base URL مرفوضة: تبدو وكأنها webhook URL أو مسار. ` +
+          `يجب أن تكون origin فقط (مثل https://pbx.example.com) — بدون /openapi ` +
+          `وبدون /api/yeastar وبدون {TOKEN}.`,
+        received: data.baseUrl.slice(0, 200),
+      });
+    }
+    if (cleaned !== data.baseUrl.trim().replace(/\/+$/, "")) {
+      warnings.push(`baseUrl تم تنظيفه: "${data.baseUrl}" → "${cleaned}"`);
+    }
+    data.baseUrl = cleaned;
+  }
+
+  if (typeof data.webhookPath === "string" && data.webhookPath.trim()) {
+    const cleaned = sanitizeWebhookPath(data.webhookPath);
+    if (!cleaned) {
+      return res.status(400).json({
+        error: "invalid_webhook_path",
+        message: `Webhook Path يجب أن يبدأ بـ / ويحوي مسار URL آمن (مثل /api/yeastar/webhook/call-event/{TOKEN}).`,
+        received: data.webhookPath.slice(0, 200),
+      });
+    }
+    // تحقّق أن المسار مكوّن من أحرف URL آمنة (سمحنا أيضاً بـ {TOKEN} placeholder)
+    if (!/^\/[A-Za-z0-9/_\-{}.:%]*$/.test(cleaned)) {
+      return res.status(400).json({
+        error: "invalid_webhook_path",
+        message: `Webhook Path يحتوي أحرفاً غير مسموحة. المسموح: A-Z a-z 0-9 / _ - { } . :`,
+        received: cleaned,
+      });
+    }
+    if (cleaned !== data.webhookPath.trim()) {
+      warnings.push(`webhookPath تم تنظيفه: "${data.webhookPath}" → "${cleaned}"`);
+    }
+    data.webhookPath = cleaned;
+  }
+
+  if (warnings.length) {
+    console.warn("[yeastar/config:put] sanitization warnings:", warnings.join(" | "));
+  }
+
   try {
-    const merged = await saveConfig(parsed.data, req.user.sub);
+    const merged = await saveConfig(data, req.user.sub);
     // طبّق الإعدادات الجديدة فوراً على كل الخدمات (Webhook + AMI + ...)
     // subscribeConfig listeners ستتولى إعادة تشغيل AMI تلقائياً.
     await invalidateConfig();
-    res.json({ ok: true, config: stripSecrets(merged), applied: true });
+    console.log(
+      `[yeastar/config:put] saved by user=${req.user.sub}`,
+      `baseUrl="${merged.baseUrl || "(empty)"}"`,
+      `webhookPath="${merged.webhookPath || "(empty)"}"`,
+    );
+    res.json({ ok: true, config: stripSecrets(merged), applied: true, warnings });
   } catch (e) {
     console.error("[yeastar/config:put]", e);
     res.status(500).json({ error: "save_failed", message: e.message });
