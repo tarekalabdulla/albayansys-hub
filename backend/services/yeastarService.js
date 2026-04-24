@@ -24,6 +24,7 @@ import {
   getEffectiveConfigSync,
   getConfigSource,
   sanitizeBaseUrl,
+  buildAuthPayloadShape,
 } from "./runtimeConfig.js";
 
 const USER_AGENT = "HululAlbayan-CallCenter/1.0 (+yeastar-integration)";
