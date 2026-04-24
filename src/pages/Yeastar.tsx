@@ -669,10 +669,16 @@ export default function Yeastar() {
                 <span>السر يُخزَّن في DB فقط ولا يُرسَل للواجهة. التوكن يُجدَّد تلقائياً.</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {hasFieldErrors && (
+                  <p className="text-[11px] text-destructive flex items-center gap-1 me-2">
+                    <XCircle className="w-3.5 h-3.5" />
+                    صحّح الأخطاء أعلاه قبل المتابعة
+                  </p>
+                )}
                 <Button
                   variant="secondary"
                   onClick={onTest}
-                  disabled={testing || saving || syncing}
+                  disabled={testing || saving || syncing || hasFieldErrors}
                   className="gap-2"
                 >
                   {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -681,13 +687,13 @@ export default function Yeastar() {
                 <Button
                   variant="outline"
                   onClick={() => onSave(true)}
-                  disabled={saving || syncing}
+                  disabled={saving || syncing || hasFieldErrors}
                   className="gap-2"
                 >
                   {(saving || syncing) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
                   حفظ + اختبار الاتصال
                 </Button>
-                <Button onClick={() => onSave(false)} disabled={saving} className="gap-2">
+                <Button onClick={() => onSave(false)} disabled={saving || hasFieldErrors} className="gap-2">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
                 </Button>
