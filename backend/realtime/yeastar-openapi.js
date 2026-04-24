@@ -76,11 +76,11 @@ function cfg() {
     warn(`baseUrl was sanitized: raw="${rawBase}" → clean="${base}" (source=${src.baseUrl})`);
   }
 
-  const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
-  const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
-
-  // OAuth فقط — لم نعد ندعم username/password
-  const authMode = (clientId && clientSecret) ? "oauth" : "";
+  // ----- بناء payload shape بشكل صريح من الوضع المختار (بدون خلط) -----
+  // ندعم الآن وضعين متبادلين تماماً:
+  //   * client_credentials → { client_id, client_secret }
+  //   * basic_credentials  → { username, password }
+  const shape = buildAuthPayloadShape(live);
 
   // حدّث state للسجلات
   state.lastBaseUrl    = base;
@@ -88,7 +88,11 @@ function cfg() {
 
   return {
     base, baseSource: src.baseUrl || "none",
-    authMode, clientId, clientSecret,
+    authMode: shape.effectiveMode,
+    authFields: shape.fields,
+    authPayload: shape.payload,
+    authMissing: shape.missing,
+    authExplicit: shape.explicit,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
