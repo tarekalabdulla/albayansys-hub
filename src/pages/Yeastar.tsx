@@ -98,6 +98,116 @@ function fmtRelative(ts: number | string | null | undefined): string {
   return new Date(t).toLocaleString("ar");
 }
 
+// ---------------- Realtime field validators ----------------
+// نتأكد أن:
+//   * baseUrl       = origin فقط (https://host[:port]) — يرفض webhook URL أو مسار
+//   * webhookPath   = pathname فقط (يبدأ بـ /)         — يرفض origin كامل
+// نفس منطق الباك إند (sanitizeBaseUrl / sanitizeWebhookPath) لتجربة فورية بدون round-trip.
+type FieldValidation =
+  | { kind: "ok"; cleaned?: string; hint?: string }
+  | { kind: "warn"; message: string; cleaned?: string }
+  | { kind: "error"; message: string };
+
+function validateBaseUrl(raw: string): FieldValidation {
+  const s = (raw || "").trim();
+  if (!s) return { kind: "ok" };
+
+  // أضف https إن لم يحتو على بروتوكول (للسماح بتجربة الإلصاق دون حاجز فوري)
+  const withProto = /^https?:\/\//i.test(s) ? s : "https://" + s;
+
+  let u: URL;
+  try { u = new URL(withProto); }
+  catch { return { kind: "error", message: "URL غير صالح. مثال: https://pbx.example.com" }; }
+
+  const path  = (u.pathname || "/").replace(/\/+$/, "");
+  const lower = path.toLowerCase();
+
+  // كاشف صريح لـ webhook URL مُلصَق بالخطأ
+  if (
+    lower.includes("/api/yeastar") ||
+    lower.includes("/webhook")     ||
+    lower.includes("/call-event")  ||
+    s.includes("{TOKEN}")          ||
+    s.includes("%7BTOKEN%7D")
+  ) {
+    return {
+      kind: "error",
+      message:
+        "هذه القيمة تبدو وكأنها Webhook URL. Base URL يجب أن يكون origin فقط " +
+        "(مثال: https://pbx.example.com) — بدون /api/yeastar وبدون /webhook وبدون {TOKEN}.",
+    };
+  }
+
+  if (!/^https?:$/i.test(u.protocol)) {
+    return { kind: "error", message: "البروتوكول يجب أن يكون http أو https." };
+  }
+
+  // أي pathname آخر (مثل /openapi/v1.0/get_token) يُجرَّد ويحوَّل إلى تحذير
+  const origin  = `${u.protocol}//${u.host}`;
+  const trimmed = s.replace(/\/+$/, "");
+  if (path && path !== "" && path !== "/") {
+    return {
+      kind: "warn",
+      cleaned: origin,
+      message: `سيتم تجريد المسار "${path}" تلقائياً. القيمة المحفوظة: ${origin}`,
+    };
+  }
+  if (origin !== trimmed) {
+    return { kind: "ok", cleaned: origin, hint: `سيُحفظ كـ ${origin}` };
+  }
+  return { kind: "ok" };
+}
+
+function validateWebhookPath(raw: string): FieldValidation {
+  const s = (raw || "").trim();
+  if (!s) return { kind: "ok" };
+
+  // إن أُلصق URL كامل، استخرج pathname وأظهر تحذيراً
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const stripped = (u.pathname || "/") + (u.search || "");
+      return {
+        kind: "warn",
+        cleaned: stripped,
+        message: `سيتم إزالة origin تلقائياً. القيمة المحفوظة: ${stripped}`,
+      };
+    } catch {
+      return { kind: "error", message: "URL غير صالح في خانة Webhook Path." };
+    }
+  }
+
+  let v = s.startsWith("/") ? s : "/" + s;
+  v = v.replace(/\/{2,}/g, "/");
+
+  // الأحرف المسموحة (متطابقة مع الباك إند)
+  if (!/^\/[A-Za-z0-9/_\-{}.:%]*$/.test(v)) {
+    return {
+      kind: "error",
+      message: "Webhook Path يحتوي أحرفاً غير مسموحة. المسموح: A-Z a-z 0-9 / _ - { } . :",
+    };
+  }
+  if (v !== s) return { kind: "ok", cleaned: v, hint: `سيُحفظ كـ ${v}` };
+  return { kind: "ok" };
+}
+
+function FieldFeedback({ v }: { v: FieldValidation }) {
+  if (v.kind === "ok" && !v.hint) return null;
+  if (v.kind === "ok") {
+    return <p className="text-[11px] text-success mt-1 flex items-start gap-1">
+      <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" /> {v.hint}
+    </p>;
+  }
+  if (v.kind === "warn") {
+    return <p className="text-[11px] text-warning mt-1 flex items-start gap-1">
+      <Clock className="w-3 h-3 mt-0.5 shrink-0" /> {v.message}
+    </p>;
+  }
+  return <p className="text-[11px] text-destructive mt-1 flex items-start gap-1">
+    <XCircle className="w-3 h-3 mt-0.5 shrink-0" /> {v.message}
+  </p>;
+}
+
 function StatusChip({ status }: { status: ServiceStatus }) {
   const Icon = status === "connected" ? CheckCircle2
              : status === "failed"    ? XCircle
