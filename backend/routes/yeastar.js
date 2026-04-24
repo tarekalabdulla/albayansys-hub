@@ -646,4 +646,86 @@ router.get("/sync/trend", requireRole("admin"), async (_req, res) => {
   }
 });
 
+// ============================================================================
+// GET /effective-config — مرآة تشخيصية آمنة (admin only)
+// ----------------------------------------------------------------------------
+// تُرجع الإعدادات الفعّالة بعد الدمج (DB ∪ env) والتعقيم، مع مصدر كل قيمة
+// (db | env | default | none) — بدون أي أسرار. مفيدة للتحقق السريع من سلوك
+// runtime بعد PUT /config أو بعد تحديث .env و pm2 restart.
+//
+// الاستخدام:
+//   curl -H "Authorization: Bearer <ADMIN_JWT>" \
+//        https://api.<domain>/api/yeastar/effective-config | jq
+// ============================================================================
+router.get("/effective-config", requireRole("admin"), async (_req, res) => {
+  try {
+    const eff    = await getEffectiveConfig();
+    const source = getConfigSource(); // { baseUrl: 'db'|'env'|'none', webhookPath: ... }
+
+    // مصادر مشتقة لبقية الحقول الحساسة (set/unset فقط، لا قيم)
+    const dbCfg  = await loadConfig();
+    const sourceOf = (key) =>
+      (typeof dbCfg?.[key] === "string" && dbCfg[key].trim()) ||
+      (typeof dbCfg?.[key] === "boolean") ||
+      (Array.isArray(dbCfg?.[key]) && dbCfg[key].length)
+        ? "db"
+        : (process.env[`YEASTAR_${key.replace(/[A-Z]/g, (c) => "_" + c).toUpperCase()}`]
+            ? "env"
+            : "none");
+
+    res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(),
+
+      // الحقول البنيوية (آمنة للعرض)
+      baseUrl:     eff.baseUrl     || "",
+      webhookPath: eff.webhookPath || "",
+      allowedIps:  Array.isArray(eff.allowedIps) ? eff.allowedIps : [],
+      amiHost:     eff.amiHost     || "",
+      amiPort:     eff.amiPort     || null,
+
+      // مصادر الحقول البنيوية
+      sources: {
+        baseUrl:     source.baseUrl     || "none",
+        webhookPath: source.webhookPath || "none",
+        clientId:       sourceOf("clientId"),
+        clientSecret:   sourceOf("clientSecret"),
+        webhookSecret:  sourceOf("webhookSecret"),
+        amiHost:        sourceOf("amiHost"),
+        amiUsername:    sourceOf("amiUsername"),
+        amiPassword:    sourceOf("amiPassword"),
+        allowedIps:     Array.isArray(dbCfg?.allowedIps) && dbCfg.allowedIps.length ? "db"
+                        : (process.env.YEASTAR_ALLOWED_IPS ? "env" : "none"),
+      },
+
+      // علامات وجود الأسرار فقط (لا قيم)
+      flags: {
+        clientIdSet:      Boolean(eff.clientId),
+        clientSecretSet:  Boolean(eff.clientSecret),
+        webhookTokenSet:  Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
+        webhookSecretSet: Boolean(eff.webhookSecret),
+        amiPasswordSet:   Boolean(eff.amiPassword),
+      },
+
+      // toggles
+      toggles: {
+        enableOpenAPI: Boolean(eff.enableOpenAPI),
+        enableWebhook: Boolean(eff.enableWebhook),
+        enableAMI:     Boolean(eff.enableAMI),
+      },
+
+      // قيم .env الخام (بنيوية فقط، لا أسرار) — للمقارنة السريعة مع الفعّال
+      env: {
+        baseUrlRaw:    process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || null,
+        webhookPathRaw: process.env.YEASTAR_WEBHOOK_PATH || null,
+        allowedIpsRaw: (process.env.YEASTAR_ALLOWED_IPS || "")
+                         .split(",").map((s) => s.trim()).filter(Boolean),
+      },
+    });
+  } catch (e) {
+    console.error("[yeastar/effective-config]", e);
+    res.status(500).json({ ok: false, error: "load_failed", message: e.message });
+  }
+});
+
 export default router;
