@@ -13,6 +13,27 @@ import { useToast } from "@/hooks/use-toast";
 
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
 
+// نتيجة الاختبار التفصيلية — تطابق ما يعيده backend
+type TestStatus =
+  | "endpoint_reachable"   // 2xx — receiver سليم تماماً
+  | "invalid_signature"    // 401 — receiver يعمل لكن HMAC خاطئ
+  | "rejected_request"     // 403/503/4xx — receiver يعمل لكن رفض الطلب
+  | "endpoint_unreachable" // network error — لم نصل إليه
+  | "no_callback_received" // timeout كامل — لا ردّ
+  | "timeout_only"         // abort قبل المهلة
+  | "disabled";            // غير مضبوط
+
+interface TestResultData {
+  ok: boolean;
+  message: string;
+  durationMs: number;
+  at: number;
+  status?: TestStatus;
+  httpStatus?: number;
+  url?: string;
+  correlationId?: string;
+}
+
 interface WebhookInfo {
   status: ServiceStatus;
   secretConfigured: boolean;
