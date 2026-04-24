@@ -44,7 +44,7 @@ const SETTINGS_KEY = "yeastar_pbx";
 const HISTORY_KEY  = "yeastar_sync_history";
 
 // -------------------- Helpers --------------------
-const SECRET_FIELDS = new Set(["clientSecret", "webhookSecret", "amiPassword"]);
+const SECRET_FIELDS = new Set(["clientSecret", "apiPassword", "webhookSecret", "amiPassword"]);
 
 function stripSecrets(obj) {
   if (!obj || typeof obj !== "object") return {};
