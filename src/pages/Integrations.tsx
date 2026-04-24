@@ -184,7 +184,7 @@ export default function Integrations() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting]   = useState<Record<string, boolean>>({});
-  const [results, setResults]   = useState<Record<string, { ok: boolean; message: string; durationMs: number; at: number } | undefined>>({});
+  const [results, setResults]   = useState<Record<string, TestResultData | undefined>>({});
   const { toast } = useToast();
 
   async function load() {
