@@ -439,6 +439,11 @@ export default function Yeastar() {
   const status = data ? deriveStatus(data) : null;
   const c = data?.config || {};
 
+  // Realtime validation (memoized)
+  const baseUrlValidation     = useMemo(() => validateBaseUrl(form.baseUrl),         [form.baseUrl]);
+  const webhookPathValidation = useMemo(() => validateWebhookPath(form.webhookPath), [form.webhookPath]);
+  const hasFieldErrors        = baseUrlValidation.kind === "error" || webhookPathValidation.kind === "error";
+
   return (
     <AppLayout title="إعدادات Yeastar PBX" subtitle="تكامل LAN آمن مع زر تحديث موحّد">
       {loading && !data ? (
