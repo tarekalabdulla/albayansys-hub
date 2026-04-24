@@ -535,7 +535,10 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   // ---- 3) CDR pull (يعتمد على نجاح خطوة token)
   if (report.steps.token.ok) {
     // أعد طلب التوكن للحصول على القيمة (لا نخزّنها هنا)
-    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    const t = await fetchAccessToken(eff.baseUrl, {
+      effectiveMode: eff.authMode, fields: eff.authFields,
+      payload: eff.authPayload, missing: eff.authMissing, explicit: eff.authExplicit,
+    });
     if (t.ok) {
       const cdr = await fetchRecentCdr(eff.baseUrl, t.token, 100);
       if (cdr.ok) {
