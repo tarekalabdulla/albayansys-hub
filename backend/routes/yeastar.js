@@ -419,6 +419,17 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   const cfg = await loadConfig();
   const eff = getEffective(cfg);
 
+  // log آمن — يُظهر الحقول البنيوية ومصدرها (DB أم env)، بدون أسرار
+  console.log(
+    `[yeastar/sync] effective:`,
+    `baseUrl="${eff.baseUrl || "(empty)"}" (source=${eff.baseSource})`,
+    `webhookPath="${eff.webhookPath}" (source=${eff.webhookPathSource})`,
+    `clientIdSet=${Boolean(eff.clientId)}`,
+    `clientSecretSet=${Boolean(eff.clientSecret)}`,
+    `webhookTokenSet=${Boolean(eff.webhookToken)}`,
+    `webhookSecretSet=${Boolean(eff.webhookSecret)}`,
+  );
+
   const report = {
     startedAt,
     finishedAt: null,
