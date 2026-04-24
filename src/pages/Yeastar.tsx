@@ -827,10 +827,18 @@ export default function Yeastar() {
                   placeholder="/api/yeastar/webhook/call-event/{TOKEN}"
                   value={form.webhookPath}
                   onChange={(e) => setForm((p) => ({ ...p, webhookPath: e.target.value }))}
+                  aria-invalid={webhookPathValidation.kind === "error"}
+                  className={cn(
+                    webhookPathValidation.kind === "error" &&
+                      "border-destructive focus-visible:ring-destructive",
+                    webhookPathValidation.kind === "warn" &&
+                      "border-warning focus-visible:ring-warning",
+                  )}
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  المسار الكامل بعد الدومين. <code>{"{TOKEN}"}</code> يُستبدَل بـ <code>YEASTAR_WEBHOOK_TOKEN</code>.
+                  pathname فقط يبدأ بـ <code>/</code> (بدون <code dir="ltr">https://</code> وبدون اسم المضيف). <code>{"{TOKEN}"}</code> يُستبدَل بـ <code>YEASTAR_WEBHOOK_TOKEN</code>.
                 </p>
+                <FieldFeedback v={webhookPathValidation} />
               </div>
 
               <div>
