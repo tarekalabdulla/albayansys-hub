@@ -259,11 +259,31 @@ function getEffective(cfg) {
   const webhookPath = sanitizeWebhookPath(rawWebhookPath) || DEFAULT_WEBHOOK_PATH;
   const webhookPathSource = cfg.webhookPath ? "db" : (process.env.YEASTAR_WEBHOOK_PATH ? "env" : "default");
 
+  // ----- بناء shape المصادقة من DB ∪ env (DB يفوز) -----
+  const merged = {
+    authMode:     normalizeAuthMode(cfg.authMode || process.env.YEASTAR_AUTH_MODE || "") || "client_credentials",
+    clientId:     cfg.clientId     || process.env.YEASTAR_CLIENT_ID     || "",
+    clientSecret: cfg.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "",
+    apiUsername:  cfg.apiUsername  || process.env.YEASTAR_API_USERNAME  || "",
+    apiPassword:  cfg.apiPassword  || process.env.YEASTAR_API_PASSWORD  || "",
+  };
+  const shape = buildAuthPayloadShape(merged);
+
   return {
     baseUrl,
     baseSource,
-    clientId:      cfg.clientId      || process.env.YEASTAR_CLIENT_ID || "",
-    clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
+    // الحقول القديمة (للحفاظ على التوافق)
+    clientId:      merged.clientId,
+    clientSecret:  merged.clientSecret,
+    apiUsername:   merged.apiUsername,
+    apiPassword:   merged.apiPassword,
+    // shape موحَّد
+    authMode:      shape.effectiveMode,
+    authFields:    shape.fields,
+    authPayload:   shape.payload,
+    authMissing:   shape.missing,
+    authExplicit:  shape.explicit,
+    // webhook
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
     webhookPath,
