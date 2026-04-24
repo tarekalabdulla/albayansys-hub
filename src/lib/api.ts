@@ -3,9 +3,12 @@ import { API_URL } from "./config";
 
 const TOKEN_KEY = "callcenter:token";
 
+// ⚠️  Default timeout = 20s. الاختبارات الطويلة (Webhook self-test, OpenAPI test)
+// يجب أن تمرّر `timeout` خاصاً عند الاستدعاء، لأن backend قد يحتاج 30s+ ليُحدّد
+// no_callback_received vs endpoint_unreachable.
 export const api = axios.create({
   baseURL: `${API_URL}/api`,
-  timeout: 15_000,
+  timeout: 20_000,
 });
 
 api.interceptors.request.use((cfg) => {
