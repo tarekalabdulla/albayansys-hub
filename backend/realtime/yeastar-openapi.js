@@ -28,6 +28,7 @@ import {
   getEffectiveConfigSync,
   getConfigSource,
   sanitizeBaseUrl,
+  buildAuthPayloadShape,
 } from "../services/runtimeConfig.js";
 
 const RECONNECT_MIN_MS = 2_000;
