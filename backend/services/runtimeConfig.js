@@ -134,13 +134,34 @@ export function sanitizeWebhookPath(raw) {
 // قراءة من .env / DB ودمجهما
 // ----------------------------------------------------------------------------
 
+// قائمة أوضاع المصادقة المسموح بها لـ Yeastar Open API
+//   * client_credentials → payload = { client_id, client_secret }
+//   * basic_credentials  → payload = { username, password }
+// أي قيمة أخرى تُعتبر غير صحيحة وتُستبدل بـ "client_credentials".
+export const YEASTAR_AUTH_MODES = ["client_credentials", "basic_credentials"];
+
+export function normalizeAuthMode(raw) {
+  const v = (raw == null ? "" : String(raw)).trim().toLowerCase();
+  if (v === "basic_credentials" || v === "basic" || v === "username_password" || v === "password") {
+    return "basic_credentials";
+  }
+  if (v === "client_credentials" || v === "oauth" || v === "client" || v === "client_id_secret") {
+    return "client_credentials";
+  }
+  return ""; // غير محدد — يُستنتج لاحقاً من الحقول المتاحة
+}
+
 function envDefaults() {
   const rawBase = process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const envMode = normalizeAuthMode(process.env.YEASTAR_AUTH_MODE || "");
   return {
     // OpenAPI / OAuth
     baseUrl:        sanitizeBaseUrl(rawBase),
+    authMode:       envMode || "client_credentials", // الافتراضي
     clientId:       process.env.YEASTAR_CLIENT_ID || "",
     clientSecret:   process.env.YEASTAR_CLIENT_SECRET || "",
+    apiUsername:    process.env.YEASTAR_API_USERNAME || "",
+    apiPassword:    process.env.YEASTAR_API_PASSWORD || "",
 
     // Webhook
     webhookToken:   process.env.YEASTAR_WEBHOOK_TOKEN || "",
