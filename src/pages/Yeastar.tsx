@@ -38,9 +38,12 @@ interface ConfigEnvelope {
   config: {
     pbxIp?: string;
     baseUrl?: string;
+    authMode?: "client_credentials" | "basic_credentials";
     clientId?: string;
     clientIdIsSet?: boolean;
     clientSecretIsSet?: boolean;
+    apiUsername?: string;
+    apiPasswordIsSet?: boolean;
     webhookSecretIsSet?: boolean;
     webhookPath?: string;
     allowedIps?: string[];
