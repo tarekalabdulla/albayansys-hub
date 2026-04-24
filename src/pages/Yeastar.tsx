@@ -8,7 +8,7 @@
 //   • سجل آخر 20 مزامنة (وقت + حالة كل خطوة)
 // أمن: الأسرار لا تظهر أبداً في الواجهة — فقط ستحصل على شارة "مضبوط/غير مضبوط".
 // ============================================================================
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,116 @@ function fmtRelative(ts: number | string | null | undefined): string {
   if (diff < 3_600_000)  return `منذ ${Math.round(diff / 60_000)} دقيقة`;
   if (diff < 86_400_000) return `منذ ${Math.round(diff / 3_600_000)} ساعة`;
   return new Date(t).toLocaleString("ar");
+}
+
+// ---------------- Realtime field validators ----------------
+// نتأكد أن:
+//   * baseUrl       = origin فقط (https://host[:port]) — يرفض webhook URL أو مسار
+//   * webhookPath   = pathname فقط (يبدأ بـ /)         — يرفض origin كامل
+// نفس منطق الباك إند (sanitizeBaseUrl / sanitizeWebhookPath) لتجربة فورية بدون round-trip.
+type FieldValidation =
+  | { kind: "ok"; cleaned?: string; hint?: string }
+  | { kind: "warn"; message: string; cleaned?: string }
+  | { kind: "error"; message: string };
+
+function validateBaseUrl(raw: string): FieldValidation {
+  const s = (raw || "").trim();
+  if (!s) return { kind: "ok" };
+
+  // أضف https إن لم يحتو على بروتوكول (للسماح بتجربة الإلصاق دون حاجز فوري)
+  const withProto = /^https?:\/\//i.test(s) ? s : "https://" + s;
+
+  let u: URL;
+  try { u = new URL(withProto); }
+  catch { return { kind: "error", message: "URL غير صالح. مثال: https://pbx.example.com" }; }
+
+  const path  = (u.pathname || "/").replace(/\/+$/, "");
+  const lower = path.toLowerCase();
+
+  // كاشف صريح لـ webhook URL مُلصَق بالخطأ
+  if (
+    lower.includes("/api/yeastar") ||
+    lower.includes("/webhook")     ||
+    lower.includes("/call-event")  ||
+    s.includes("{TOKEN}")          ||
+    s.includes("%7BTOKEN%7D")
+  ) {
+    return {
+      kind: "error",
+      message:
+        "هذه القيمة تبدو وكأنها Webhook URL. Base URL يجب أن يكون origin فقط " +
+        "(مثال: https://pbx.example.com) — بدون /api/yeastar وبدون /webhook وبدون {TOKEN}.",
+    };
+  }
+
+  if (!/^https?:$/i.test(u.protocol)) {
+    return { kind: "error", message: "البروتوكول يجب أن يكون http أو https." };
+  }
+
+  // أي pathname آخر (مثل /openapi/v1.0/get_token) يُجرَّد ويحوَّل إلى تحذير
+  const origin  = `${u.protocol}//${u.host}`;
+  const trimmed = s.replace(/\/+$/, "");
+  if (path && path !== "" && path !== "/") {
+    return {
+      kind: "warn",
+      cleaned: origin,
+      message: `سيتم تجريد المسار "${path}" تلقائياً. القيمة المحفوظة: ${origin}`,
+    };
+  }
+  if (origin !== trimmed) {
+    return { kind: "ok", cleaned: origin, hint: `سيُحفظ كـ ${origin}` };
+  }
+  return { kind: "ok" };
+}
+
+function validateWebhookPath(raw: string): FieldValidation {
+  const s = (raw || "").trim();
+  if (!s) return { kind: "ok" };
+
+  // إن أُلصق URL كامل، استخرج pathname وأظهر تحذيراً
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const stripped = (u.pathname || "/") + (u.search || "");
+      return {
+        kind: "warn",
+        cleaned: stripped,
+        message: `سيتم إزالة origin تلقائياً. القيمة المحفوظة: ${stripped}`,
+      };
+    } catch {
+      return { kind: "error", message: "URL غير صالح في خانة Webhook Path." };
+    }
+  }
+
+  let v = s.startsWith("/") ? s : "/" + s;
+  v = v.replace(/\/{2,}/g, "/");
+
+  // الأحرف المسموحة (متطابقة مع الباك إند)
+  if (!/^\/[A-Za-z0-9/_\-{}.:%]*$/.test(v)) {
+    return {
+      kind: "error",
+      message: "Webhook Path يحتوي أحرفاً غير مسموحة. المسموح: A-Z a-z 0-9 / _ - { } . :",
+    };
+  }
+  if (v !== s) return { kind: "ok", cleaned: v, hint: `سيُحفظ كـ ${v}` };
+  return { kind: "ok" };
+}
+
+function FieldFeedback({ v }: { v: FieldValidation }) {
+  if (v.kind === "ok" && !v.hint) return null;
+  if (v.kind === "ok") {
+    return <p className="text-[11px] text-success mt-1 flex items-start gap-1">
+      <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" /> {v.hint}
+    </p>;
+  }
+  if (v.kind === "warn") {
+    return <p className="text-[11px] text-warning mt-1 flex items-start gap-1">
+      <Clock className="w-3 h-3 mt-0.5 shrink-0" /> {v.message}
+    </p>;
+  }
+  return <p className="text-[11px] text-destructive mt-1 flex items-start gap-1">
+    <XCircle className="w-3 h-3 mt-0.5 shrink-0" /> {v.message}
+  </p>;
 }
 
 function StatusChip({ status }: { status: ServiceStatus }) {
@@ -329,6 +439,11 @@ export default function Yeastar() {
   const status = data ? deriveStatus(data) : null;
   const c = data?.config || {};
 
+  // Realtime validation (memoized)
+  const baseUrlValidation     = useMemo(() => validateBaseUrl(form.baseUrl),         [form.baseUrl]);
+  const webhookPathValidation = useMemo(() => validateWebhookPath(form.webhookPath), [form.webhookPath]);
+  const hasFieldErrors        = baseUrlValidation.kind === "error" || webhookPathValidation.kind === "error";
+
   return (
     <AppLayout title="إعدادات Yeastar PBX" subtitle="تكامل LAN آمن مع زر تحديث موحّد">
       {loading && !data ? (
@@ -503,10 +618,18 @@ export default function Yeastar() {
                   dir="ltr"
                   value={form.baseUrl}
                   onChange={(e) => setForm((p) => ({ ...p, baseUrl: e.target.value }))}
+                  aria-invalid={baseUrlValidation.kind === "error"}
+                  className={cn(
+                    baseUrlValidation.kind === "error" &&
+                      "border-destructive focus-visible:ring-destructive",
+                    baseUrlValidation.kind === "warn" &&
+                      "border-warning focus-visible:ring-warning",
+                  )}
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  عنوان السنترال الكامل (RAS أو IP:port). بدون <code>/</code> في النهاية.
+                  عنوان السنترال (origin فقط: <code dir="ltr">https://host[:port]</code>). بدون <code>/openapi</code> وبدون <code>/api/yeastar</code> وبدون <code>{"{TOKEN}"}</code>.
                 </p>
+                <FieldFeedback v={baseUrlValidation} />
               </div>
 
               <div>
@@ -546,10 +669,16 @@ export default function Yeastar() {
                 <span>السر يُخزَّن في DB فقط ولا يُرسَل للواجهة. التوكن يُجدَّد تلقائياً.</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {hasFieldErrors && (
+                  <p className="text-[11px] text-destructive flex items-center gap-1 me-2">
+                    <XCircle className="w-3.5 h-3.5" />
+                    صحّح الأخطاء أعلاه قبل المتابعة
+                  </p>
+                )}
                 <Button
                   variant="secondary"
                   onClick={onTest}
-                  disabled={testing || saving || syncing}
+                  disabled={testing || saving || syncing || hasFieldErrors}
                   className="gap-2"
                 >
                   {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -558,13 +687,13 @@ export default function Yeastar() {
                 <Button
                   variant="outline"
                   onClick={() => onSave(true)}
-                  disabled={saving || syncing}
+                  disabled={saving || syncing || hasFieldErrors}
                   className="gap-2"
                 >
                   {(saving || syncing) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
                   حفظ + اختبار الاتصال
                 </Button>
-                <Button onClick={() => onSave(false)} disabled={saving} className="gap-2">
+                <Button onClick={() => onSave(false)} disabled={saving || hasFieldErrors} className="gap-2">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {saving ? "جاري الحفظ..." : "حفظ الإعدادات"}
                 </Button>
@@ -698,10 +827,18 @@ export default function Yeastar() {
                   placeholder="/api/yeastar/webhook/call-event/{TOKEN}"
                   value={form.webhookPath}
                   onChange={(e) => setForm((p) => ({ ...p, webhookPath: e.target.value }))}
+                  aria-invalid={webhookPathValidation.kind === "error"}
+                  className={cn(
+                    webhookPathValidation.kind === "error" &&
+                      "border-destructive focus-visible:ring-destructive",
+                    webhookPathValidation.kind === "warn" &&
+                      "border-warning focus-visible:ring-warning",
+                  )}
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  المسار الكامل بعد الدومين. <code>{"{TOKEN}"}</code> يُستبدَل بـ <code>YEASTAR_WEBHOOK_TOKEN</code>.
+                  pathname فقط يبدأ بـ <code>/</code> (بدون <code dir="ltr">https://</code> وبدون اسم المضيف). <code>{"{TOKEN}"}</code> يُستبدَل بـ <code>YEASTAR_WEBHOOK_TOKEN</code>.
                 </p>
+                <FieldFeedback v={webhookPathValidation} />
               </div>
 
               <div>
