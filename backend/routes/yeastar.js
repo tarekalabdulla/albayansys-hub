@@ -297,43 +297,71 @@ function maskSecret(s) {
   return `${s.slice(0, 3)}***${s.slice(-2)} (len=${s.length})`;
 }
 
-// OAuth حصراً — Yeastar P-Series Open API لا يقبل username/password.
-// payload: { client_id, client_secret }
 // ⚠️  baseUrl هنا يجب أن يكون origin فقط (مُعقَّم سابقاً). المسار ثابت في الكود.
-async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 15_000) {
+//
+// نَدعم الآن وضعين متبادلين تماماً (يُختار صراحةً من الإعدادات):
+//   * client_credentials → payload = { client_id, client_secret }
+//   * basic_credentials  → payload = { username, password }
+async function fetchAccessToken(baseUrl, authShape, timeoutMs = 15_000) {
   const url = `${baseUrl}/openapi/v1.0/get_token`;
+  const { effectiveMode, fields, payload, missing, explicit } = authShape;
+
   console.log(
     "[yeastar/sync] get_token →", url,
     `(base="${baseUrl}")`,
-    "auth=oauth",
-    "client_id=" + maskSecret(clientId),
-    "client_secret=" + maskSecret(clientSecret),
+    `authMode="${effectiveMode}"${explicit ? "" : " (inferred)"}`,
+    `fields=[${fields.join(", ")}]`,
+    `values={ ${fields.map((f) => `${f}=${maskSecret(payload[f])}`).join(", ")} }`,
     `timeout=${timeoutMs}ms`,
   );
+
+  if (missing.length) {
+    return {
+      ok: false,
+      error: `missing_${effectiveMode}_credentials (الحقول الناقصة: ${missing.join(", ")})`,
+      authMode: effectiveMode,
+      fields,
+    };
+  }
+
   const ctrl = new AbortController();
   const tm = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      body: JSON.stringify(payload),
       signal: ctrl.signal,
     });
     const data = await r.json().catch(() => ({}));
     const token = data.access_token || data.data?.access_token;
     console.log(
       `[yeastar/sync] get_token response http=${r.status}`,
+      `authMode="${effectiveMode}"`,
       `errcode=${data.errcode ?? "-"}`,
       `errmsg="${data.errmsg ?? ""}"`,
       `hasToken=${Boolean(token)}`,
     );
     if (r.ok && token) {
-      return { ok: true, token, expiresIn: data.expire_time || data.data?.expire_time || 1800 };
+      return {
+        ok: true, token,
+        expiresIn: data.expire_time || data.data?.expire_time || 1800,
+        authMode: effectiveMode,
+        fields,
+      };
     }
-    return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
+    return {
+      ok: false,
+      error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
+      authMode: effectiveMode,
+      fields,
+      httpStatus: r.status,
+      errcode: data.errcode ?? null,
+      errmsg: data.errmsg ?? null,
+    };
   } catch (e) {
     const reason = e.name === "AbortError" ? `timeout_${timeoutMs}ms` : e.message;
-    return { ok: false, error: reason };
+    return { ok: false, error: reason, authMode: effectiveMode, fields };
   } finally {
     clearTimeout(tm);
   }
