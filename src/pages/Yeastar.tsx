@@ -329,8 +329,11 @@ export default function Yeastar() {
       const c = cfg.config || {};
       setForm({
         baseUrl: c.baseUrl || cfg.env.baseUrl || "",
+        authMode: (c.authMode === "basic_credentials" ? "basic_credentials" : "client_credentials"),
         clientId: c.clientId || "",
         clientSecret: "",
+        apiUsername: c.apiUsername || "",
+        apiPassword: "",
         webhookSecret: "",
         webhookPath: c.webhookPath || cfg.env.webhookPath || "/api/yeastar/webhook/call-event/{TOKEN}",
         allowedIpsText: (c.allowedIps && c.allowedIps.length ? c.allowedIps : cfg.env.allowedIps).join("\n"),
