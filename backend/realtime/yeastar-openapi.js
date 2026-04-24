@@ -335,14 +335,24 @@ async function handleIncomingEvent(msg) {
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
-  const { base, baseSource, authMode } = cfg();
-  if (!base || authMode !== "oauth") {
-    log("⏭️  Yeastar Open API DISABLED — يحتاج YEASTAR_BASE_URL + YEASTAR_CLIENT_ID + YEASTAR_CLIENT_SECRET");
+  const { base, baseSource, authMode, authFields, authMissing } = cfg();
+  if (!base) {
+    log("⏭️  Yeastar Open API DISABLED — YEASTAR_BASE_URL غير مضبوط");
+    return;
+  }
+  if (authMissing.length) {
+    log(
+      `⏭️  Yeastar Open API DISABLED — authMode="${authMode}" ` +
+      `لكن الحقول الناقصة: [${authMissing.join(", ")}] (المتوقّع: [${authFields.join(", ")}])`
+    );
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`starting OpenAPI integration: base="${base}" (source=${baseSource}) auth=oauth`);
+  log(
+    `starting OpenAPI integration: base="${base}" (source=${baseSource}) ` +
+    `authMode="${authMode}" fields=[${authFields.join(", ")}]`
+  );
   try {
     await fetchToken();
     connectWs();
@@ -362,8 +372,10 @@ export function stopYeastarOpenApi() {
 export function getYeastarApiStatus() {
   const c = cfg();
   return {
-    configured: Boolean(c.base && c.authMode === "oauth"),
+    configured: Boolean(c.base && c.authMissing.length === 0),
     authMode: c.authMode || "none",
+    authFields: c.authFields || [],
+    authMissing: c.authMissing || [],
     baseUrl: c.base || null,
     baseUrlSource: c.baseSource || "none",
     hasToken: Boolean(state.accessToken),
