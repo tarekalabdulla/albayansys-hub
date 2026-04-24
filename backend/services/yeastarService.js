@@ -275,7 +275,9 @@ export function getServiceStatus() {
   const c = cfg();
   return {
     configured: isConfigured(),
-    authMode: isConfigured() ? "oauth" : "none",
+    authMode: c.authMode || "none",
+    authFields: c.authFields || [],
+    authMissing: c.authMissing || [],
     baseUrl: c.base || null,
     baseUrlSource: c.baseSource || "none",
     hasToken: Boolean(cache.accessToken),
