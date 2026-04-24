@@ -535,7 +535,18 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   try {
     const cfg = await loadConfig();
     const eff = getEffective(cfg);
-    const baseUrl      = (parsed.data.baseUrl?.trim() || eff.baseUrl || "").replace(/\/+$/, "");
+    // ⚠️ تعقيم baseUrl حتى لو أتى من body (قد يلصق المستخدم webhook URL)
+    const rawBaseInput = parsed.data.baseUrl?.trim();
+    const baseUrl      = rawBaseInput
+      ? sanitizeBaseUrl(rawBaseInput)
+      : eff.baseUrl;
+    if (rawBaseInput && !baseUrl) {
+      return res.status(400).json({
+        error: "invalid_base_url",
+        message: `Base URL مرفوض — يجب أن يكون origin فقط (مثل https://pbx.example.com).`,
+        received: rawBaseInput.slice(0, 200),
+      });
+    }
     const clientId     = parsed.data.clientId?.trim()     || eff.clientId;
     const clientSecret = parsed.data.clientSecret?.trim() || eff.clientSecret;
 
