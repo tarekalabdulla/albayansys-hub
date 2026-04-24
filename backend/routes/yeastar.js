@@ -227,15 +227,34 @@ router.put("/config", requireRole("admin"), async (req, res) => {
 // ============================================================================
 const DEFAULT_WEBHOOK_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
 
+// ⚠️  fix 2026-04 (B): الفصل التام بين baseUrl (OpenAPI) و webhookPath
+//   - baseUrl       = origin فقط؛ يُلحَق به /openapi/v1.0/* داخل الكود فقط
+//   - webhookPath   = pathname فقط؛ يُلحَق به origin طلب HTTP المحلي عند self-test
+//   - أي تلوّث (مثل لصق webhook URL في خانة Base URL من الواجهة) يُعقَّم هنا
+//     كطبقة دفاع أخيرة، حتى لو فلت من PUT /config.
 function getEffective(cfg) {
-  // الأولوية: DB ← .env
+  const rawBase = cfg.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const baseUrl = sanitizeBaseUrl(rawBase);
+  const baseSource = cfg.baseUrl ? "db" : (rawBase ? "env" : "none");
+  if (rawBase && baseUrl !== rawBase.replace(/\/+$/, "")) {
+    console.warn(
+      `[yeastar/getEffective] baseUrl was sanitized: raw="${rawBase}" → clean="${baseUrl}" (source=${baseSource})`
+    );
+  }
+
+  const rawWebhookPath = cfg.webhookPath || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH;
+  const webhookPath = sanitizeWebhookPath(rawWebhookPath) || DEFAULT_WEBHOOK_PATH;
+  const webhookPathSource = cfg.webhookPath ? "db" : (process.env.YEASTAR_WEBHOOK_PATH ? "env" : "default");
+
   return {
-    baseUrl:       (cfg.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "").replace(/\/+$/, ""),
+    baseUrl,
+    baseSource,
     clientId:      cfg.clientId      || process.env.YEASTAR_CLIENT_ID || "",
     clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
-    webhookPath:   cfg.webhookPath   || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH,
+    webhookPath,
+    webhookPathSource,
   };
 }
 
@@ -247,10 +266,12 @@ function maskSecret(s) {
 
 // OAuth حصراً — Yeastar P-Series Open API لا يقبل username/password.
 // payload: { client_id, client_secret }
+// ⚠️  baseUrl هنا يجب أن يكون origin فقط (مُعقَّم سابقاً). المسار ثابت في الكود.
 async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 15_000) {
   const url = `${baseUrl}/openapi/v1.0/get_token`;
   console.log(
     "[yeastar/sync] get_token →", url,
+    `(base="${baseUrl}")`,
     "auth=oauth",
     "client_id=" + maskSecret(clientId),
     "client_secret=" + maskSecret(clientSecret),
