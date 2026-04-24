@@ -30,7 +30,11 @@ import {
   sanitizeBaseUrl,
   sanitizeWebhookPath,
   getEffectiveConfig,
+  getEffectiveConfigSync,
   getConfigSource,
+  buildAuthPayloadShape,
+  normalizeAuthMode,
+  YEASTAR_AUTH_MODES,
 } from "../services/runtimeConfig.js";
 
 const router = Router();
