@@ -596,8 +596,11 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
 // أو يعود إلى المخزّنة في DB / .env إن لم تُرسَل.
 const testSchema = z.object({
   baseUrl:      z.string().trim().max(255).optional(),
+  authMode:     z.enum(["client_credentials", "basic_credentials"]).optional(),
   clientId:     z.string().trim().max(255).optional(),
   clientSecret: z.string().trim().max(512).optional(),
+  apiUsername:  z.string().trim().max(255).optional(),
+  apiPassword:  z.string().trim().max(512).optional(),
 }).strict();
 
 router.post("/sync/test", requireRole("admin"), async (req, res) => {
@@ -609,7 +612,6 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   try {
     const cfg = await loadConfig();
     const eff = getEffective(cfg);
-    // ⚠️ تعقيم baseUrl حتى لو أتى من body (قد يلصق المستخدم webhook URL)
     const rawBaseInput = parsed.data.baseUrl?.trim();
     const baseUrl      = rawBaseInput
       ? sanitizeBaseUrl(rawBaseInput)
@@ -621,24 +623,37 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
         received: rawBaseInput.slice(0, 200),
       });
     }
-    const clientId     = parsed.data.clientId?.trim()     || eff.clientId;
-    const clientSecret = parsed.data.clientSecret?.trim() || eff.clientSecret;
+
+    // ادمج body مع الإعدادات الفعّالة لبناء shape المصادقة
+    const mergedForShape = {
+      authMode:     normalizeAuthMode(parsed.data.authMode || "") || eff.authMode,
+      clientId:     parsed.data.clientId?.trim()     || eff.clientId,
+      clientSecret: parsed.data.clientSecret?.trim() || eff.clientSecret,
+      apiUsername:  parsed.data.apiUsername?.trim()  || eff.apiUsername,
+      apiPassword:  parsed.data.apiPassword?.trim()  || eff.apiPassword,
+    };
+    const shape = buildAuthPayloadShape(mergedForShape);
 
     const result = {
       durationMs: 0,
       baseUrl,
+      authMode: shape.effectiveMode,
+      authFields: shape.fields,
       token: { ok: false, message: "", expiresIn: 0, tokenPreview: "" },
       cdr:   { ok: false, message: "", fetched: 0, sample: [] },
     };
 
-    if (!baseUrl || !clientId || !clientSecret) {
-      result.token.message = "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)";
+    if (!baseUrl || shape.missing.length) {
+      const reason = !baseUrl
+        ? "baseUrl غير مضبوط"
+        : `authMode="${shape.effectiveMode}" — الحقول الناقصة: ${shape.missing.join(", ")}`;
+      result.token.message = `بيانات الاعتماد غير مكتملة (${reason})`;
       result.cdr.message = "تخطّيت — التوكن غير متاح";
       result.durationMs = Date.now() - t0;
       return res.json({ result });
     }
 
-    const t = await fetchAccessToken(baseUrl, clientId, clientSecret);
+    const t = await fetchAccessToken(baseUrl, shape);
     if (!t.ok) {
       result.token = { ok: false, message: t.error || "فشل get_token", expiresIn: 0, tokenPreview: "" };
       result.cdr.message = "تخطّيت — التوكن غير متاح";
@@ -647,7 +662,7 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
     }
     result.token = {
       ok: true,
-      message: `access_token صالح لـ ${t.expiresIn}s`,
+      message: `access_token صالح لـ ${t.expiresIn}s (authMode=${t.authMode})`,
       expiresIn: t.expiresIn,
       tokenPreview: `${t.token.slice(0, 8)}…${t.token.slice(-4)}`,
     };
