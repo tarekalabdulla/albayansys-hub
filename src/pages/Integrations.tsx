@@ -13,6 +13,27 @@ import { useToast } from "@/hooks/use-toast";
 
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
 
+// نتيجة الاختبار التفصيلية — تطابق ما يعيده backend
+type TestStatus =
+  | "endpoint_reachable"   // 2xx — receiver سليم تماماً
+  | "invalid_signature"    // 401 — receiver يعمل لكن HMAC خاطئ
+  | "rejected_request"     // 403/503/4xx — receiver يعمل لكن رفض الطلب
+  | "endpoint_unreachable" // network error — لم نصل إليه
+  | "no_callback_received" // timeout كامل — لا ردّ
+  | "timeout_only"         // abort قبل المهلة
+  | "disabled";            // غير مضبوط
+
+interface TestResultData {
+  ok: boolean;
+  message: string;
+  durationMs: number;
+  at: number;
+  status?: TestStatus;
+  httpStatus?: number;
+  url?: string;
+  correlationId?: string;
+}
+
 interface WebhookInfo {
   status: ServiceStatus;
   secretConfigured: boolean;
@@ -103,21 +124,45 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
-function TestResult({ result }: { result?: { ok: boolean; message: string; durationMs: number; at: number } }) {
+// خريطة الحالة → (label, tone) لتمييز نتائج اختبار Webhook بصرياً
+const TEST_STATUS_META: Record<TestStatus, { label: string; tone: "success" | "warning" | "destructive" | "muted" }> = {
+  endpoint_reachable:   { label: "Webhook receiver متاح ✓",       tone: "success" },
+  invalid_signature:    { label: "receiver يعمل — توقيع HMAC خاطئ", tone: "warning" },
+  rejected_request:     { label: "receiver يعمل — الطلب مرفوض",   tone: "warning" },
+  endpoint_unreachable: { label: "تعذّر الوصول للـ endpoint",      tone: "destructive" },
+  no_callback_received: { label: "لم يصل أي callback خلال المهلة", tone: "destructive" },
+  timeout_only:         { label: "انقطع الاتصال قبل المهلة",       tone: "warning" },
+  disabled:             { label: "غير مضبوط",                     tone: "muted" },
+};
+
+function TestResult({ result }: { result?: TestResultData }) {
   if (!result) return null;
+  const meta = result.status ? TEST_STATUS_META[result.status] : null;
+  const tone = meta?.tone || (result.ok ? "success" : "destructive");
   return (
     <div
       className={cn(
         "rounded-lg border px-3 py-2 text-xs flex items-start gap-2",
-        result.ok
-          ? "bg-success/10 border-success/30 text-success"
-          : "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "success"     && "bg-success/10 border-success/30 text-success",
+        tone === "warning"     && "bg-warning/10 border-warning/30 text-warning",
+        tone === "destructive" && "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "muted"       && "bg-muted border-border text-muted-foreground",
       )}
     >
-      {result.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
-      <div className="flex-1">
-        <p className="font-semibold">{result.ok ? "نجح" : "فشل"} ({result.durationMs}ms)</p>
+      {tone === "success"
+        ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+        : tone === "warning"
+          ? <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+      <div className="flex-1 space-y-1">
+        <p className="font-semibold">
+          {meta?.label || (result.ok ? "نجح" : "فشل")}
+          {" "}<span className="opacity-70 font-normal">({result.durationMs}ms{result.httpStatus ? ` · HTTP ${result.httpStatus}` : ""})</span>
+        </p>
         <p className="opacity-90 break-all">{result.message}</p>
+        {result.correlationId && (
+          <p className="opacity-60 font-mono text-[10px]">id: {result.correlationId}</p>
+        )}
       </div>
     </div>
   );
@@ -139,7 +184,7 @@ export default function Integrations() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting]   = useState<Record<string, boolean>>({});
-  const [results, setResults]   = useState<Record<string, { ok: boolean; message: string; durationMs: number; at: number } | undefined>>({});
+  const [results, setResults]   = useState<Record<string, TestResultData | undefined>>({});
   const { toast } = useToast();
 
   async function load() {
@@ -165,20 +210,36 @@ export default function Integrations() {
   async function runTest(kind: "webhook" | "openapi" | "ami") {
     setTesting((s) => ({ ...s, [kind]: true }));
     try {
-      const { data } = await api.post<{ ok: boolean; message: string; durationMs: number }>(
+      // ⚠️ webhook test في backend timeout = 30s، فنُعطي العميل 45s ليتسع.
+      // openapi/ami أقصر — 20s كافٍ.
+      const clientTimeout = kind === "webhook" ? 45_000 : 20_000;
+      const { data } = await api.post<TestResultData>(
         `/integrations/test/${kind}`,
+        undefined,
+        { timeout: clientTimeout },
       );
       setResults((s) => ({ ...s, [kind]: { ...data, at: Date.now() } }));
+      // toast نتيجة بنغمة مناسبة
+      const meta = data.status ? TEST_STATUS_META[data.status as TestStatus] : null;
       toast({
-        title: data.ok ? "نجح الاختبار" : "فشل الاختبار",
+        title: meta?.label || (data.ok ? "نجح الاختبار" : "فشل الاختبار"),
         description: data.message,
-        variant: data.ok ? "default" : "destructive",
+        variant: data.ok || meta?.tone === "warning" ? "default" : "destructive",
       });
       load();
     } catch (e) {
       const msg = (e as { message?: string })?.message || "تعذّر تنفيذ الاختبار";
-      setResults((s) => ({ ...s, [kind]: { ok: false, message: msg, durationMs: 0, at: Date.now() } }));
-      toast({ title: "خطأ", description: msg, variant: "destructive" });
+      setResults((s) => ({
+        ...s,
+        [kind]: {
+          ok: false,
+          message: `${msg} — هذا خطأ في عميل المتصفح، وليس بالضرورة في webhook receiver.`,
+          durationMs: 0,
+          at: Date.now(),
+          status: "timeout_only",
+        },
+      }));
+      toast({ title: "خطأ في العميل", description: msg, variant: "destructive" });
     } finally {
       setTesting((s) => ({ ...s, [kind]: false }));
     }
