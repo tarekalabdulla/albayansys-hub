@@ -58,17 +58,23 @@ function cfg() {
     warn(`baseUrl was sanitized: raw="${rawBase}" → clean="${base}" (source=${src.baseUrl})`);
   }
 
+  // shape موحَّد لـ payload المصادقة (client_credentials | basic_credentials)
+  const shape = buildAuthPayloadShape(live);
+
   return {
     base,
     baseSource: src.baseUrl || "none",
-    clientId:     live.clientId     || process.env.YEASTAR_CLIENT_ID     || "",
-    clientSecret: live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "",
+    authMode:    shape.effectiveMode,
+    authFields:  shape.fields,
+    authPayload: shape.payload,
+    authMissing: shape.missing,
+    authExplicit: shape.explicit,
   };
 }
 
 export function isConfigured() {
   const c = cfg();
-  return Boolean(c.base && c.clientId && c.clientSecret);
+  return Boolean(c.base && c.authMissing.length === 0);
 }
 
 // ----------------------------------------------------------------------------
