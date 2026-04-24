@@ -25,7 +25,11 @@ import { authRequired, requireRole } from "../middleware/auth.js";
 import { getYeastarApiStatus } from "../realtime/yeastar-openapi.js";
 import { getAmiStatus } from "../services/amiService.js";
 import { getWebhookStatus } from "./webhooks-yeastar.js";
-import { invalidateConfig } from "../services/runtimeConfig.js";
+import {
+  invalidateConfig,
+  sanitizeBaseUrl,
+  sanitizeWebhookPath,
+} from "../services/runtimeConfig.js";
 
 const router = Router();
 router.use(authRequired);
@@ -126,9 +130,7 @@ const configSchema = z.object({
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
   webhookSecret:  z.string().trim().max(512).optional(),
-  webhookPath:    z.string().trim().max(255)
-                    .regex(/^\/[A-Za-z0-9/_\-{}.:]*$/, "must start with / and contain url-safe chars")
-                    .optional(),
+  webhookPath:    z.string().trim().max(255).optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
   enabled:        z.boolean().optional(),
   // Phase 1 additions — toggles لكل قناة + إعدادات AMI
@@ -139,6 +141,9 @@ const configSchema = z.object({
   amiPort:        z.number().int().min(1).max(65535).optional(),
   amiUsername:    z.string().trim().max(128).optional(),
   amiPassword:    z.string().trim().max(512).optional(),
+  // داخلياً للحفظ بعد المزامنة (لا يأتي من الواجهة عادة)
+  lastSyncAt:     z.string().optional(),
+  lastSyncOk:     z.boolean().optional(),
 }).strict();
 
 router.put("/config", requireRole("admin"), async (req, res) => {
@@ -146,12 +151,71 @@ router.put("/config", requireRole("admin"), async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "invalid_input", details: parsed.error.flatten() });
   }
+
+  // ⚠️  fix 2026-04 (B): تعقيم صارم قبل الحفظ في DB
+  // - baseUrl يجب أن يكون origin فقط (https://host[:port])
+  // - webhookPath يجب أن يكون pathname فقط (يبدأ بـ /)
+  // أي قيمة ملوّثة (webhook URL في خانة Base URL، أو origin في خانة webhookPath)
+  // تُرفض هنا قبل ضربها في DB.
+  const data = { ...parsed.data };
+  const warnings = [];
+
+  if (typeof data.baseUrl === "string" && data.baseUrl.trim()) {
+    const cleaned = sanitizeBaseUrl(data.baseUrl);
+    if (!cleaned) {
+      return res.status(400).json({
+        error: "invalid_base_url",
+        message:
+          `قيمة Base URL مرفوضة: تبدو وكأنها webhook URL أو مسار. ` +
+          `يجب أن تكون origin فقط (مثل https://pbx.example.com) — بدون /openapi ` +
+          `وبدون /api/yeastar وبدون {TOKEN}.`,
+        received: data.baseUrl.slice(0, 200),
+      });
+    }
+    if (cleaned !== data.baseUrl.trim().replace(/\/+$/, "")) {
+      warnings.push(`baseUrl تم تنظيفه: "${data.baseUrl}" → "${cleaned}"`);
+    }
+    data.baseUrl = cleaned;
+  }
+
+  if (typeof data.webhookPath === "string" && data.webhookPath.trim()) {
+    const cleaned = sanitizeWebhookPath(data.webhookPath);
+    if (!cleaned) {
+      return res.status(400).json({
+        error: "invalid_webhook_path",
+        message: `Webhook Path يجب أن يبدأ بـ / ويحوي مسار URL آمن (مثل /api/yeastar/webhook/call-event/{TOKEN}).`,
+        received: data.webhookPath.slice(0, 200),
+      });
+    }
+    // تحقّق أن المسار مكوّن من أحرف URL آمنة (سمحنا أيضاً بـ {TOKEN} placeholder)
+    if (!/^\/[A-Za-z0-9/_\-{}.:%]*$/.test(cleaned)) {
+      return res.status(400).json({
+        error: "invalid_webhook_path",
+        message: `Webhook Path يحتوي أحرفاً غير مسموحة. المسموح: A-Z a-z 0-9 / _ - { } . :`,
+        received: cleaned,
+      });
+    }
+    if (cleaned !== data.webhookPath.trim()) {
+      warnings.push(`webhookPath تم تنظيفه: "${data.webhookPath}" → "${cleaned}"`);
+    }
+    data.webhookPath = cleaned;
+  }
+
+  if (warnings.length) {
+    console.warn("[yeastar/config:put] sanitization warnings:", warnings.join(" | "));
+  }
+
   try {
-    const merged = await saveConfig(parsed.data, req.user.sub);
+    const merged = await saveConfig(data, req.user.sub);
     // طبّق الإعدادات الجديدة فوراً على كل الخدمات (Webhook + AMI + ...)
     // subscribeConfig listeners ستتولى إعادة تشغيل AMI تلقائياً.
     await invalidateConfig();
-    res.json({ ok: true, config: stripSecrets(merged), applied: true });
+    console.log(
+      `[yeastar/config:put] saved by user=${req.user.sub}`,
+      `baseUrl="${merged.baseUrl || "(empty)"}"`,
+      `webhookPath="${merged.webhookPath || "(empty)"}"`,
+    );
+    res.json({ ok: true, config: stripSecrets(merged), applied: true, warnings });
   } catch (e) {
     console.error("[yeastar/config:put]", e);
     res.status(500).json({ error: "save_failed", message: e.message });
@@ -163,15 +227,34 @@ router.put("/config", requireRole("admin"), async (req, res) => {
 // ============================================================================
 const DEFAULT_WEBHOOK_PATH = "/api/yeastar/webhook/call-event/{TOKEN}";
 
+// ⚠️  fix 2026-04 (B): الفصل التام بين baseUrl (OpenAPI) و webhookPath
+//   - baseUrl       = origin فقط؛ يُلحَق به /openapi/v1.0/* داخل الكود فقط
+//   - webhookPath   = pathname فقط؛ يُلحَق به origin طلب HTTP المحلي عند self-test
+//   - أي تلوّث (مثل لصق webhook URL في خانة Base URL من الواجهة) يُعقَّم هنا
+//     كطبقة دفاع أخيرة، حتى لو فلت من PUT /config.
 function getEffective(cfg) {
-  // الأولوية: DB ← .env
+  const rawBase = cfg.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const baseUrl = sanitizeBaseUrl(rawBase);
+  const baseSource = cfg.baseUrl ? "db" : (rawBase ? "env" : "none");
+  if (rawBase && baseUrl !== rawBase.replace(/\/+$/, "")) {
+    console.warn(
+      `[yeastar/getEffective] baseUrl was sanitized: raw="${rawBase}" → clean="${baseUrl}" (source=${baseSource})`
+    );
+  }
+
+  const rawWebhookPath = cfg.webhookPath || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH;
+  const webhookPath = sanitizeWebhookPath(rawWebhookPath) || DEFAULT_WEBHOOK_PATH;
+  const webhookPathSource = cfg.webhookPath ? "db" : (process.env.YEASTAR_WEBHOOK_PATH ? "env" : "default");
+
   return {
-    baseUrl:       (cfg.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "").replace(/\/+$/, ""),
+    baseUrl,
+    baseSource,
     clientId:      cfg.clientId      || process.env.YEASTAR_CLIENT_ID || "",
     clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
-    webhookPath:   cfg.webhookPath   || process.env.YEASTAR_WEBHOOK_PATH || DEFAULT_WEBHOOK_PATH,
+    webhookPath,
+    webhookPathSource,
   };
 }
 
@@ -183,10 +266,12 @@ function maskSecret(s) {
 
 // OAuth حصراً — Yeastar P-Series Open API لا يقبل username/password.
 // payload: { client_id, client_secret }
+// ⚠️  baseUrl هنا يجب أن يكون origin فقط (مُعقَّم سابقاً). المسار ثابت في الكود.
 async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 15_000) {
   const url = `${baseUrl}/openapi/v1.0/get_token`;
   console.log(
     "[yeastar/sync] get_token →", url,
+    `(base="${baseUrl}")`,
     "auth=oauth",
     "client_id=" + maskSecret(clientId),
     "client_secret=" + maskSecret(clientSecret),
@@ -334,6 +419,17 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   const cfg = await loadConfig();
   const eff = getEffective(cfg);
 
+  // log آمن — يُظهر الحقول البنيوية ومصدرها (DB أم env)، بدون أسرار
+  console.log(
+    `[yeastar/sync] effective:`,
+    `baseUrl="${eff.baseUrl || "(empty)"}" (source=${eff.baseSource})`,
+    `webhookPath="${eff.webhookPath}" (source=${eff.webhookPathSource})`,
+    `clientIdSet=${Boolean(eff.clientId)}`,
+    `clientSecretSet=${Boolean(eff.clientSecret)}`,
+    `webhookTokenSet=${Boolean(eff.webhookToken)}`,
+    `webhookSecretSet=${Boolean(eff.webhookSecret)}`,
+  );
+
   const report = {
     startedAt,
     finishedAt: null,
@@ -439,7 +535,18 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   try {
     const cfg = await loadConfig();
     const eff = getEffective(cfg);
-    const baseUrl      = (parsed.data.baseUrl?.trim() || eff.baseUrl || "").replace(/\/+$/, "");
+    // ⚠️ تعقيم baseUrl حتى لو أتى من body (قد يلصق المستخدم webhook URL)
+    const rawBaseInput = parsed.data.baseUrl?.trim();
+    const baseUrl      = rawBaseInput
+      ? sanitizeBaseUrl(rawBaseInput)
+      : eff.baseUrl;
+    if (rawBaseInput && !baseUrl) {
+      return res.status(400).json({
+        error: "invalid_base_url",
+        message: `Base URL مرفوض — يجب أن يكون origin فقط (مثل https://pbx.example.com).`,
+        received: rawBaseInput.slice(0, 200),
+      });
+    }
     const clientId     = parsed.data.clientId?.trim()     || eff.clientId;
     const clientSecret = parsed.data.clientSecret?.trim() || eff.clientSecret;
 

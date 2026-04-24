@@ -9,7 +9,11 @@ import { verifyToken } from "../middleware/auth.js";
 import { getYeastarApiStatus } from "../realtime/yeastar-openapi.js";
 import { getAmiStatus } from "../services/amiService.js";
 import { getWebhookStatus } from "./webhooks-yeastar.js";
-import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
+import {
+  getEffectiveConfigSync,
+  getConfigSource,
+  sanitizeBaseUrl,
+} from "../services/runtimeConfig.js";
 
 function maskSecret(s) {
   if (!s || typeof s !== "string") return "(empty)";
@@ -208,19 +212,26 @@ router.post("/test/webhook", async (req, res) => {
 // ============================================================================
 // OpenAPI test — يجرّب get_token مباشرة على PBX
 // OAuth حصراً (client_id + client_secret). لا fallback إلى username/password.
+//
+// ⚠️  fix 2026-04 (B): الـ baseUrl يُعقَّم دوماً — يُرفض/يُجرَّد أي قيمة
+//     تحتوي على /openapi أو /api/yeastar أو webhook URL.
+//     المسار /openapi/v1.0/get_token ثابت في الكود.
 // ============================================================================
 const OPENAPI_TEST_TIMEOUT_MS = 15_000;
 
 router.post("/test/openapi", async (_req, res) => {
   const t0 = Date.now();
   const live = getEffectiveConfigSync() || {};
-  const base = (live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
-    .replace(/\/+$/, "");
+  const src  = getConfigSource() || { baseUrl: "none" };
+
+  const rawBase = live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const base    = sanitizeBaseUrl(rawBase);
   const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
   const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
 
   console.log("[integrations/test/openapi] starting",
-    "base=" + (base || "(empty)"),
+    `base="${base || "(empty)"}" (source=${src.baseUrl})`,
+    rawBase && rawBase !== base ? `(raw was sanitized from "${rawBase.slice(0, 120)}")` : "",
     "auth=oauth",
     "client_id=" + maskSecret(clientId),
     "client_secret=" + maskSecret(clientSecret),
@@ -230,7 +241,9 @@ router.post("/test/openapi", async (_req, res) => {
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
-      message: "YEASTAR_BASE_URL غير مضبوط في الإعدادات/البيئة",
+      message: rawBase
+        ? `Base URL مرفوض بعد التعقيم — القيمة المخزّنة "${rawBase.slice(0, 80)}…" تبدو وكأنها webhook URL أو مسار. ضع origin فقط مثل https://pbx.example.com`
+        : "YEASTAR_BASE_URL غير مضبوط في الإعدادات/البيئة",
     });
   }
   if (!clientId || !clientSecret) {
@@ -241,6 +254,7 @@ router.post("/test/openapi", async (_req, res) => {
     });
   }
 
+  // ⚠️ المسار ثابت — لا يأتي من DB ولا env
   const url = `${base}/openapi/v1.0/get_token`;
   const payload = { client_id: clientId, client_secret: clientSecret };
 
@@ -260,6 +274,7 @@ router.post("/test/openapi", async (_req, res) => {
       `[integrations/test/openapi] response http=${r.status}`,
       `errcode=${data.errcode ?? "-"}`,
       `errmsg="${data.errmsg ?? ""}"`,
+      `endpoint="${url}"`,
     );
 
     const accessToken = data.access_token || data.data?.access_token;
@@ -268,6 +283,8 @@ router.post("/test/openapi", async (_req, res) => {
         ok: true,
         durationMs: Date.now() - t0,
         endpoint: url,
+        baseUrl: base,
+        baseUrlSource: src.baseUrl,
         authMode: "oauth",
         expiresIn: data.expire_time || data.data?.expire_time || 1800,
         message: `حصلنا على access_token من ${base} بنجاح (OAuth).`,
@@ -277,6 +294,8 @@ router.post("/test/openapi", async (_req, res) => {
       ok: false,
       durationMs: Date.now() - t0,
       endpoint: url,
+      baseUrl: base,
+      baseUrlSource: src.baseUrl,
       authMode: "oauth",
       httpStatus: r.status,
       errcode: data.errcode ?? null,
@@ -288,11 +307,13 @@ router.post("/test/openapi", async (_req, res) => {
     const reason = e.name === "AbortError"
       ? `انتهت المهلة بعد ${OPENAPI_TEST_TIMEOUT_MS}ms`
       : e.message;
-    console.warn(`[integrations/test/openapi] network error: ${reason}`);
+    console.warn(`[integrations/test/openapi] network error: ${reason} endpoint="${url}"`);
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
       endpoint: url,
+      baseUrl: base,
+      baseUrlSource: src.baseUrl,
       authMode: "oauth",
       message: `تعذّر الوصول لـ ${base}: ${reason}`,
     });

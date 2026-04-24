@@ -10,12 +10,21 @@
 //     client_id + client_secret؛ أي fallback لـ username/password كان يُعيد
 //     40002 PARAMETER ERROR.
 //
+// ⚠️  fix 2026-04 (B): الـ baseUrl يُعقَّم دوماً عبر sanitizeBaseUrl
+//     (origin فقط — لا /openapi، لا /api/yeastar، لا webhook، لا {TOKEN}).
+//     المسارات (مثل /openapi/v1.0/get_token) ثابتة في الكود ولا تأتي
+//     مطلقاً من DB ولا من env.
+//
 // ENV / DB المطلوبة (DB يفوز عند التعارض):
 //   YEASTAR_BASE_URL     = https://pbx.example.com[:port]
 //   YEASTAR_CLIENT_ID    = ...
 //   YEASTAR_CLIENT_SECRET= ...
 // ============================================================================
-import { getEffectiveConfigSync } from "./runtimeConfig.js";
+import {
+  getEffectiveConfigSync,
+  getConfigSource,
+  sanitizeBaseUrl,
+} from "./runtimeConfig.js";
 
 const USER_AGENT = "HululAlbayan-CallCenter/1.0 (+yeastar-integration)";
 const TOKEN_REFRESH_MARGIN_MS = 60_000;   // جدّد قبل الانتهاء بدقيقة
@@ -39,10 +48,18 @@ function maskSecret(s) {
 
 function cfg() {
   const live = getEffectiveConfigSync() || {};
-  const base = (live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
-    .replace(/\/+$/, "");
+  const src  = getConfigSource() || { baseUrl: "none" };
+
+  const rawBase = live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const base    = sanitizeBaseUrl(rawBase);
+
+  if (rawBase && base !== rawBase.replace(/\/+$/, "")) {
+    warn(`baseUrl was sanitized: raw="${rawBase}" → clean="${base}" (source=${src.baseUrl})`);
+  }
+
   return {
     base,
+    baseSource: src.baseUrl || "none",
     clientId:     live.clientId     || process.env.YEASTAR_CLIENT_ID     || "",
     clientSecret: live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "",
   };
@@ -78,17 +95,19 @@ async function safeFetch(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
 // Token management — OAuth حصراً
 // ----------------------------------------------------------------------------
 async function fetchTokenFresh() {
-  const { base, clientId, clientSecret } = cfg();
+  const { base, baseSource, clientId, clientSecret } = cfg();
   if (!base) throw new Error("yeastar_missing_base_url");
   if (!clientId || !clientSecret) {
     throw new Error("yeastar_missing_oauth_credentials (client_id + client_secret مطلوبان)");
   }
 
+  // ⚠️ المسار ثابت — يُلحَق بـ base origin فقط
   const url = `${base}/openapi/v1.0/get_token`;
   const payload = { client_id: clientId, client_secret: clientSecret };
 
   log(
     "get_token →", url,
+    `(base="${base}" source=${baseSource})`,
     "auth=oauth",
     "client_id=" + maskSecret(clientId),
     "client_secret=" + maskSecret(clientSecret),
@@ -239,9 +258,12 @@ export async function downloadFile(path, { timeoutMs = 30_000 } = {}) {
 // الحالة (للتشخيص)
 // ----------------------------------------------------------------------------
 export function getServiceStatus() {
+  const c = cfg();
   return {
     configured: isConfigured(),
     authMode: isConfigured() ? "oauth" : "none",
+    baseUrl: c.base || null,
+    baseUrlSource: c.baseSource || "none",
     hasToken: Boolean(cache.accessToken),
     expiresInSec: cache.expireAt ? Math.max(0, Math.round((cache.expireAt - Date.now()) / 1000)) : 0,
   };
