@@ -13,6 +13,7 @@ import {
   getEffectiveConfigSync,
   getConfigSource,
   sanitizeBaseUrl,
+  buildAuthPayloadShape,
 } from "../services/runtimeConfig.js";
 
 function maskSecret(s) {
