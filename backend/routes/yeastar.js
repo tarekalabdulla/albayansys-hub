@@ -695,6 +695,32 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   }
 });
 
+// ============================================================================
+// GET /auth-payload-shape — يُرجع شكل الـ payload المُستخدم لـ get_token
+// ----------------------------------------------------------------------------
+// مفيد للتحقق السريع من الوضع المختار قبل ضرب PBX. لا يُرجع أي قيم سرّية —
+// فقط أسماء الحقول والـ endpoint والوضع المُستنتج/الصريح.
+// ============================================================================
+router.get("/auth-payload-shape", requireRole("admin"), async (_req, res) => {
+  try {
+    const eff = await getEffectiveConfig();
+    const shape = buildAuthPayloadShape(eff);
+    const baseUrl = eff.baseUrl || "";
+    res.json({
+      authMode: shape.effectiveMode,
+      explicit: shape.explicit,
+      fields: shape.fields,
+      missing: shape.missing,
+      endpoint: baseUrl ? `${baseUrl}/openapi/v1.0/get_token` : null,
+      baseUrl: baseUrl || null,
+      supportedModes: YEASTAR_AUTH_MODES,
+    });
+  } catch (e) {
+    console.error("[yeastar/auth-payload-shape]", e);
+    res.status(500).json({ error: "load_failed", message: e.message });
+  }
+});
+
 // -------------------- GET /sync/history --------------------
 router.get("/sync/history", requireRole("admin"), async (_req, res) => {
   try {
