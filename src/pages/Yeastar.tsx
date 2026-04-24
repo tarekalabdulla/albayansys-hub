@@ -38,9 +38,12 @@ interface ConfigEnvelope {
   config: {
     pbxIp?: string;
     baseUrl?: string;
+    authMode?: "client_credentials" | "basic_credentials";
     clientId?: string;
     clientIdIsSet?: boolean;
     clientSecretIsSet?: boolean;
+    apiUsername?: string;
+    apiPasswordIsSet?: boolean;
     webhookSecretIsSet?: boolean;
     webhookPath?: string;
     allowedIps?: string[];
@@ -293,12 +296,16 @@ export default function Yeastar() {
   // form state — يشمل الآن: API + Webhook + AMI
   const [form, setForm] = useState({
     baseUrl: "",
+    // وضع المصادقة الصريح — يتحكّم بحقول get_token payload
+    authMode: "client_credentials" as "client_credentials" | "basic_credentials",
     clientId: "",
     clientSecret: "",
+    apiUsername: "",
+    apiPassword: "",
     // Webhook
     webhookSecret: "",
     webhookPath: "/api/yeastar/webhook/call-event/{TOKEN}",
-    allowedIpsText: "", // مفصول بأسطر/فواصل
+    allowedIpsText: "",
     enableWebhook: true,
     enableOpenAPI: true,
     // AMI

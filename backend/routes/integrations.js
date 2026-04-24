@@ -13,6 +13,7 @@ import {
   getEffectiveConfigSync,
   getConfigSource,
   sanitizeBaseUrl,
+  buildAuthPayloadShape,
 } from "../services/runtimeConfig.js";
 
 function maskSecret(s) {
@@ -267,37 +268,38 @@ router.post("/test/openapi", async (_req, res) => {
 
   const rawBase = live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
   const base    = sanitizeBaseUrl(rawBase);
-  const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
-  const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
+  const shape   = buildAuthPayloadShape(live);
 
   console.log("[integrations/test/openapi] starting",
     `base="${base || "(empty)"}" (source=${src.baseUrl})`,
     rawBase && rawBase !== base ? `(raw was sanitized from "${rawBase.slice(0, 120)}")` : "",
-    "auth=oauth",
-    "client_id=" + maskSecret(clientId),
-    "client_secret=" + maskSecret(clientSecret),
+    `authMode="${shape.effectiveMode}"${shape.explicit ? "" : " (inferred)"}`,
+    `fields=[${shape.fields.join(", ")}]`,
+    `values={ ${shape.fields.map((f) => `${f}=${maskSecret(shape.payload[f])}`).join(", ")} }`,
   );
 
   if (!base) {
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
+      authMode: shape.effectiveMode,
       message: rawBase
         ? `Base URL مرفوض بعد التعقيم — القيمة المخزّنة "${rawBase.slice(0, 80)}…" تبدو وكأنها webhook URL أو مسار. ضع origin فقط مثل https://pbx.example.com`
         : "YEASTAR_BASE_URL غير مضبوط في الإعدادات/البيئة",
     });
   }
-  if (!clientId || !clientSecret) {
+  if (shape.missing.length) {
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
-      message: "بيانات OAuth ناقصة — مطلوب client_id + client_secret (لا ندعم username/password)",
+      authMode: shape.effectiveMode,
+      authFields: shape.fields,
+      message: `بيانات المصادقة ناقصة لوضع "${shape.effectiveMode}" — الحقول الناقصة: ${shape.missing.join(", ")}`,
     });
   }
 
   // ⚠️ المسار ثابت — لا يأتي من DB ولا env
   const url = `${base}/openapi/v1.0/get_token`;
-  const payload = { client_id: clientId, client_secret: clientSecret };
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), OPENAPI_TEST_TIMEOUT_MS);
@@ -305,7 +307,7 @@ router.post("/test/openapi", async (_req, res) => {
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(shape.payload),
       signal: ctrl.signal,
     });
     clearTimeout(timer);
@@ -313,6 +315,7 @@ router.post("/test/openapi", async (_req, res) => {
 
     console.log(
       `[integrations/test/openapi] response http=${r.status}`,
+      `authMode="${shape.effectiveMode}"`,
       `errcode=${data.errcode ?? "-"}`,
       `errmsg="${data.errmsg ?? ""}"`,
       `endpoint="${url}"`,
@@ -326,9 +329,10 @@ router.post("/test/openapi", async (_req, res) => {
         endpoint: url,
         baseUrl: base,
         baseUrlSource: src.baseUrl,
-        authMode: "oauth",
+        authMode: shape.effectiveMode,
+        authFields: shape.fields,
         expiresIn: data.expire_time || data.data?.expire_time || 1800,
-        message: `حصلنا على access_token من ${base} بنجاح (OAuth).`,
+        message: `حصلنا على access_token من ${base} بنجاح (authMode=${shape.effectiveMode}).`,
       });
     }
     return res.json({
@@ -337,11 +341,12 @@ router.post("/test/openapi", async (_req, res) => {
       endpoint: url,
       baseUrl: base,
       baseUrlSource: src.baseUrl,
-      authMode: "oauth",
+      authMode: shape.effectiveMode,
+      authFields: shape.fields,
       httpStatus: r.status,
       errcode: data.errcode ?? null,
       errmsg: data.errmsg ?? null,
-      message: `رفض PBX المصادقة: errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
+      message: `رفض PBX المصادقة (authMode=${shape.effectiveMode}, fields=[${shape.fields.join(",")}]): errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
     });
   } catch (e) {
     clearTimeout(timer);
@@ -355,7 +360,7 @@ router.post("/test/openapi", async (_req, res) => {
       endpoint: url,
       baseUrl: base,
       baseUrlSource: src.baseUrl,
-      authMode: "oauth",
+      authMode: shape.effectiveMode,
       message: `تعذّر الوصول لـ ${base}: ${reason}`,
     });
   }

@@ -134,13 +134,34 @@ export function sanitizeWebhookPath(raw) {
 // قراءة من .env / DB ودمجهما
 // ----------------------------------------------------------------------------
 
+// قائمة أوضاع المصادقة المسموح بها لـ Yeastar Open API
+//   * client_credentials → payload = { client_id, client_secret }
+//   * basic_credentials  → payload = { username, password }
+// أي قيمة أخرى تُعتبر غير صحيحة وتُستبدل بـ "client_credentials".
+export const YEASTAR_AUTH_MODES = ["client_credentials", "basic_credentials"];
+
+export function normalizeAuthMode(raw) {
+  const v = (raw == null ? "" : String(raw)).trim().toLowerCase();
+  if (v === "basic_credentials" || v === "basic" || v === "username_password" || v === "password") {
+    return "basic_credentials";
+  }
+  if (v === "client_credentials" || v === "oauth" || v === "client" || v === "client_id_secret") {
+    return "client_credentials";
+  }
+  return ""; // غير محدد — يُستنتج لاحقاً من الحقول المتاحة
+}
+
 function envDefaults() {
   const rawBase = process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const envMode = normalizeAuthMode(process.env.YEASTAR_AUTH_MODE || "");
   return {
     // OpenAPI / OAuth
     baseUrl:        sanitizeBaseUrl(rawBase),
+    authMode:       envMode || "client_credentials", // الافتراضي
     clientId:       process.env.YEASTAR_CLIENT_ID || "",
     clientSecret:   process.env.YEASTAR_CLIENT_SECRET || "",
+    apiUsername:    process.env.YEASTAR_API_USERNAME || "",
+    apiPassword:    process.env.YEASTAR_API_PASSWORD || "",
 
     // Webhook
     webhookToken:   process.env.YEASTAR_WEBHOOK_TOKEN || "",
@@ -204,10 +225,18 @@ function mergeWithDb(env, db) {
   // ----- بقية النصوص (لا تتأثر بالخلط مع OpenAPI base): DB يفوز إذا غير فارغ
   for (const k of [
     "clientId", "clientSecret",
+    "apiUsername", "apiPassword",
     "webhookSecret",
     "amiHost", "amiUsername", "amiPassword",
   ]) {
     if (typeof db[k] === "string" && db[k].trim()) out[k] = db[k].trim();
+  }
+
+  // ----- authMode (client_credentials | basic_credentials)
+  if (typeof db.authMode === "string" && db.authMode.trim()) {
+    const m = normalizeAuthMode(db.authMode);
+    if (m) out.authMode = m;
+    else console.warn(`[runtimeConfig] unknown authMode in DB: "${db.authMode}", keeping "${out.authMode}"`);
   }
 
   // ----- أرقام
@@ -246,8 +275,11 @@ async function loadEffective() {
     `[runtimeConfig] effective Yeastar config:`,
     `baseUrl="${merged.baseUrl || "(empty)"}" (source=${cache.source.baseUrl})`,
     `webhookPath="${merged.webhookPath || "(empty)"}" (source=${cache.source.webhookPath})`,
+    `authMode="${merged.authMode}"`,
     `clientIdSet=${Boolean(merged.clientId)}`,
     `clientSecretSet=${Boolean(merged.clientSecret)}`,
+    `apiUsernameSet=${Boolean(merged.apiUsername)}`,
+    `apiPasswordSet=${Boolean(merged.apiPassword)}`,
     `webhookSecretSet=${Boolean(merged.webhookSecret)}`,
     `enableOpenAPI=${merged.enableOpenAPI}`,
     `enableWebhook=${merged.enableWebhook}`,
@@ -321,4 +353,57 @@ export async function bootstrapConfig() {
   } catch (e) {
     console.warn("[runtimeConfig] bootstrap failed:", e.message);
   }
+}
+
+// ============================================================================
+// Auth payload shape — مصدر حقيقة موحَّد لما يُرسَل لـ /openapi/v1.0/get_token
+// ----------------------------------------------------------------------------
+// نُحدّد بشكل صريح وآمن:
+//   * effectiveMode : "client_credentials" | "basic_credentials"
+//   * fields        : أسماء حقول الـ payload (بدون قيم)
+//   * payload       : الجسم الفعلي (يحوي القيم — لا يُسجَّل أبداً)
+//   * missing       : أي حقول مطلوبة لكن غير مضبوطة
+//
+// السلوك:
+//   1) إذا حُدِّد authMode صراحةً، نستخدمه كما هو (لا fallback ضمني).
+//   2) إذا لم يُحدَّد، نستنتجه: client_credentials أولاً ثم basic_credentials.
+//   3) لا نخلط بين الوضعين أبداً (لا نُرسل username + client_id معاً).
+// ============================================================================
+export function buildAuthPayloadShape(eff) {
+  const cfg = eff || {};
+  const explicit = normalizeAuthMode(cfg.authMode);
+
+  let mode = explicit;
+  if (!mode) {
+    if (cfg.clientId && cfg.clientSecret) mode = "client_credentials";
+    else if (cfg.apiUsername && cfg.apiPassword) mode = "basic_credentials";
+    else mode = "client_credentials";
+  }
+
+  if (mode === "basic_credentials") {
+    const payload = { username: cfg.apiUsername || "", password: cfg.apiPassword || "" };
+    const missing = [];
+    if (!cfg.apiUsername) missing.push("username");
+    if (!cfg.apiPassword) missing.push("password");
+    return {
+      effectiveMode: "basic_credentials",
+      fields: ["username", "password"],
+      payload,
+      missing,
+      explicit: Boolean(explicit),
+    };
+  }
+
+  // client_credentials (الافتراضي)
+  const payload = { client_id: cfg.clientId || "", client_secret: cfg.clientSecret || "" };
+  const missing = [];
+  if (!cfg.clientId)     missing.push("client_id");
+  if (!cfg.clientSecret) missing.push("client_secret");
+  return {
+    effectiveMode: "client_credentials",
+    fields: ["client_id", "client_secret"],
+    payload,
+    missing,
+    explicit: Boolean(explicit),
+  };
 }

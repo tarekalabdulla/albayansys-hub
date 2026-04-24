@@ -30,7 +30,11 @@ import {
   sanitizeBaseUrl,
   sanitizeWebhookPath,
   getEffectiveConfig,
+  getEffectiveConfigSync,
   getConfigSource,
+  buildAuthPayloadShape,
+  normalizeAuthMode,
+  YEASTAR_AUTH_MODES,
 } from "../services/runtimeConfig.js";
 
 const router = Router();
@@ -40,7 +44,7 @@ const SETTINGS_KEY = "yeastar_pbx";
 const HISTORY_KEY  = "yeastar_sync_history";
 
 // -------------------- Helpers --------------------
-const SECRET_FIELDS = new Set(["clientSecret", "webhookSecret", "amiPassword"]);
+const SECRET_FIELDS = new Set(["clientSecret", "apiPassword", "webhookSecret", "amiPassword"]);
 
 function stripSecrets(obj) {
   if (!obj || typeof obj !== "object") return {};
@@ -129,8 +133,15 @@ router.get("/config", requireRole("admin"), async (_req, res) => {
 const configSchema = z.object({
   pbxIp:          z.string().trim().max(255).optional(),
   baseUrl:        z.string().trim().max(255).optional(),
+  // Auth mode selector — يتحكّم بشكل صريح بحقول get_token
+  authMode:       z.enum(["client_credentials", "basic_credentials"]).optional(),
+  // client_credentials fields
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
+  // basic_credentials fields
+  apiUsername:    z.string().trim().max(255).optional(),
+  apiPassword:    z.string().trim().max(512).optional(),
+  // Webhook
   webhookSecret:  z.string().trim().max(512).optional(),
   webhookPath:    z.string().trim().max(255).optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
@@ -248,11 +259,31 @@ function getEffective(cfg) {
   const webhookPath = sanitizeWebhookPath(rawWebhookPath) || DEFAULT_WEBHOOK_PATH;
   const webhookPathSource = cfg.webhookPath ? "db" : (process.env.YEASTAR_WEBHOOK_PATH ? "env" : "default");
 
+  // ----- بناء shape المصادقة من DB ∪ env (DB يفوز) -----
+  const merged = {
+    authMode:     normalizeAuthMode(cfg.authMode || process.env.YEASTAR_AUTH_MODE || "") || "client_credentials",
+    clientId:     cfg.clientId     || process.env.YEASTAR_CLIENT_ID     || "",
+    clientSecret: cfg.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "",
+    apiUsername:  cfg.apiUsername  || process.env.YEASTAR_API_USERNAME  || "",
+    apiPassword:  cfg.apiPassword  || process.env.YEASTAR_API_PASSWORD  || "",
+  };
+  const shape = buildAuthPayloadShape(merged);
+
   return {
     baseUrl,
     baseSource,
-    clientId:      cfg.clientId      || process.env.YEASTAR_CLIENT_ID || "",
-    clientSecret:  cfg.clientSecret  || process.env.YEASTAR_CLIENT_SECRET || "",
+    // الحقول القديمة (للحفاظ على التوافق)
+    clientId:      merged.clientId,
+    clientSecret:  merged.clientSecret,
+    apiUsername:   merged.apiUsername,
+    apiPassword:   merged.apiPassword,
+    // shape موحَّد
+    authMode:      shape.effectiveMode,
+    authFields:    shape.fields,
+    authPayload:   shape.payload,
+    authMissing:   shape.missing,
+    authExplicit:  shape.explicit,
+    // webhook
     webhookToken:  process.env.YEASTAR_WEBHOOK_TOKEN || "",
     webhookSecret: cfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "",
     webhookPath,
@@ -266,43 +297,71 @@ function maskSecret(s) {
   return `${s.slice(0, 3)}***${s.slice(-2)} (len=${s.length})`;
 }
 
-// OAuth حصراً — Yeastar P-Series Open API لا يقبل username/password.
-// payload: { client_id, client_secret }
 // ⚠️  baseUrl هنا يجب أن يكون origin فقط (مُعقَّم سابقاً). المسار ثابت في الكود.
-async function fetchAccessToken(baseUrl, clientId, clientSecret, timeoutMs = 15_000) {
+//
+// نَدعم الآن وضعين متبادلين تماماً (يُختار صراحةً من الإعدادات):
+//   * client_credentials → payload = { client_id, client_secret }
+//   * basic_credentials  → payload = { username, password }
+async function fetchAccessToken(baseUrl, authShape, timeoutMs = 15_000) {
   const url = `${baseUrl}/openapi/v1.0/get_token`;
+  const { effectiveMode, fields, payload, missing, explicit } = authShape;
+
   console.log(
     "[yeastar/sync] get_token →", url,
     `(base="${baseUrl}")`,
-    "auth=oauth",
-    "client_id=" + maskSecret(clientId),
-    "client_secret=" + maskSecret(clientSecret),
+    `authMode="${effectiveMode}"${explicit ? "" : " (inferred)"}`,
+    `fields=[${fields.join(", ")}]`,
+    `values={ ${fields.map((f) => `${f}=${maskSecret(payload[f])}`).join(", ")} }`,
     `timeout=${timeoutMs}ms`,
   );
+
+  if (missing.length) {
+    return {
+      ok: false,
+      error: `missing_${effectiveMode}_credentials (الحقول الناقصة: ${missing.join(", ")})`,
+      authMode: effectiveMode,
+      fields,
+    };
+  }
+
   const ctrl = new AbortController();
   const tm = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      body: JSON.stringify(payload),
       signal: ctrl.signal,
     });
     const data = await r.json().catch(() => ({}));
     const token = data.access_token || data.data?.access_token;
     console.log(
       `[yeastar/sync] get_token response http=${r.status}`,
+      `authMode="${effectiveMode}"`,
       `errcode=${data.errcode ?? "-"}`,
       `errmsg="${data.errmsg ?? ""}"`,
       `hasToken=${Boolean(token)}`,
     );
     if (r.ok && token) {
-      return { ok: true, token, expiresIn: data.expire_time || data.data?.expire_time || 1800 };
+      return {
+        ok: true, token,
+        expiresIn: data.expire_time || data.data?.expire_time || 1800,
+        authMode: effectiveMode,
+        fields,
+      };
     }
-    return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
+    return {
+      ok: false,
+      error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
+      authMode: effectiveMode,
+      fields,
+      httpStatus: r.status,
+      errcode: data.errcode ?? null,
+      errmsg: data.errmsg ?? null,
+    };
   } catch (e) {
     const reason = e.name === "AbortError" ? `timeout_${timeoutMs}ms` : e.message;
-    return { ok: false, error: reason };
+    return { ok: false, error: reason, authMode: effectiveMode, fields };
   } finally {
     clearTimeout(tm);
   }
@@ -426,8 +485,9 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
     `[yeastar/sync] effective:`,
     `baseUrl="${eff.baseUrl || "(empty)"}" (source=${eff.baseSource})`,
     `webhookPath="${eff.webhookPath}" (source=${eff.webhookPathSource})`,
-    `clientIdSet=${Boolean(eff.clientId)}`,
-    `clientSecretSet=${Boolean(eff.clientSecret)}`,
+    `authMode="${eff.authMode}"${eff.authExplicit ? "" : " (inferred)"}`,
+    `fields=[${eff.authFields.join(", ")}]`,
+    `missing=[${eff.authMissing.join(", ")}]`,
     `webhookTokenSet=${Boolean(eff.webhookToken)}`,
     `webhookSecretSet=${Boolean(eff.webhookSecret)}`,
   );
@@ -447,12 +507,21 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   };
 
   // ---- 1) Token
-  if (!eff.baseUrl || !eff.clientId || !eff.clientSecret) {
-    report.steps.token = { ok: false, message: "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)" };
+  if (!eff.baseUrl || eff.authMissing.length) {
+    const reason = !eff.baseUrl
+      ? "baseUrl غير مضبوط"
+      : `authMode="${eff.authMode}" — الحقول الناقصة: ${eff.authMissing.join(", ")}`;
+    report.steps.token = { ok: false, message: `بيانات الاعتماد غير مكتملة (${reason})` };
   } else {
-    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    const t = await fetchAccessToken(eff.baseUrl, {
+      effectiveMode: eff.authMode,
+      fields: eff.authFields,
+      payload: eff.authPayload,
+      missing: eff.authMissing,
+      explicit: eff.authExplicit,
+    });
     report.steps.token = t.ok
-      ? { ok: true,  message: `access_token صالح لـ ${t.expiresIn}s`, expiresIn: t.expiresIn }
+      ? { ok: true,  message: `access_token صالح لـ ${t.expiresIn}s (authMode=${t.authMode})`, expiresIn: t.expiresIn }
       : { ok: false, message: t.error || "فشل get_token" };
   }
 
@@ -466,7 +535,10 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
   // ---- 3) CDR pull (يعتمد على نجاح خطوة token)
   if (report.steps.token.ok) {
     // أعد طلب التوكن للحصول على القيمة (لا نخزّنها هنا)
-    const t = await fetchAccessToken(eff.baseUrl, eff.clientId, eff.clientSecret);
+    const t = await fetchAccessToken(eff.baseUrl, {
+      effectiveMode: eff.authMode, fields: eff.authFields,
+      payload: eff.authPayload, missing: eff.authMissing, explicit: eff.authExplicit,
+    });
     if (t.ok) {
       const cdr = await fetchRecentCdr(eff.baseUrl, t.token, 100);
       if (cdr.ok) {
@@ -524,8 +596,11 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
 // أو يعود إلى المخزّنة في DB / .env إن لم تُرسَل.
 const testSchema = z.object({
   baseUrl:      z.string().trim().max(255).optional(),
+  authMode:     z.enum(["client_credentials", "basic_credentials"]).optional(),
   clientId:     z.string().trim().max(255).optional(),
   clientSecret: z.string().trim().max(512).optional(),
+  apiUsername:  z.string().trim().max(255).optional(),
+  apiPassword:  z.string().trim().max(512).optional(),
 }).strict();
 
 router.post("/sync/test", requireRole("admin"), async (req, res) => {
@@ -537,7 +612,6 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   try {
     const cfg = await loadConfig();
     const eff = getEffective(cfg);
-    // ⚠️ تعقيم baseUrl حتى لو أتى من body (قد يلصق المستخدم webhook URL)
     const rawBaseInput = parsed.data.baseUrl?.trim();
     const baseUrl      = rawBaseInput
       ? sanitizeBaseUrl(rawBaseInput)
@@ -549,24 +623,37 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
         received: rawBaseInput.slice(0, 200),
       });
     }
-    const clientId     = parsed.data.clientId?.trim()     || eff.clientId;
-    const clientSecret = parsed.data.clientSecret?.trim() || eff.clientSecret;
+
+    // ادمج body مع الإعدادات الفعّالة لبناء shape المصادقة
+    const mergedForShape = {
+      authMode:     normalizeAuthMode(parsed.data.authMode || "") || eff.authMode,
+      clientId:     parsed.data.clientId?.trim()     || eff.clientId,
+      clientSecret: parsed.data.clientSecret?.trim() || eff.clientSecret,
+      apiUsername:  parsed.data.apiUsername?.trim()  || eff.apiUsername,
+      apiPassword:  parsed.data.apiPassword?.trim()  || eff.apiPassword,
+    };
+    const shape = buildAuthPayloadShape(mergedForShape);
 
     const result = {
       durationMs: 0,
       baseUrl,
+      authMode: shape.effectiveMode,
+      authFields: shape.fields,
       token: { ok: false, message: "", expiresIn: 0, tokenPreview: "" },
       cdr:   { ok: false, message: "", fetched: 0, sample: [] },
     };
 
-    if (!baseUrl || !clientId || !clientSecret) {
-      result.token.message = "بيانات الاعتماد غير مكتملة (baseUrl/clientId/clientSecret)";
+    if (!baseUrl || shape.missing.length) {
+      const reason = !baseUrl
+        ? "baseUrl غير مضبوط"
+        : `authMode="${shape.effectiveMode}" — الحقول الناقصة: ${shape.missing.join(", ")}`;
+      result.token.message = `بيانات الاعتماد غير مكتملة (${reason})`;
       result.cdr.message = "تخطّيت — التوكن غير متاح";
       result.durationMs = Date.now() - t0;
       return res.json({ result });
     }
 
-    const t = await fetchAccessToken(baseUrl, clientId, clientSecret);
+    const t = await fetchAccessToken(baseUrl, shape);
     if (!t.ok) {
       result.token = { ok: false, message: t.error || "فشل get_token", expiresIn: 0, tokenPreview: "" };
       result.cdr.message = "تخطّيت — التوكن غير متاح";
@@ -575,7 +662,7 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
     }
     result.token = {
       ok: true,
-      message: `access_token صالح لـ ${t.expiresIn}s`,
+      message: `access_token صالح لـ ${t.expiresIn}s (authMode=${t.authMode})`,
       expiresIn: t.expiresIn,
       tokenPreview: `${t.token.slice(0, 8)}…${t.token.slice(-4)}`,
     };
@@ -605,6 +692,32 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
   } catch (e) {
     console.error("[yeastar/sync/test]", e);
     res.status(500).json({ error: "test_failed", message: e.message });
+  }
+});
+
+// ============================================================================
+// GET /auth-payload-shape — يُرجع شكل الـ payload المُستخدم لـ get_token
+// ----------------------------------------------------------------------------
+// مفيد للتحقق السريع من الوضع المختار قبل ضرب PBX. لا يُرجع أي قيم سرّية —
+// فقط أسماء الحقول والـ endpoint والوضع المُستنتج/الصريح.
+// ============================================================================
+router.get("/auth-payload-shape", requireRole("admin"), async (_req, res) => {
+  try {
+    const eff = await getEffectiveConfig();
+    const shape = buildAuthPayloadShape(eff);
+    const baseUrl = eff.baseUrl || "";
+    res.json({
+      authMode: shape.effectiveMode,
+      explicit: shape.explicit,
+      fields: shape.fields,
+      missing: shape.missing,
+      endpoint: baseUrl ? `${baseUrl}/openapi/v1.0/get_token` : null,
+      baseUrl: baseUrl || null,
+      supportedModes: YEASTAR_AUTH_MODES,
+    });
+  } catch (e) {
+    console.error("[yeastar/auth-payload-shape]", e);
+    res.status(500).json({ error: "load_failed", message: e.message });
   }
 });
 

@@ -28,6 +28,7 @@ import {
   getEffectiveConfigSync,
   getConfigSource,
   sanitizeBaseUrl,
+  buildAuthPayloadShape,
 } from "../services/runtimeConfig.js";
 
 const RECONNECT_MIN_MS = 2_000;
@@ -75,11 +76,11 @@ function cfg() {
     warn(`baseUrl was sanitized: raw="${rawBase}" → clean="${base}" (source=${src.baseUrl})`);
   }
 
-  const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
-  const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
-
-  // OAuth فقط — لم نعد ندعم username/password
-  const authMode = (clientId && clientSecret) ? "oauth" : "";
+  // ----- بناء payload shape بشكل صريح من الوضع المختار (بدون خلط) -----
+  // ندعم الآن وضعين متبادلين تماماً:
+  //   * client_credentials → { client_id, client_secret }
+  //   * basic_credentials  → { username, password }
+  const shape = buildAuthPayloadShape(live);
 
   // حدّث state للسجلات
   state.lastBaseUrl    = base;
@@ -87,7 +88,11 @@ function cfg() {
 
   return {
     base, baseSource: src.baseUrl || "none",
-    authMode, clientId, clientSecret,
+    authMode: shape.effectiveMode,
+    authFields: shape.fields,
+    authPayload: shape.payload,
+    authMissing: shape.missing,
+    authExplicit: shape.explicit,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
@@ -106,22 +111,24 @@ async function httpJson(url, opts = {}, timeoutMs = HTTP_TIMEOUT_MS) {
 
 // -------------- HTTP: get/refresh token --------------
 async function fetchToken() {
-  const { base, baseSource, authMode, clientId, clientSecret } = cfg();
+  const { base, baseSource, authMode, authFields, authPayload, authMissing, authExplicit } = cfg();
   if (!base) throw new Error("missing_yeastar_base_url");
-  if (authMode !== "oauth") {
-    throw new Error("missing_oauth_credentials (client_id + client_secret مطلوبان)");
+  if (authMissing.length) {
+    throw new Error(
+      `missing_${authMode}_credentials (الحقول الناقصة: ${authMissing.join(", ")})`
+    );
   }
 
   // ⚠️ المسار ثابت تماماً — يُلحَق بـ base origin، لا يأتي من DB ولا من env.
   const url = `${base}/openapi/v1.0/get_token`;
-  const payload = { client_id: clientId, client_secret: clientSecret };
 
+  // log آمن — يُظهر الوضع المختار وأسماء الحقول دون قيمها
   log(
     "get_token →", url,
     `(base="${base}" source=${baseSource})`,
-    "auth=oauth",
-    "client_id=" + maskSecret(clientId),
-    "client_secret=" + maskSecret(clientSecret),
+    `authMode="${authMode}"${authExplicit ? "" : " (inferred)"}`,
+    `fields=[${authFields.join(", ")}]`,
+    `values={ ${authFields.map((f) => `${f}=${maskSecret(authPayload[f])}`).join(", ")} }`,
   );
 
   let res;
@@ -129,7 +136,7 @@ async function fetchToken() {
     res = await httpJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(authPayload),
     });
   } catch (e) {
     const reason = e.name === "AbortError" ? `timeout_${HTTP_TIMEOUT_MS}ms` : e.message;
@@ -141,11 +148,17 @@ async function fetchToken() {
   try { data = await res.json(); } catch { /* ignore */ }
 
   if (!res.ok) {
-    warn(`get_token HTTP ${res.status} errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}"`);
+    warn(
+      `get_token HTTP ${res.status} authMode="${authMode}" ` +
+      `errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}" endpoint="${url}"`
+    );
     throw new Error(`get_token_http_${res.status}_errcode_${data.errcode ?? "?"}_${data.errmsg || ""}`);
   }
   if (data.errcode && data.errcode !== 0) {
-    warn(`get_token rejected by PBX: errcode=${data.errcode} errmsg="${data.errmsg ?? ""}"`);
+    warn(
+      `get_token rejected by PBX: authMode="${authMode}" ` +
+      `errcode=${data.errcode} errmsg="${data.errmsg ?? ""}" endpoint="${url}"`
+    );
     throw new Error(`get_token_errcode_${data.errcode}_${data.errmsg || ""}`);
   }
 
@@ -160,7 +173,7 @@ async function fetchToken() {
   state.accessToken  = accessToken;
   state.refreshToken = refreshToken || null;
   state.expireAt     = Date.now() + (expireSec * 1000);
-  log(`get_token OK — access_token=${maskSecret(accessToken)} ttl=${expireSec}s`);
+  log(`get_token OK — access_token=${maskSecret(accessToken)} ttl=${expireSec}s authMode="${authMode}"`);
   scheduleRefresh(expireSec * 1000);
   return accessToken;
 }
@@ -322,14 +335,24 @@ async function handleIncomingEvent(msg) {
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
-  const { base, baseSource, authMode } = cfg();
-  if (!base || authMode !== "oauth") {
-    log("⏭️  Yeastar Open API DISABLED — يحتاج YEASTAR_BASE_URL + YEASTAR_CLIENT_ID + YEASTAR_CLIENT_SECRET");
+  const { base, baseSource, authMode, authFields, authMissing } = cfg();
+  if (!base) {
+    log("⏭️  Yeastar Open API DISABLED — YEASTAR_BASE_URL غير مضبوط");
+    return;
+  }
+  if (authMissing.length) {
+    log(
+      `⏭️  Yeastar Open API DISABLED — authMode="${authMode}" ` +
+      `لكن الحقول الناقصة: [${authMissing.join(", ")}] (المتوقّع: [${authFields.join(", ")}])`
+    );
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`starting OpenAPI integration: base="${base}" (source=${baseSource}) auth=oauth`);
+  log(
+    `starting OpenAPI integration: base="${base}" (source=${baseSource}) ` +
+    `authMode="${authMode}" fields=[${authFields.join(", ")}]`
+  );
   try {
     await fetchToken();
     connectWs();
@@ -349,8 +372,10 @@ export function stopYeastarOpenApi() {
 export function getYeastarApiStatus() {
   const c = cfg();
   return {
-    configured: Boolean(c.base && c.authMode === "oauth"),
+    configured: Boolean(c.base && c.authMissing.length === 0),
     authMode: c.authMode || "none",
+    authFields: c.authFields || [],
+    authMissing: c.authMissing || [],
     baseUrl: c.base || null,
     baseUrlSource: c.baseSource || "none",
     hasToken: Boolean(state.accessToken),
