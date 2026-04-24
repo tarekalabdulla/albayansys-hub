@@ -133,8 +133,15 @@ router.get("/config", requireRole("admin"), async (_req, res) => {
 const configSchema = z.object({
   pbxIp:          z.string().trim().max(255).optional(),
   baseUrl:        z.string().trim().max(255).optional(),
+  // Auth mode selector — يتحكّم بشكل صريح بحقول get_token
+  authMode:       z.enum(["client_credentials", "basic_credentials"]).optional(),
+  // client_credentials fields
   clientId:       z.string().trim().max(255).optional(),
   clientSecret:   z.string().trim().max(512).optional(),
+  // basic_credentials fields
+  apiUsername:    z.string().trim().max(255).optional(),
+  apiPassword:    z.string().trim().max(512).optional(),
+  // Webhook
   webhookSecret:  z.string().trim().max(512).optional(),
   webhookPath:    z.string().trim().max(255).optional(),
   allowedIps:     z.array(z.string().trim().max(64)).max(20).optional(),
