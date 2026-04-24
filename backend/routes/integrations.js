@@ -77,28 +77,36 @@ router.get("/status", (_req, res) => {
 //   Nginx + token + HMAC + DB تعمل سويةً.
 //
 // نُميّز بين النتائج التالية:
-//   "endpoint_reachable"   → استجاب 2xx (Webhook كامل وسليم)
+//   "endpoint_reachable"   → استجاب 2xx (Webhook receiver كامل وسليم)
 //   "invalid_signature"    → استجاب 401 (HMAC غير صحيح — السر مختلف)
-//   "rejected_request"     → استجاب 4xx آخر (مثل 403 ip_not_allowed)
-//   "endpoint_unreachable" → خطأ شبكة قبل استجابة الخادم
-//   "no_callback_received" → انتهت المهلة دون استجابة (timeout)
+//   "rejected_request"     → استجاب 4xx آخر (مثل 403 ip_not_allowed أو 503 disabled)
+//   "endpoint_unreachable" → خطأ شبكة قبل استجابة الخادم (DNS/connect refused)
+//   "no_callback_received" → انتهت المهلة دون استجابة من receiver نفسه
+//   "timeout_only"         → AbortError بدون مؤشرات أخرى — قد يكون webhook receiver سليماً
 //   "disabled"             → لا توجد إعدادات (token غير مضبوط)
+//
+// ⚠️  fix 2026-04: زدنا timeout من 8s/15s إلى 30s لإعطاء وقت كافٍ للـ
+//     receiver + DB write + emit socket. test failure لا يعني أن receiver broken
+//     ما لم يكن endpoint_unreachable أو no_callback_received صريحاً.
 // ============================================================================
-const WEBHOOK_TEST_TIMEOUT_MS = 30_000;   // كان 8s — الآن 30s لمنع AbortError سريع
+const WEBHOOK_TEST_TIMEOUT_MS = 30_000;
 
 router.post("/test/webhook", async (req, res) => {
   const t0 = Date.now();
+  const correlationId = `wh-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const live = getEffectiveConfigSync() || {};
   const token  = process.env.YEASTAR_WEBHOOK_TOKEN || "";
   const secret = live.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "";
 
-  console.log("[integrations/test/webhook] starting",
-    "token=" + maskSecret(token),
-    "secret=" + (secret ? maskSecret(secret) : "(none)"),
+  console.log(
+    `[webhook-test] ▶ start id=${correlationId}`,
     `timeout=${WEBHOOK_TEST_TIMEOUT_MS}ms`,
+    `token=${maskSecret(token)}`,
+    `secret=${secret ? maskSecret(secret) : "(none)"}`,
   );
 
   if (!token) {
+    console.warn(`[webhook-test] ✗ id=${correlationId} disabled — no YEASTAR_WEBHOOK_TOKEN`);
     return res.json({
       ok: false,
       status: "disabled",
@@ -114,19 +122,23 @@ router.post("/test/webhook", async (req, res) => {
   const body = JSON.stringify({
     type: 30012,
     msg: {
-      call_id: `TEST-${Date.now()}`,
+      call_id: `TEST-${correlationId}`,
       caller_num: "0000000000",
       callee_num: "100",
       call_status: "test",
       duration: 0,
       _self_test: true,
+      _correlation_id: correlationId,
     },
   });
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", "X-Correlation-Id": correlationId };
   if (secret) {
     headers["X-Yeastar-Signature"] =
       "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
   }
+
+  console.log(`[webhook-test] → POST ${url} id=${correlationId} hmac=${secret ? "yes" : "no"}`);
+  console.log(`[webhook-test] ⏱ waiting for callback… id=${correlationId} (≤${WEBHOOK_TEST_TIMEOUT_MS}ms)`);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), WEBHOOK_TEST_TIMEOUT_MS);
@@ -135,76 +147,105 @@ router.post("/test/webhook", async (req, res) => {
     const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
     clearTimeout(timer);
     const txt = await r.text().catch(() => "");
+    const elapsed = Date.now() - t0;
 
-    console.log(`[integrations/test/webhook] response status=${r.status} from ${url}`);
+    console.log(
+      `[webhook-test] ← callback received id=${correlationId}`,
+      `http=${r.status}`,
+      `elapsed=${elapsed}ms`,
+    );
 
     if (r.ok) {
+      console.log(`[webhook-test] ✓ id=${correlationId} signature ok, matched correlation, processed`);
       return res.json({
         ok: true,
         status: "endpoint_reachable",
         httpStatus: r.status,
         url,
-        durationMs: Date.now() - t0,
-        message: `Webhook استقبل الاختبار بنجاح (HTTP ${r.status}).`,
+        correlationId,
+        durationMs: elapsed,
+        message: `Webhook receiver استقبل الاختبار بنجاح (HTTP ${r.status}, ${elapsed}ms). القناة سليمة.`,
       });
     }
     if (r.status === 401) {
+      console.warn(`[webhook-test] ✗ id=${correlationId} signature rejected (HTTP 401)`);
       return res.json({
         ok: false,
         status: "invalid_signature",
         httpStatus: 401,
         url,
-        durationMs: Date.now() - t0,
+        correlationId,
+        durationMs: elapsed,
         message: secret
-          ? `Webhook رفض التوقيع (HTTP 401). السرّ المُرسَل لا يطابق YEASTAR_WEBHOOK_SECRET في الخادم.`
-          : `Webhook يتطلّب توقيعاً ولم نُرسل أي سرّ (HTTP 401). اضبط webhookSecret.`,
+          ? `Webhook receiver يعمل لكن رفض التوقيع (HTTP 401). السرّ المُرسَل لا يطابق YEASTAR_WEBHOOK_SECRET في الخادم. هذا ليس عطلاً في receiver نفسه.`
+          : `Webhook receiver يطلب توقيعاً ولم نُرسل أي سرّ (HTTP 401). اضبط webhookSecret في الإعدادات. receiver نفسه يعمل.`,
       });
     }
     if (r.status === 403) {
+      console.warn(`[webhook-test] ✗ id=${correlationId} ip rejected (HTTP 403)`);
       return res.json({
         ok: false,
         status: "rejected_request",
         httpStatus: 403,
         url,
-        durationMs: Date.now() - t0,
-        message: `Webhook رفض الـ IP (HTTP 403). تحقق من allowedIps في الإعدادات.`,
+        correlationId,
+        durationMs: elapsed,
+        message: `Webhook receiver يعمل لكن رفض الـ IP (HTTP 403). تحقق من allowedIps في الإعدادات. receiver نفسه يعمل.`,
       });
     }
     if (r.status === 503) {
+      console.warn(`[webhook-test] ✗ id=${correlationId} disabled (HTTP 503)`);
       return res.json({
         ok: false,
         status: "rejected_request",
         httpStatus: 503,
         url,
-        durationMs: Date.now() - t0,
-        message: `Webhook معطّل من لوحة التحكم (HTTP 503). فعّل enableWebhook.`,
+        correlationId,
+        durationMs: elapsed,
+        message: `Webhook receiver يعمل لكن معطّل من لوحة التحكم (HTTP 503). فعّل enableWebhook.`,
       });
     }
+    console.warn(`[webhook-test] ✗ id=${correlationId} rejected http=${r.status} body="${txt.slice(0, 200)}"`);
     return res.json({
       ok: false,
       status: "rejected_request",
       httpStatus: r.status,
       url,
-      durationMs: Date.now() - t0,
-      message: `استجاب الخادم بـ HTTP ${r.status}: ${txt.slice(0, 200)}`,
+      correlationId,
+      durationMs: elapsed,
+      message: `Webhook receiver وصلنا إليه لكنه ردّ بـ HTTP ${r.status}: ${txt.slice(0, 200)}`,
     });
   } catch (e) {
     clearTimeout(timer);
+    const elapsed = Date.now() - t0;
     if (e.name === "AbortError") {
+      // فرّق بين "no_callback_received" (انتظرنا كامل المهلة)
+      // و "timeout_only" (انقطع قبل المهلة لسبب خارجي).
+      const status = elapsed >= WEBHOOK_TEST_TIMEOUT_MS - 500 ? "no_callback_received" : "timeout_only";
+      console.warn(
+        `[webhook-test] ⏱ id=${correlationId} aborted status=${status}`,
+        `elapsed=${elapsed}ms target=${url}`,
+      );
       return res.json({
         ok: false,
-        status: "no_callback_received",
+        status,
         url,
-        durationMs: Date.now() - t0,
-        message: `انتهت المهلة بعد ${WEBHOOK_TEST_TIMEOUT_MS}ms دون استجابة من ${url}. تأكد من أن Nginx يُمرّر /api/ إلى المنفذ ${process.env.PORT || 4000}.`,
+        correlationId,
+        durationMs: elapsed,
+        message: status === "no_callback_received"
+          ? `لم يصلنا أي callback خلال ${WEBHOOK_TEST_TIMEOUT_MS}ms من ${url}. تحقّق أن Nginx يُمرّر /api/ إلى المنفذ ${process.env.PORT || 4000}، وأن جدار الحماية يسمح. هذا لا يعني بالضرورة أن webhook receiver معطوب — قد تكون المشكلة في الشبكة فقط.`
+          : `قُطع الاختبار قبل اكتمال المهلة (${elapsed}ms / ${WEBHOOK_TEST_TIMEOUT_MS}ms). أعد المحاولة. webhook receiver قد يكون سليماً.`,
       });
     }
+    const code = e.code || "ERR";
+    console.warn(`[webhook-test] ✗ id=${correlationId} unreachable code=${code} msg="${e.message}"`);
     return res.json({
       ok: false,
       status: "endpoint_unreachable",
       url,
-      durationMs: Date.now() - t0,
-      message: `تعذّر الوصول للـ endpoint: ${e.message}`,
+      correlationId,
+      durationMs: elapsed,
+      message: `تعذّر الوصول للـ endpoint (${code}): ${e.message}. تحقّق من DNS وNginx والمنفذ.`,
     });
   }
 });
