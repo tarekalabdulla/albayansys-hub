@@ -210,20 +210,36 @@ export default function Integrations() {
   async function runTest(kind: "webhook" | "openapi" | "ami") {
     setTesting((s) => ({ ...s, [kind]: true }));
     try {
-      const { data } = await api.post<{ ok: boolean; message: string; durationMs: number }>(
+      // ⚠️ webhook test في backend timeout = 30s، فنُعطي العميل 45s ليتسع.
+      // openapi/ami أقصر — 20s كافٍ.
+      const clientTimeout = kind === "webhook" ? 45_000 : 20_000;
+      const { data } = await api.post<TestResultData>(
         `/integrations/test/${kind}`,
+        undefined,
+        { timeout: clientTimeout },
       );
       setResults((s) => ({ ...s, [kind]: { ...data, at: Date.now() } }));
+      // toast نتيجة بنغمة مناسبة
+      const meta = data.status ? TEST_STATUS_META[data.status as TestStatus] : null;
       toast({
-        title: data.ok ? "نجح الاختبار" : "فشل الاختبار",
+        title: meta?.label || (data.ok ? "نجح الاختبار" : "فشل الاختبار"),
         description: data.message,
-        variant: data.ok ? "default" : "destructive",
+        variant: data.ok || meta?.tone === "warning" ? "default" : "destructive",
       });
       load();
     } catch (e) {
       const msg = (e as { message?: string })?.message || "تعذّر تنفيذ الاختبار";
-      setResults((s) => ({ ...s, [kind]: { ok: false, message: msg, durationMs: 0, at: Date.now() } }));
-      toast({ title: "خطأ", description: msg, variant: "destructive" });
+      setResults((s) => ({
+        ...s,
+        [kind]: {
+          ok: false,
+          message: `${msg} — هذا خطأ في عميل المتصفح، وليس بالضرورة في webhook receiver.`,
+          durationMs: 0,
+          at: Date.now(),
+          status: "timeout_only",
+        },
+      }));
+      toast({ title: "خطأ في العميل", description: msg, variant: "destructive" });
     } finally {
       setTesting((s) => ({ ...s, [kind]: false }));
     }
