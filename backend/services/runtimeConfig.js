@@ -354,3 +354,56 @@ export async function bootstrapConfig() {
     console.warn("[runtimeConfig] bootstrap failed:", e.message);
   }
 }
+
+// ============================================================================
+// Auth payload shape — مصدر حقيقة موحَّد لما يُرسَل لـ /openapi/v1.0/get_token
+// ----------------------------------------------------------------------------
+// نُحدّد بشكل صريح وآمن:
+//   * effectiveMode : "client_credentials" | "basic_credentials"
+//   * fields        : أسماء حقول الـ payload (بدون قيم)
+//   * payload       : الجسم الفعلي (يحوي القيم — لا يُسجَّل أبداً)
+//   * missing       : أي حقول مطلوبة لكن غير مضبوطة
+//
+// السلوك:
+//   1) إذا حُدِّد authMode صراحةً، نستخدمه كما هو (لا fallback ضمني).
+//   2) إذا لم يُحدَّد، نستنتجه: client_credentials أولاً ثم basic_credentials.
+//   3) لا نخلط بين الوضعين أبداً (لا نُرسل username + client_id معاً).
+// ============================================================================
+export function buildAuthPayloadShape(eff) {
+  const cfg = eff || {};
+  const explicit = normalizeAuthMode(cfg.authMode);
+
+  let mode = explicit;
+  if (!mode) {
+    if (cfg.clientId && cfg.clientSecret) mode = "client_credentials";
+    else if (cfg.apiUsername && cfg.apiPassword) mode = "basic_credentials";
+    else mode = "client_credentials";
+  }
+
+  if (mode === "basic_credentials") {
+    const payload = { username: cfg.apiUsername || "", password: cfg.apiPassword || "" };
+    const missing = [];
+    if (!cfg.apiUsername) missing.push("username");
+    if (!cfg.apiPassword) missing.push("password");
+    return {
+      effectiveMode: "basic_credentials",
+      fields: ["username", "password"],
+      payload,
+      missing,
+      explicit: Boolean(explicit),
+    };
+  }
+
+  // client_credentials (الافتراضي)
+  const payload = { client_id: cfg.clientId || "", client_secret: cfg.clientSecret || "" };
+  const missing = [];
+  if (!cfg.clientId)     missing.push("client_id");
+  if (!cfg.clientSecret) missing.push("client_secret");
+  return {
+    effectiveMode: "client_credentials",
+    fields: ["client_id", "client_secret"],
+    payload,
+    missing,
+    explicit: Boolean(explicit),
+  };
+}
