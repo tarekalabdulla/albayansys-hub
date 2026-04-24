@@ -225,10 +225,18 @@ function mergeWithDb(env, db) {
   // ----- بقية النصوص (لا تتأثر بالخلط مع OpenAPI base): DB يفوز إذا غير فارغ
   for (const k of [
     "clientId", "clientSecret",
+    "apiUsername", "apiPassword",
     "webhookSecret",
     "amiHost", "amiUsername", "amiPassword",
   ]) {
     if (typeof db[k] === "string" && db[k].trim()) out[k] = db[k].trim();
+  }
+
+  // ----- authMode (client_credentials | basic_credentials)
+  if (typeof db.authMode === "string" && db.authMode.trim()) {
+    const m = normalizeAuthMode(db.authMode);
+    if (m) out.authMode = m;
+    else console.warn(`[runtimeConfig] unknown authMode in DB: "${db.authMode}", keeping "${out.authMode}"`);
   }
 
   // ----- أرقام
