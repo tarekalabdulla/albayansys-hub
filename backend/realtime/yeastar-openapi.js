@@ -9,9 +9,12 @@
 //
 // ⚠️  منذ تعديل 2026-04: لم نعد ندعم username/password إطلاقاً.
 //     Yeastar P-Series Open API يتطلّب OAuth (client_id + client_secret).
-//     استخدام username/password كان يُعيد:
-//        40002 PARAMETER ERROR — username: required, password: required
-//     لأن الحقول التي يتوقعها الخادم هي client_id/client_secret حصراً.
+//
+// ⚠️  fix 2026-04 (B): الـ baseUrl يأتي من runtimeConfig وقد عُقِّم مسبقاً
+//     (origin فقط — لا /openapi، لا /api/yeastar، لا {TOKEN}). نضيف هنا
+//     طبقة دفاع إضافية + log واضح يبيّن:
+//        - baseUrl المستخدم فعلياً (المصدر: DB أم env)
+//        - أن المسار المُلحَق هو /openapi/v1.0/get_token حصراً
 //
 // ENV / DB المطلوبة (الأولوية: DB ← env):
 //   YEASTAR_BASE_URL      = https://hululalbayan.ras.yeastar.com
@@ -21,7 +24,11 @@
 // ============================================================
 import WebSocket from "ws";
 import { handleNormalizedEvent } from "../routes/webhooks-yeastar.js";
-import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
+import {
+  getEffectiveConfigSync,
+  getConfigSource,
+  sanitizeBaseUrl,
+} from "../services/runtimeConfig.js";
 
 const RECONNECT_MIN_MS = 2_000;
 const RECONNECT_MAX_MS = 60_000;
@@ -40,6 +47,8 @@ let state = {
   lastConnectedAt: 0,
   lastEventAt: 0,
   lastError: null,
+  lastBaseUrl: "",
+  lastBaseSource: "none",
 };
 
 function log(...args)  { console.log("[yeastar-api]",  ...args); }
@@ -53,18 +62,32 @@ function maskSecret(s) {
 }
 
 function cfg() {
-  // DB ∪ env (DB يفوز إن كانت قيمة غير فارغة)
+  // DB ∪ env (DB يفوز إن كانت قيمة غير فارغة) — مع تعقيم نهائي للأمان
   const live = getEffectiveConfigSync() || {};
-  const base = (live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "")
-    .replace(/\/+$/, "");
+  const src  = getConfigSource() || { baseUrl: "none" };
+
+  // طبقة دفاع: حتى لو تسرّبت قيمة ملوّثة، sanitizeBaseUrl يُعيد origin فقط
+  const rawBase = live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
+  const base    = sanitizeBaseUrl(rawBase);
+
+  // إذا اختلفت القيمة بعد التعقيم، أبلغ — هذا يدل على bug في مكان آخر
+  if (rawBase && base !== rawBase.replace(/\/+$/, "")) {
+    warn(`baseUrl was sanitized: raw="${rawBase}" → clean="${base}" (source=${src.baseUrl})`);
+  }
+
   const clientId     = live.clientId     || process.env.YEASTAR_CLIENT_ID     || "";
   const clientSecret = live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
 
   // OAuth فقط — لم نعد ندعم username/password
   const authMode = (clientId && clientSecret) ? "oauth" : "";
 
+  // حدّث state للسجلات
+  state.lastBaseUrl    = base;
+  state.lastBaseSource = src.baseUrl || "none";
+
   return {
-    base, authMode, clientId, clientSecret,
+    base, baseSource: src.baseUrl || "none",
+    authMode, clientId, clientSecret,
     topics: (process.env.YEASTAR_API_TOPICS || "30012,30013,30014")
       .split(",").map((s) => parseInt(s.trim(), 10)).filter(Boolean),
   };
@@ -83,18 +106,19 @@ async function httpJson(url, opts = {}, timeoutMs = HTTP_TIMEOUT_MS) {
 
 // -------------- HTTP: get/refresh token --------------
 async function fetchToken() {
-  const { base, authMode, clientId, clientSecret } = cfg();
+  const { base, baseSource, authMode, clientId, clientSecret } = cfg();
   if (!base) throw new Error("missing_yeastar_base_url");
   if (authMode !== "oauth") {
     throw new Error("missing_oauth_credentials (client_id + client_secret مطلوبان)");
   }
 
+  // ⚠️ المسار ثابت تماماً — يُلحَق بـ base origin، لا يأتي من DB ولا من env.
   const url = `${base}/openapi/v1.0/get_token`;
-  // ⚠️ payload صريح — حقول client_id/client_secret حصراً (لا username/password).
   const payload = { client_id: clientId, client_secret: clientSecret };
 
   log(
     "get_token →", url,
+    `(base="${base}" source=${baseSource})`,
     "auth=oauth",
     "client_id=" + maskSecret(clientId),
     "client_secret=" + maskSecret(clientSecret),
@@ -142,11 +166,12 @@ async function fetchToken() {
 }
 
 async function refreshAccessToken() {
-  const { base } = cfg();
+  const { base, baseSource } = cfg();
   if (!state.refreshToken) return fetchToken();
   try {
     const url = `${base}/openapi/v1.0/refresh_token`;
-    log(`refresh_token →`, url, "refresh_token=" + maskSecret(state.refreshToken));
+    log(`refresh_token →`, url, `(base="${base}" source=${baseSource})`,
+        "refresh_token=" + maskSecret(state.refreshToken));
     const res = await httpJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -297,14 +322,14 @@ async function handleIncomingEvent(msg) {
 
 // -------------- Public API --------------
 export async function startYeastarOpenApi(io) {
-  const { base, authMode } = cfg();
+  const { base, baseSource, authMode } = cfg();
   if (!base || authMode !== "oauth") {
     log("⏭️  Yeastar Open API DISABLED — يحتاج YEASTAR_BASE_URL + YEASTAR_CLIENT_ID + YEASTAR_CLIENT_SECRET");
     return;
   }
   state.io = io;
   state.stopped = false;
-  log(`starting OpenAPI integration: base=${base} auth=oauth`);
+  log(`starting OpenAPI integration: base="${base}" (source=${baseSource}) auth=oauth`);
   try {
     await fetchToken();
     connectWs();
@@ -326,6 +351,8 @@ export function getYeastarApiStatus() {
   return {
     configured: Boolean(c.base && c.authMode === "oauth"),
     authMode: c.authMode || "none",
+    baseUrl: c.base || null,
+    baseUrlSource: c.baseSource || "none",
     hasToken: Boolean(state.accessToken),
     expiresIn: state.expireAt ? Math.max(0, Math.round((state.expireAt - Date.now()) / 1000)) : 0,
     wsState: state.ws ? state.ws.readyState : -1,   // 0:CONNECTING 1:OPEN 2:CLOSING 3:CLOSED
