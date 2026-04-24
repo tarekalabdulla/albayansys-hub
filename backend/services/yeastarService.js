@@ -102,22 +102,23 @@ async function safeFetch(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
 // Token management — OAuth حصراً
 // ----------------------------------------------------------------------------
 async function fetchTokenFresh() {
-  const { base, baseSource, clientId, clientSecret } = cfg();
+  const { base, baseSource, authMode, authFields, authPayload, authMissing, authExplicit } = cfg();
   if (!base) throw new Error("yeastar_missing_base_url");
-  if (!clientId || !clientSecret) {
-    throw new Error("yeastar_missing_oauth_credentials (client_id + client_secret مطلوبان)");
+  if (authMissing.length) {
+    throw new Error(
+      `yeastar_missing_${authMode}_credentials (الحقول الناقصة: ${authMissing.join(", ")})`
+    );
   }
 
   // ⚠️ المسار ثابت — يُلحَق بـ base origin فقط
   const url = `${base}/openapi/v1.0/get_token`;
-  const payload = { client_id: clientId, client_secret: clientSecret };
 
   log(
     "get_token →", url,
     `(base="${base}" source=${baseSource})`,
-    "auth=oauth",
-    "client_id=" + maskSecret(clientId),
-    "client_secret=" + maskSecret(clientSecret),
+    `authMode="${authMode}"${authExplicit ? "" : " (inferred)"}`,
+    `fields=[${authFields.join(", ")}]`,
+    `values={ ${authFields.map((f) => `${f}=${maskSecret(authPayload[f])}`).join(", ")} }`,
   );
 
   let res;
@@ -125,7 +126,7 @@ async function fetchTokenFresh() {
     res = await safeFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(authPayload),
     });
   } catch (e) {
     const reason = e.name === "AbortError" ? `timeout_${DEFAULT_TIMEOUT_MS}ms` : e.message;
@@ -137,11 +138,17 @@ async function fetchTokenFresh() {
   try { data = await res.json(); } catch { /* ignore */ }
 
   if (!res.ok) {
-    warn(`get_token HTTP ${res.status} errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}"`);
+    warn(
+      `get_token HTTP ${res.status} authMode="${authMode}" ` +
+      `errcode=${data.errcode ?? "-"} errmsg="${data.errmsg ?? ""}" endpoint="${url}"`
+    );
     throw new Error(`get_token_http_${res.status}_errcode_${data.errcode ?? "?"}_${data.errmsg || ""}`);
   }
   if (data.errcode && data.errcode !== 0) {
-    warn(`get_token rejected by PBX: errcode=${data.errcode} errmsg="${data.errmsg ?? ""}"`);
+    warn(
+      `get_token rejected by PBX: authMode="${authMode}" ` +
+      `errcode=${data.errcode} errmsg="${data.errmsg ?? ""}" endpoint="${url}"`
+    );
     throw new Error(`get_token_errcode_${data.errcode}_${data.errmsg || ""}`);
   }
 
