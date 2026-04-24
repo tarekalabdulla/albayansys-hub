@@ -618,10 +618,18 @@ export default function Yeastar() {
                   dir="ltr"
                   value={form.baseUrl}
                   onChange={(e) => setForm((p) => ({ ...p, baseUrl: e.target.value }))}
+                  aria-invalid={baseUrlValidation.kind === "error"}
+                  className={cn(
+                    baseUrlValidation.kind === "error" &&
+                      "border-destructive focus-visible:ring-destructive",
+                    baseUrlValidation.kind === "warn" &&
+                      "border-warning focus-visible:ring-warning",
+                  )}
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  عنوان السنترال الكامل (RAS أو IP:port). بدون <code>/</code> في النهاية.
+                  عنوان السنترال (origin فقط: <code dir="ltr">https://host[:port]</code>). بدون <code>/openapi</code> وبدون <code>/api/yeastar</code> وبدون <code>{"{TOKEN}"}</code>.
                 </p>
+                <FieldFeedback v={baseUrlValidation} />
               </div>
 
               <div>
