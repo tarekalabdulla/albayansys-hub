@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusDoughnut } from "@/components/dashboard/StatusDoughnut";
@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/SidePanels";
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
+  History, Loader2, PhoneForwarded,
   type LucideIcon,
 } from "lucide-react";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
@@ -21,9 +22,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type { Agent } from "@/lib/mockData";
+import { pbxApi, type CallLog } from "@/lib/pbxApi";
 
 type MetricKey = "total" | "in_call" | "answered" | "missed" | "avg" | "sla";
+
+const CALL_STATUS_LABEL: Record<string, string> = {
+  ringing: "يرن",
+  answered: "مُجابة",
+  busy: "مشغول",
+  no_answer: "بدون رد",
+  failed: "فشلت",
+  cancelled: "ملغاة",
+  completed: "مكتملة",
+};
+
+const CALL_STATUS_BADGE: Record<string, string> = {
+  answered: "bg-success/15 text-success border-success/30",
+  completed: "bg-success/15 text-success border-success/30",
+  ringing: "bg-info/15 text-info border-info/30",
+  busy: "bg-warning/15 text-warning border-warning/30",
+  no_answer: "bg-destructive/15 text-destructive border-destructive/30",
+  failed: "bg-destructive/15 text-destructive border-destructive/30",
+  cancelled: "bg-muted text-muted-foreground border-border",
+};
+
+const DIRECTION_LABEL: Record<string, string> = {
+  incoming: "واردة",
+  outgoing: "صادرة",
+  internal: "داخلية",
+  transferred: "محوّلة",
+  forwarded: "مُعاد توجيهها",
+  unknown: "غير معروف",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   online: "متاح",
@@ -51,6 +83,66 @@ function formatSeconds(sec: number) {
 const Index = () => {
   const agents = useLiveAgents();
   const [openMetric, setOpenMetric] = useState<MetricKey | null>(null);
+  const [callsAgent, setCallsAgent] = useState<Agent | null>(null);
+  const [callsList, setCallsList] = useState<CallLog[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [callsError, setCallsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!callsAgent) return;
+    let cancelled = false;
+    setCallsLoading(true);
+    setCallsError(null);
+    setCallsList([]);
+    (async () => {
+      try {
+        if (USE_REAL_API && callsAgent.ext) {
+          const data = await pbxApi.calls({ ext: callsAgent.ext, limit: 25 });
+          if (!cancelled) setCallsList(data);
+        } else if (!USE_REAL_API) {
+          // وضع التجربة: نولّد سجلاً مشابهًا من بيانات الموظف
+          const { RECENT_CALLS } = await import("@/lib/mockData");
+          if (!cancelled) {
+            setCallsList(
+              RECENT_CALLS
+                .filter((c) => c.agent === callsAgent.name)
+                .map((c, i) => ({
+                  id: i,
+                  callKey: c.id,
+                  ext: callsAgent.ext,
+                  agentName: callsAgent.name,
+                  remote: c.number,
+                  direction: "incoming",
+                  status: c.status === "answered" ? "answered" : c.status === "missed" ? "no_answer" : "completed",
+                  answered: c.status === "answered",
+                  startedAt: new Date().toISOString(),
+                  answeredAt: null,
+                  endedAt: null,
+                  duration: c.duration,
+                  talkSeconds: c.duration,
+                  failureReason: null,
+                  transferTo: null,
+                  transferFrom: null,
+                  forwardedTo: null,
+                  customerId: null,
+                  customerName: null,
+                  claimNumber: null,
+                  claimId: null,
+                  trunk: null,
+                  queue: null,
+                  recordingUrl: null,
+                })) as unknown as CallLog[]
+            );
+          }
+        }
+      } catch (e: any) {
+        if (!cancelled) setCallsError(e?.response?.data?.error || e?.message || "تعذّر جلب المكالمات");
+      } finally {
+        if (!cancelled) setCallsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [callsAgent]);
 
   const total = agents.length;
   const inCall = agents.filter((a) => a.status === "in_call").length;
@@ -183,6 +275,7 @@ const Index = () => {
                     <th className="text-right font-semibold px-3 py-2">مجابة</th>
                     <th className="text-right font-semibold px-3 py-2">فائتة</th>
                     <th className="text-right font-semibold px-3 py-2">متوسط المدة</th>
+                    <th className="text-right font-semibold px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -198,8 +291,89 @@ const Index = () => {
                       <td className="px-3 py-2 tabular-nums">{a.answered}</td>
                       <td className="px-3 py-2 tabular-nums">{a.missed}</td>
                       <td className="px-3 py-2 tabular-nums">{formatSeconds(a.avgDuration)}</td>
+                      <td className="px-3 py-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs gap-1"
+                          onClick={() => setCallsAgent(a)}
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          سجل المكالمات
+                        </Button>
+                      </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Calls history dialog */}
+      <Dialog open={!!callsAgent} onOpenChange={(v) => !v && setCallsAgent(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="w-5 h-5 text-primary" />
+              <span>سجل آخر المكالمات — {callsAgent?.name}</span>
+            </DialogTitle>
+            <DialogDescription>
+              التحويلة <span dir="ltr" className="tabular-nums">{callsAgent?.ext}</span> · آخر 25 مكالمة
+            </DialogDescription>
+          </DialogHeader>
+
+          {callsLoading ? (
+            <div className="py-12 grid place-items-center text-sm text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin mb-2" />
+              جارٍ تحميل المكالمات…
+            </div>
+          ) : callsError ? (
+            <div className="py-10 text-center text-sm text-destructive">{callsError}</div>
+          ) : callsList.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              لا توجد مكالمات لهذا الموظف بعد
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto -mx-2">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background/95 backdrop-blur z-10">
+                  <tr className="text-xs text-muted-foreground">
+                    <th className="text-right font-semibold px-3 py-2">الوقت</th>
+                    <th className="text-right font-semibold px-3 py-2">الرقم</th>
+                    <th className="text-right font-semibold px-3 py-2">الاتجاه</th>
+                    <th className="text-right font-semibold px-3 py-2">الحالة</th>
+                    <th className="text-right font-semibold px-3 py-2">المدة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {callsList.map((c) => {
+                    const Icon =
+                      c.direction === "outgoing" ? PhoneForwarded :
+                      c.status === "no_answer" || c.status === "failed" || c.status === "cancelled" ? PhoneMissed :
+                      PhoneIncoming;
+                    return (
+                      <tr key={c.id || c.callKey} className="border-t border-border/50 hover:bg-muted/40">
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">
+                          {c.startedAt ? new Date(c.startedAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums" dir="ltr">{c.remote || "—"}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs">
+                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                            {DIRECTION_LABEL[c.direction] || c.direction}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] border ${CALL_STATUS_BADGE[c.status] || "bg-muted text-muted-foreground border-border"}`}>
+                            {CALL_STATUS_LABEL[c.status] || c.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{formatSeconds(c.duration || c.talkSeconds || 0)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
