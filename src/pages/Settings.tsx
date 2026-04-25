@@ -526,15 +526,6 @@ const Settings = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-muted-foreground mb-1.5 block flex items-center gap-1.5">
-                <Webhook className="w-3 h-3" /> Webhook URL
-              </label>
-              <div className="flex gap-2">
-                <Input value={webhook.url} onChange={(e) => setWebhook({ url: e.target.value })} dir="ltr" className="bg-background/60" />
-                <Button variant="outline" onClick={saveWebhook}>حفظ</Button>
-              </div>
-            </div>
             <Button onClick={saveGoogleAi} className="w-full gradient-primary text-primary-foreground">
               <Save className="w-4 h-4 ml-2" /> حفظ إعدادات Google AI
             </Button>
