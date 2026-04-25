@@ -275,6 +275,7 @@ const Index = () => {
                     <th className="text-right font-semibold px-3 py-2">مجابة</th>
                     <th className="text-right font-semibold px-3 py-2">فائتة</th>
                     <th className="text-right font-semibold px-3 py-2">متوسط المدة</th>
+                    <th className="text-right font-semibold px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,8 +291,89 @@ const Index = () => {
                       <td className="px-3 py-2 tabular-nums">{a.answered}</td>
                       <td className="px-3 py-2 tabular-nums">{a.missed}</td>
                       <td className="px-3 py-2 tabular-nums">{formatSeconds(a.avgDuration)}</td>
+                      <td className="px-3 py-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs gap-1"
+                          onClick={() => setCallsAgent(a)}
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          سجل المكالمات
+                        </Button>
+                      </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Calls history dialog */}
+      <Dialog open={!!callsAgent} onOpenChange={(v) => !v && setCallsAgent(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="w-5 h-5 text-primary" />
+              <span>سجل آخر المكالمات — {callsAgent?.name}</span>
+            </DialogTitle>
+            <DialogDescription>
+              التحويلة <span dir="ltr" className="tabular-nums">{callsAgent?.ext}</span> · آخر 25 مكالمة
+            </DialogDescription>
+          </DialogHeader>
+
+          {callsLoading ? (
+            <div className="py-12 grid place-items-center text-sm text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin mb-2" />
+              جارٍ تحميل المكالمات…
+            </div>
+          ) : callsError ? (
+            <div className="py-10 text-center text-sm text-destructive">{callsError}</div>
+          ) : callsList.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              لا توجد مكالمات لهذا الموظف بعد
+            </div>
+          ) : (
+            <div className="max-h-[60vh] overflow-y-auto -mx-2">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background/95 backdrop-blur z-10">
+                  <tr className="text-xs text-muted-foreground">
+                    <th className="text-right font-semibold px-3 py-2">الوقت</th>
+                    <th className="text-right font-semibold px-3 py-2">الرقم</th>
+                    <th className="text-right font-semibold px-3 py-2">الاتجاه</th>
+                    <th className="text-right font-semibold px-3 py-2">الحالة</th>
+                    <th className="text-right font-semibold px-3 py-2">المدة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {callsList.map((c) => {
+                    const Icon =
+                      c.direction === "outgoing" ? PhoneForwarded :
+                      c.status === "no_answer" || c.status === "failed" || c.status === "cancelled" ? PhoneMissed :
+                      PhoneIncoming;
+                    return (
+                      <tr key={c.id || c.callKey} className="border-t border-border/50 hover:bg-muted/40">
+                        <td className="px-3 py-2 text-xs tabular-nums" dir="ltr">
+                          {c.startedAt ? new Date(c.startedAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums" dir="ltr">{c.remote || "—"}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1.5 text-xs">
+                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                            {DIRECTION_LABEL[c.direction] || c.direction}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] border ${CALL_STATUS_BADGE[c.status] || "bg-muted text-muted-foreground border-border"}`}>
+                            {CALL_STATUS_LABEL[c.status] || c.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{formatSeconds(c.duration || c.talkSeconds || 0)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
