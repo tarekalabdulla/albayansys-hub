@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  UserPlus, Pencil, Trash2, Webhook, Database, Download,
+  UserPlus, Pencil, Trash2, Database, Download,
   Save, Shield, Sparkles, KeyRound, Loader2,
   RotateCcw, AlertTriangle,
 } from "lucide-react";
@@ -233,7 +233,7 @@ const Settings = () => {
     if (googleAi.apiKey) payload.apiKey = googleAi.apiKey;
     persist("google_ai", payload, "Google AI");
   };
-  const saveWebhook = () => persist("webhook", { url: webhook.url }, "Webhook");
+  
 
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const [backupBusy, setBackupBusy] = useState(false);
