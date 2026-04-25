@@ -20,7 +20,6 @@ import settingsRoutes from "./routes/settings.js";
 import mailsRoutes from "./routes/mails.js";
 import recordingsRoutes from "./routes/recordings.js";
 import aiAnalyticsRoutes from "./routes/ai-analytics.js";
-import webhooksYeastarRoutes from "./routes/webhooks-yeastar.js";
 import yeastarWebhookV2Routes from "./routes/yeastar-webhook.js";
 import pbxRoutes from "./routes/pbx.js";
 import adminRoutes from "./routes/admin.js";
@@ -37,12 +36,9 @@ const app = express();
 const server = http.createServer(app);
 
 // نحن خلف Nginx reverse proxy → نثق بأول hop فقط
-// (يحلّ ValidationError: X-Forwarded-For من express-rate-limit)
 app.set("trust proxy", 1);
 
-// ============== CORS — صارم ويُقرأ من .env عند كل إقلاع ==============
-// الأولوية: CORS_ORIGIN ← APP_BASE_URL ← SOCKET_CORS_ORIGIN (للتوافق الخلفي)
-// fallback آمن لدومين الإنتاج إذا كل المتغيرات فارغة (يمنع كارثة "CORS origins: (none)")
+// ============== CORS ==============
 const RAW_ORIGINS =
   process.env.CORS_ORIGIN ||
   process.env.APP_BASE_URL ||
@@ -51,17 +47,15 @@ const RAW_ORIGINS =
 
 const ORIGINS = RAW_ORIGINS
   .split(",")
-  .map((s) => s.trim().replace(/\/+$/, "")) // إزالة trailing slashes
+  .map((s) => s.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
-// تحذير صريح إذا فشل التحميل من .env
 if (!process.env.CORS_ORIGIN) {
   console.warn("⚠️  CORS_ORIGIN غير مضبوط في .env — استخدام fallback:", ORIGINS.join(", "));
 }
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // اسمح بالطلبات بدون origin (curl, health checks, server-to-server)
     if (!origin) return cb(null, true);
     const normalized = origin.replace(/\/+$/, "");
     if (ORIGINS.includes(normalized) || ORIGINS.includes("*")) return cb(null, true);
@@ -77,13 +71,18 @@ const corsOptions = {
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // ضمان معالجة preflight لكل المسارات
+app.options("*", cors(corsOptions));
+
+// ⚠️ مهم جدًا:
+// نسجل webhook قبل express.json حتى يبقى raw body صالحًا للتحقق من HMAC
+app.use("/api/yeastar", yeastarWebhookV2Routes);
+
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 
 // خدمة ملفات التسجيلات الصوتية المرفوعة
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 fs.mkdirSync(path.join(UPLOADS_DIR, "recordings"), { recursive: true });
 app.use("/uploads", express.static(UPLOADS_DIR, {
@@ -125,19 +124,10 @@ app.get("/api/_debug/cors", (_req, res) => {
   });
 });
 
-// حالة تكامل Yeastar Open API (للتشخيص فقط — لا يكشف أسراراً)
+// حالة تكامل Yeastar Open API
 app.get("/api/yeastar/status", (_req, res) => {
   res.json(getYeastarApiStatus());
 });
-
-// ⚠️  Webhooks تُسجَّل قبل express.json() لأنها تحتاج raw body للتحقق من HMAC
-// نُسجّل على عدّة prefixes لمرونة إعداد Yeastar PBX:
-//   /api/webhooks/yeastar           (الأصلي)
-//   /api/webhook/call-event         (المُستخدم حالياً في لوحة PBX)
-//   /api/yeastar/webhook/call-event (الجديد production-grade مع URL token)
-app.use("/api/webhooks", webhooksYeastarRoutes);
-app.use("/api/webhook", webhooksYeastarRoutes);
-app.use("/api/yeastar", yeastarWebhookV2Routes);
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth", authRoutes);
@@ -180,7 +170,6 @@ io.use((socket, next) => {
 io.on("connection", async (socket) => {
   console.log(`[socket] connected: ${socket.data.user.identifier}`);
 
-  // ابعث snapshot أولي
   try {
     const { rows } = await query(
       `SELECT a.id, a.name, a.ext, a.avatar, a.status,
@@ -201,8 +190,7 @@ io.on("connection", async (socket) => {
   });
 });
 
-// شغّل المحاكي فقط إذا تم تفعيله صراحة (افتراضياً معطّل في الإنتاج)
-// لتفعيله: ضع SIMULATOR_ENABLED=true في ملف .env
+// المحاكي
 if (String(process.env.SIMULATOR_ENABLED || "").toLowerCase() === "true") {
   console.log("⚙️  المحاكي مُفعَّل (SIMULATOR_ENABLED=true)");
   startSimulator(io);
@@ -210,23 +198,29 @@ if (String(process.env.SIMULATOR_ENABLED || "").toLowerCase() === "true") {
   console.log("🛑 المحاكي معطّل — البيانات الحيّة تأتي من PBX/webhooks فقط");
 }
 
-// شغّل تكامل Yeastar Open API (يبدأ تلقائياً إذا كانت ENV مضبوطة)
-// ملاحظة: للتعطيل اليدوي ضع YEASTAR_OPENAPI_DISABLED=true في .env
-// (مفيد عندما لا يكون PBX قابلاً للوصول من السيرفر — كما في Yeastar Cloud RAS)
+// Yeastar Open API
 if (String(process.env.YEASTAR_OPENAPI_DISABLED || "").toLowerCase() === "true") {
   console.log("⏭️  Yeastar Open API مُعطَّل يدوياً (YEASTAR_OPENAPI_DISABLED=true) — webhook فقط");
 } else {
   startYeastarOpenApi(io).catch((e) => console.error("[yeastar-api] start failed:", e.message));
 }
 
-// شغّل AMI service بعد تحميل runtimeConfig من DB (لتطبيق الإعدادات المحفوظة)
+// AMI service بعد runtimeConfig
 bootstrapConfig()
   .then(() => {
-    try { startAmiService(io); } catch (e) { console.error("[ami] start failed:", e.message); }
+    try {
+      startAmiService(io);
+    } catch (e) {
+      console.error("[ami] start failed:", e.message);
+    }
   })
   .catch((e) => {
     console.warn("[runtimeConfig] bootstrap error:", e.message);
-    try { startAmiService(io); } catch (e2) { console.error("[ami] start failed:", e2.message); }
+    try {
+      startAmiService(io);
+    } catch (e2) {
+      console.error("[ami] start failed:", e2.message);
+    }
   });
 
 const PORT = parseInt(process.env.PORT || "4000", 10);

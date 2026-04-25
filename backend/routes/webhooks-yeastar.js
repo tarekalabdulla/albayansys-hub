@@ -1,206 +1,71 @@
 // ============================================================
-// Webhook receiver — Yeastar P-Series PBX
+// Yeastar webhook telemetry + normalization helpers only
 // ------------------------------------------------------------
-// يستقبل أحداث المكالمات (ring / answer / hangup / agent_status)
-// ويُحدّث جداول agents/calls/alerts ثم يبثّ التحديثات عبر Socket.io
-//
-// أمان:
-//   1) IP allowlist عبر YEASTAR_ALLOWED_IPS=ip1,ip2 (اختياري لكن مُوصى به)
-//   2) HMAC SHA-256 على body عبر header X-Yeastar-Signature
-//      السرّ في YEASTAR_WEBHOOK_SECRET
-//
-// Idempotency: نسجّل كل event في webhook_events، ونتحقق من call_uuid
-// قبل إنشاء سجل calls جديد.
-//
-// لا يتطلب JWT — هذا endpoint عام يُستدعى من PBX، الأمان عبر HMAC+IP.
+// هذا الملف لم يعد يحتوي routes HTTP.
+// دوره الآن:
+//   1) حفظ telemetry للـ webhook
+//   2) تزويد integrations.js بحالة webhook
+//   3) تزويد yeastar-webhook.js بدوال recordWebhookEvent / recordWebhookRejection
+//   4) تزويد yeastar-openapi.js بالمعالج الموحّد handleNormalizedEvent
 // ============================================================
-import { Router } from "express";
-import crypto from "crypto";
-import rateLimit from "express-rate-limit";
 import { query } from "../db/pool.js";
 import { getEffectiveConfigSync } from "../services/runtimeConfig.js";
-
-const router = Router();
-
-// helpers موحَّدة لقراءة الإعدادات الحيّة (من DB ∪ .env)
-function liveAllowedIps() {
-  const cfg = getEffectiveConfigSync();
-  return Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [];
-}
-function liveWebhookSecret() {
-  const cfg = getEffectiveConfigSync();
-  return cfg.webhookSecret || "";
-}
-function liveWebhookEnabled() {
-  const cfg = getEffectiveConfigSync();
-  return cfg.enableWebhook !== false; // true بالافتراضي
-}
 
 // ------------------------------------------------------------
 // Telemetry — يُستخدم في /api/integrations/status
 // ------------------------------------------------------------
 const telemetry = {
   lastEventAt: 0,
-  lastEventFrom: null,   // ip
+  lastEventFrom: null,
+  lastEventType: null,
   lastErrorAt: 0,
   lastError: null,
   totalEvents: 0,
   totalRejected: 0,
 };
+
 export function getWebhookStatus() {
   const cfg = getEffectiveConfigSync();
   return {
     secretConfigured: Boolean(cfg.webhookSecret),
-    tokenConfigured:  Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
-    allowedIps:       Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [],
-    enabled:          cfg.enableWebhook !== false,
-    lastEventAt:      telemetry.lastEventAt || null,
-    lastEventFrom:    telemetry.lastEventFrom,
-    lastErrorAt:      telemetry.lastErrorAt || null,
-    lastError:        telemetry.lastError,
-    totalEvents:      telemetry.totalEvents,
-    totalRejected:    telemetry.totalRejected,
+    tokenConfigured: Boolean(process.env.YEASTAR_WEBHOOK_TOKEN),
+    allowedIps: Array.isArray(cfg.allowedIps) ? cfg.allowedIps : [],
+    enabled: cfg.enableWebhook !== false,
+    lastEventAt: telemetry.lastEventAt || null,
+    lastEventFrom: telemetry.lastEventFrom,
+    lastEventType: telemetry.lastEventType || null,
+    lastErrorAt: telemetry.lastErrorAt || null,
+    lastError: telemetry.lastError,
+    totalEvents: telemetry.totalEvents,
+    totalRejected: telemetry.totalRejected,
   };
 }
-export function recordWebhookEvent(ip)     { telemetry.lastEventAt = Date.now(); telemetry.lastEventFrom = ip || null; telemetry.totalEvents += 1; }
-export function recordWebhookRejection(reason) { telemetry.lastErrorAt = Date.now(); telemetry.lastError = reason || "unknown"; telemetry.totalRejected += 1; }
 
-// ------------------------------------------------------------
-// Rate limiting — 100 req/sec لكل IP (ad-hoc؛ in-memory)
-// يحمي من DoS عبر إغراق endpoint بطلبات مزيّفة.
-// ملاحظة: in-memory store غير مثالي للنشر متعدد العمليات
-// (يحتاج Redis لاحقاً) لكنه كافٍ لـ pm2 single-instance الحالي.
-// ------------------------------------------------------------
-const yeastarLimiter = rateLimit({
-  windowMs: 1000,                 // نافذة 1 ثانية
-  max: 100,                       // 100 طلب/ثانية/IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const xff = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
-    return xff || req.ip || "unknown";
-  },
-  handler: (req, res) => {
-    console.warn(`[webhook] rate_limited ip=${req.ip}`);
-    res.status(429).json({ error: "rate_limited", retry_after_ms: 1000 });
-  },
-});
-
-// ------------------------------------------------------------
-// HMAC failure tracker — تنبيه عند >10 فشل/دقيقة من نفس IP
-// in-memory sliding window؛ يُنظَّف تلقائياً.
-// ------------------------------------------------------------
-const HMAC_FAIL_WINDOW_MS = 60_000;
-const HMAC_FAIL_THRESHOLD = 10;
-const ALERT_COOLDOWN_MS = 5 * 60_000; // لا تنبيه مكرر لنفس IP خلال 5 دقائق
-const hmacFailures = new Map();   // ip -> number[] (timestamps)
-const lastAlertAt = new Map();    // ip -> timestamp
-
-async function trackHmacFailure(ip, io) {
-  const now = Date.now();
-  const arr = (hmacFailures.get(ip) || []).filter((t) => now - t < HMAC_FAIL_WINDOW_MS);
-  arr.push(now);
-  hmacFailures.set(ip, arr);
-
-  if (arr.length < HMAC_FAIL_THRESHOLD) return;
-
-  // cooldown لتفادي إغراق التنبيهات
-  const lastAt = lastAlertAt.get(ip) || 0;
-  if (now - lastAt < ALERT_COOLDOWN_MS) return;
-  lastAlertAt.set(ip, now);
-
-  try {
-    const { rows } = await query(
-      `INSERT INTO alerts (level, title, message)
-       VALUES ('danger', $1, $2)
-       RETURNING id, level, title, message,
-                 EXTRACT(EPOCH FROM created_at) * 1000 AS time`,
-      [
-        "محاولة وصول مشبوهة لـ Webhook",
-        `فشل التحقق من توقيع HMAC ${arr.length} مرات خلال آخر دقيقة من IP=${ip}. تحقق من صحة YEASTAR_WEBHOOK_SECRET أو احظر الـ IP.`,
-      ]
-    );
-    io?.emit("alert", rows[0]);
-    console.warn(`[webhook] 🚨 HMAC abuse alert raised for ip=${ip} (count=${arr.length})`);
-  } catch (e) {
-    console.error("[webhook] failed to raise alert:", e.message);
-  }
+export function recordWebhookEvent(ip, body = null) {
+  telemetry.lastEventAt = Date.now();
+  telemetry.lastEventFrom = ip || null;
+  telemetry.lastEventType =
+    body?.event ||
+    body?.type ||
+    body?.event_name ||
+    body?.msg?.event ||
+    body?.msg?.event_name ||
+    body?.msg?.type ||
+    null;
+  telemetry.totalEvents += 1;
 }
 
-// تنظيف دوري للذاكرة (كل 5 دقائق)
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, arr] of hmacFailures.entries()) {
-    const fresh = arr.filter((t) => now - t < HMAC_FAIL_WINDOW_MS);
-    if (fresh.length === 0) hmacFailures.delete(ip);
-    else hmacFailures.set(ip, fresh);
-  }
-  for (const [ip, t] of lastAlertAt.entries()) {
-    if (now - t > ALERT_COOLDOWN_MS) lastAlertAt.delete(ip);
-  }
-}, 5 * 60_000).unref();
+export function recordWebhookRejection(reason) {
+  telemetry.lastErrorAt = Date.now();
+  telemetry.lastError = reason || "unknown";
+  telemetry.totalRejected += 1;
+}
 
 // ------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------
-// ALLOWED_IPS لم تعد ثابتة عند الإقلاع — تُقرأ من runtimeConfig في كل request.
-function getClientIp(req) {
-  // يدعم خلف Nginx (X-Forwarded-For)
-  const xff = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
-  return xff || req.ip || req.connection?.remoteAddress || "";
-}
-
-function verifyHmac(rawBody, signatureHeader) {
-  const secret = liveWebhookSecret();
-  if (!secret) return { ok: false, reason: "no_secret_configured" };
-  if (!signatureHeader) return { ok: false, reason: "missing_signature" };
-
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(rawBody)
-    .digest("hex");
-
-  // قبول صيغ شائعة: "sha256=xxxx" أو "xxxx"
-  const provided = signatureHeader.replace(/^sha256=/i, "").trim();
-  try {
-    const a = Buffer.from(expected, "hex");
-    const b = Buffer.from(provided, "hex");
-    if (a.length !== b.length) return { ok: false, reason: "length_mismatch" };
-    return { ok: crypto.timingSafeEqual(a, b), reason: "hmac" };
-  } catch {
-    return { ok: false, reason: "invalid_hex" };
-  }
-}
-
-// ------------------------------------------------------------
-// Middleware: التقاط raw body للتحقق من HMAC
-// ------------------------------------------------------------
-// مهم: هذا الـ router يُسجَّل قبل express.json() العام،
-// أو نستخدم express.raw هنا فقط لمسار الـ webhook.
-const rawJson = (req, _res, next) => {
-  const chunks = [];
-  req.on("data", (c) => chunks.push(c));
-  req.on("end", () => {
-    req.rawBody = Buffer.concat(chunks);
-    try {
-      req.body = req.rawBody.length ? JSON.parse(req.rawBody.toString("utf8")) : {};
-    } catch {
-      req.body = {};
-    }
-    next();
-  });
-  req.on("error", next);
-};
-
-// ------------------------------------------------------------
-// Normalizer — يحوّل أشكال Yeastar المختلفة إلى shape موحّد
-// ------------------------------------------------------------
-// Yeastar P-Series يرسل أحداثاً بأسماء متعددة حسب النسخة:
-//   - "ExtensionRing", "ExtensionAnswer", "ExtensionHangup"
-//   - أو "call.ring", "call.answer", "call.hangup"
-// نتعامل مع الاثنين.
 function normalizeEvent(body) {
-  const t = (body.event || body.type || body.action || "").toString().toLowerCase();
+  const t = (body.event || body.type || body.action || body.event_name || "").toString().toLowerCase();
 
   let kind = null;
   if (/(ring|incoming)/.test(t)) kind = "ring";
@@ -208,19 +73,16 @@ function normalizeEvent(body) {
   else if (/(hangup|end|terminate)/.test(t)) kind = "hangup";
   else if (/(extension|agent).*status/.test(t)) kind = "agent_status";
 
-  const ext = (body.extension || body.ext || body.agent_ext || body.callee || "").toString();
-  const peer = (body.caller || body.from || body.peer || body.number || "").toString();
-  const callUuid = (body.uuid || body.call_id || body.uniqueid || body.linkedid || "").toString();
+  const ext = (body.extension || body.ext || body.agent_ext || body.callee || body.callee_num || body.member_num || "").toString();
+  const peer = (body.caller || body.from || body.peer || body.number || body.caller_num || body.from_num || body.remote_number || "").toString();
+  const callUuid = (body.uuid || body.call_id || body.uniqueid || body.linkedid || body.linked_id || "").toString();
   const direction = (body.direction || "inbound").toString().toLowerCase();
-  const status = (body.status || body.state || "").toString().toLowerCase();
-  const duration = parseInt(body.duration || body.billsec || 0, 10) || 0;
+  const status = (body.status || body.state || body.call_status || "").toString().toLowerCase();
+  const duration = parseInt(body.duration || body.billsec || body.call_duration || 0, 10) || 0;
 
   return { kind, ext, peer, callUuid, direction, status, duration, eventType: t };
 }
 
-// ------------------------------------------------------------
-// تحديثات قاعدة البيانات
-// ------------------------------------------------------------
 async function findAgentByExt(ext) {
   if (!ext) return null;
   const { rows } = await query(`SELECT id, name, ext FROM agents WHERE ext = $1 LIMIT 1`, [ext]);
@@ -240,7 +102,6 @@ async function setAgentStatus(agentId, status) {
 }
 
 async function recordCallStart({ callUuid, agentId, number, direction, raw }) {
-  // id قصير اختصار من call_uuid أو timestamp
   const id = (callUuid || `C-${Date.now()}`).slice(0, 32);
   await query(
     `INSERT INTO calls (id, call_uuid, agent_id, number, duration, status, direction, started_at, raw)
@@ -261,7 +122,6 @@ async function recordCallEnd({ callUuid, duration, status, raw }) {
 }
 
 async function bumpAgentCounters(agentId, status, duration) {
-  // status: 'answered' | 'missed'
   if (status === "answered") {
     await query(
       `UPDATE agents
@@ -291,18 +151,24 @@ async function logEvent({ eventType, callUuid, payload, ip, sigOk, processed, er
 }
 
 // ------------------------------------------------------------
-// معالج موحّد — مشترك بين webhook (HTTP) و Open API (WebSocket)
-// يأخذ body مُطبَّع ويُحدّث DB + يبثّ socket.io
+// المعالج الموحّد — مشترك بين webhook (HTTP) و Open API (WebSocket)
 // ------------------------------------------------------------
 export async function handleNormalizedEvent(body, io, source = "yeastar-webhook") {
   const evt = normalizeEvent(body || {});
   const rawPayload = body || {};
+
   try {
     const agent = await findAgentByExt(evt.ext);
+
     if (!agent && evt.ext) {
       await logEvent({
-        eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
-        sigOk: true, processed: false, error: `unknown_extension:${evt.ext}`,
+        eventType: `${source}:${evt.eventType}`,
+        callUuid: evt.callUuid,
+        payload: rawPayload,
+        ip: source,
+        sigOk: true,
+        processed: false,
+        error: `unknown_extension:${evt.ext}`,
       });
       return { ok: true, ignored: "unknown_extension" };
     }
@@ -315,12 +181,16 @@ export async function handleNormalizedEvent(body, io, source = "yeastar-webhook"
         }
         if (evt.callUuid) {
           await recordCallStart({
-            callUuid: evt.callUuid, agentId: agent?.id || null,
-            number: evt.peer, direction: evt.direction, raw: rawPayload,
+            callUuid: evt.callUuid,
+            agentId: agent?.id || null,
+            number: evt.peer,
+            direction: evt.direction,
+            raw: rawPayload,
           });
         }
         break;
       }
+
       case "answer": {
         if (agent) {
           const updated = await setAgentStatus(agent.id, "in_call");
@@ -331,10 +201,16 @@ export async function handleNormalizedEvent(body, io, source = "yeastar-webhook"
         }
         break;
       }
+
       case "hangup": {
         const finalStatus = /no.?answer|missed|cancel/.test(evt.status) ? "missed" : "answered";
         if (evt.callUuid) {
-          await recordCallEnd({ callUuid: evt.callUuid, duration: evt.duration, status: finalStatus, raw: rawPayload });
+          await recordCallEnd({
+            callUuid: evt.callUuid,
+            duration: evt.duration,
+            status: finalStatus,
+            raw: rawPayload,
+          });
         }
         if (agent) {
           await bumpAgentCounters(agent.id, finalStatus, evt.duration);
@@ -343,111 +219,58 @@ export async function handleNormalizedEvent(body, io, source = "yeastar-webhook"
         }
         break;
       }
+
       case "agent_status": {
         if (agent) {
-          const map = { available: "online", busy: "in_call", away: "break", dnd: "break", offline: "offline" };
+          const map = {
+            available: "online",
+            busy: "in_call",
+            away: "break",
+            dnd: "break",
+            offline: "offline",
+          };
           const next = map[evt.status] || "online";
           const updated = await setAgentStatus(agent.id, next);
           if (updated) io?.emit("agent:update", updated);
         }
         break;
       }
-      default:
+
+      default: {
         await logEvent({
-          eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
-          sigOk: true, processed: false, error: "unknown_event_kind",
+          eventType: `${source}:${evt.eventType}`,
+          callUuid: evt.callUuid,
+          payload: rawPayload,
+          ip: source,
+          sigOk: true,
+          processed: false,
+          error: "unknown_event_kind",
         });
         return { ok: true, ignored: "unknown_event" };
+      }
     }
 
     await logEvent({
-      eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
-      sigOk: true, processed: true,
+      eventType: `${source}:${evt.eventType}`,
+      callUuid: evt.callUuid,
+      payload: rawPayload,
+      ip: source,
+      sigOk: true,
+      processed: true,
     });
+
     return { ok: true, kind: evt.kind, agent: agent?.id || null };
   } catch (err) {
     console.error(`[${source}] error:`, err);
     await logEvent({
-      eventType: `${source}:${evt.eventType}`, callUuid: evt.callUuid, payload: rawPayload, ip: source,
-      sigOk: true, processed: false, error: err.message,
+      eventType: `${source}:${evt.eventType}`,
+      callUuid: evt.callUuid,
+      payload: rawPayload,
+      ip: source,
+      sigOk: true,
+      processed: false,
+      error: err.message,
     });
     throw err;
   }
 }
-
-// ------------------------------------------------------------
-// المعالج الرئيسي (HTTP webhook)
-// ------------------------------------------------------------
-async function handleYeastarEvent(req, res) {
-  const ip = getClientIp(req);
-  const io = req.app.get("io");
-
-  // 0) toggle: قد تكون القناة معطّلة من لوحة التحكم
-  if (!liveWebhookEnabled()) {
-    recordWebhookRejection("webhook_disabled");
-    return res.status(503).json({ error: "webhook_disabled" });
-  }
-
-  // 1) IP allowlist (يُقرأ حياً من DB ∪ .env)
-  const allowed = liveAllowedIps();
-  if (allowed.length && !allowed.includes(ip)) {
-    await logEvent({
-      eventType: "ip_rejected", payload: { ip }, ip,
-      sigOk: false, processed: false, error: "ip_not_allowed",
-    });
-    recordWebhookRejection(`ip_not_allowed:${ip}`);
-    return res.status(403).json({ error: "ip_not_allowed" });
-  }
-
-  // 2) HMAC
-  const sig = req.headers["x-yeastar-signature"] || req.headers["x-signature"] || "";
-  const { ok: sigOk, reason } = verifyHmac(req.rawBody || Buffer.from(""), sig);
-  if (!sigOk) {
-    await logEvent({
-      eventType: "sig_rejected", payload: req.body || {}, ip,
-      sigOk: false, processed: false, error: `hmac_${reason}`,
-    });
-    recordWebhookRejection(`hmac_${reason}`);
-    // تتبّع الإخفاقات وأنشئ تنبيه عند تجاوز العتبة (10 فشل/دقيقة)
-    trackHmacFailure(ip, io).catch((e) => console.error("[webhook] trackHmacFailure:", e.message));
-    return res.status(401).json({ error: "invalid_signature", reason });
-  }
-
-  // 3) فوّض للمعالج الموحّد
-  try {
-    recordWebhookEvent(ip);
-    const result = await handleNormalizedEvent(req.body || {}, io, "yeastar-webhook");
-    return res.json(result);
-  } catch {
-    recordWebhookRejection("processing_failed");
-    return res.status(500).json({ error: "processing_failed" });
-  }
-}
-
-// ------------------------------------------------------------
-// Routes
-// ------------------------------------------------------------
-
-// نقطة الفحص (للتأكد من أن endpoint يعمل بدون توقيع)
-router.get("/yeastar/health", (_req, res) => {
-  const cfg = getEffectiveConfigSync();
-  res.json({
-    ok: true,
-    secured: Boolean(cfg.webhookSecret),
-    allowedIps: Array.isArray(cfg.allowedIps) ? cfg.allowedIps.length : 0,
-    enabled: cfg.enableWebhook !== false,
-  });
-});
-
-// المسار الرئيسي — rate limit ثم raw body ثم المعالجة (HMAC + IP)
-// نقبل عدّة مسارات لمرونة إعداد PBX:
-//   POST /api/webhooks/yeastar              (الافتراضي)
-//   POST /api/webhooks/yeastar/call-event   (Yeastar Cloud RAS)
-//   POST /api/webhook/call-event            (مسار بديل — يُسجَّل على /api/webhook في server.js)
-//   POST /api/webhook/yeastar               (مسار بديل)
-router.post("/yeastar", yeastarLimiter, rawJson, handleYeastarEvent);
-router.post("/yeastar/call-event", yeastarLimiter, rawJson, handleYeastarEvent);
-router.post("/call-event", yeastarLimiter, rawJson, handleYeastarEvent);
-router.post("/", yeastarLimiter, rawJson, handleYeastarEvent);
-
-export default router;

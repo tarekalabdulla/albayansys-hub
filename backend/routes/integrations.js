@@ -1,7 +1,3 @@
-// ============================================================================
-// /api/integrations/status — حالة Webhook + Yeastar OpenAPI + AMI
-// تُستخدم في صفحة "حالة الاتصالات" بالواجهة (auto-refresh كل 5s)
-// ============================================================================
 import { Router } from "express";
 import crypto from "crypto";
 import net from "net";
@@ -37,10 +33,8 @@ router.use((req, res, next) => {
 router.get("/status", (_req, res) => {
   const webhook = getWebhookStatus();
   const openapi = getYeastarApiStatus();
-  const ami     = getAmiStatus();
+  const ami = getAmiStatus();
 
-  // وضع موحّد لكل خدمة:
-  //   "connected" | "failed" | "disabled" | "idle"
   const webhookStatus = !webhook.tokenConfigured && !webhook.secretConfigured
     ? "disabled"
     : webhook.lastEventAt
@@ -65,30 +59,12 @@ router.get("/status", (_req, res) => {
     serverTime: Date.now(),
     webhook: { ...webhook, status: webhookStatus },
     openapi: { ...openapi, status: openapiStatus },
-    ami:     { ...ami,     status: amiStatus },
+    ami: { ...ami, status: amiStatus },
   });
 });
 
 // ============================================================================
-// اختبارات يدوية — كل اختبار يعيد { ok, message, durationMs, ... }
-// ============================================================================
-
-// ============================================================================
-// Webhook test — نستدعي endpoint الذاتي للتأكد أن
-//   Nginx + token + HMAC + DB تعمل سويةً.
-//
-// نُميّز بين النتائج التالية:
-//   "endpoint_reachable"   → استجاب 2xx (Webhook receiver كامل وسليم)
-//   "invalid_signature"    → استجاب 401 (HMAC غير صحيح — السر مختلف)
-//   "rejected_request"     → استجاب 4xx آخر (مثل 403 ip_not_allowed أو 503 disabled)
-//   "endpoint_unreachable" → خطأ شبكة قبل استجابة الخادم (DNS/connect refused)
-//   "no_callback_received" → انتهت المهلة دون استجابة من receiver نفسه
-//   "timeout_only"         → AbortError بدون مؤشرات أخرى — قد يكون webhook receiver سليماً
-//   "disabled"             → لا توجد إعدادات (token غير مضبوط)
-//
-// ⚠️  fix 2026-04: زدنا timeout من 8s/15s إلى 30s لإعطاء وقت كافٍ للـ
-//     receiver + DB write + emit socket. test failure لا يعني أن receiver broken
-//     ما لم يكن endpoint_unreachable أو no_callback_received صريحاً.
+// Webhook test — نعتبر النجاح عند رصد callback جديد فعليًا في telemetry
 // ============================================================================
 const WEBHOOK_TEST_TIMEOUT_MS = 30_000;
 
@@ -96,14 +72,20 @@ router.post("/test/webhook", async (req, res) => {
   const t0 = Date.now();
   const correlationId = `wh-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const live = getEffectiveConfigSync() || {};
-  const token  = process.env.YEASTAR_WEBHOOK_TOKEN || "";
+  const token = process.env.YEASTAR_WEBHOOK_TOKEN || "";
   const secret = live.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "";
+
+  const before = getWebhookStatus();
+  const beforeEventAt = Number(before?.lastEventAt || 0);
+  const beforeTotalEvents = Number(before?.totalEvents || 0);
 
   console.log(
     `[webhook-test] ▶ start id=${correlationId}`,
     `timeout=${WEBHOOK_TEST_TIMEOUT_MS}ms`,
     `token=${maskSecret(token)}`,
     `secret=${secret ? maskSecret(secret) : "(none)"}`,
+    `lastEventAtBefore=${beforeEventAt || null}`,
+    `totalEventsBefore=${beforeTotalEvents}`
   );
 
   if (!token) {
@@ -132,193 +114,296 @@ router.post("/test/webhook", async (req, res) => {
       _correlation_id: correlationId,
     },
   });
-  const headers = { "Content-Type": "application/json", "X-Correlation-Id": correlationId };
+
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Correlation-Id": correlationId,
+  };
+
   if (secret) {
     headers["X-Yeastar-Signature"] =
       "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
   }
 
   console.log(`[webhook-test] → POST ${url} id=${correlationId} hmac=${secret ? "yes" : "no"}`);
-  console.log(`[webhook-test] ⏱ waiting for callback… id=${correlationId} (≤${WEBHOOK_TEST_TIMEOUT_MS}ms)`);
+
+  let postHttpStatus = null;
+  let postBodyText = "";
+  let endpointReachable = false;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), WEBHOOK_TEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
 
   try {
-    const r = await fetch(url, { method: "POST", headers, body, signal: ctrl.signal });
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body,
+      signal: ctrl.signal,
+    });
+
     clearTimeout(timer);
-    const txt = await r.text().catch(() => "");
-    const elapsed = Date.now() - t0;
+    postHttpStatus = r.status;
+    endpointReachable = true;
+    postBodyText = await r.text().catch(() => "");
 
     console.log(
-      `[webhook-test] ← callback received id=${correlationId}`,
+      `[webhook-test] ← initial POST response id=${correlationId}`,
       `http=${r.status}`,
-      `elapsed=${elapsed}ms`,
+      `elapsed=${Date.now() - t0}ms`
     );
 
-    if (r.ok) {
-      console.log(`[webhook-test] ✓ id=${correlationId} signature ok, matched correlation, processed`);
-      return res.json({
-        ok: true,
-        status: "endpoint_reachable",
-        httpStatus: r.status,
-        url,
-        correlationId,
-        durationMs: elapsed,
-        message: `Webhook receiver استقبل الاختبار بنجاح (HTTP ${r.status}, ${elapsed}ms). القناة سليمة.`,
-      });
-    }
     if (r.status === 401) {
-      console.warn(`[webhook-test] ✗ id=${correlationId} signature rejected (HTTP 401)`);
       return res.json({
         ok: false,
         status: "invalid_signature",
         httpStatus: 401,
         url,
         correlationId,
-        durationMs: elapsed,
+        durationMs: Date.now() - t0,
         message: secret
-          ? `Webhook receiver يعمل لكن رفض التوقيع (HTTP 401). السرّ المُرسَل لا يطابق YEASTAR_WEBHOOK_SECRET في الخادم. هذا ليس عطلاً في receiver نفسه.`
-          : `Webhook receiver يطلب توقيعاً ولم نُرسل أي سرّ (HTTP 401). اضبط webhookSecret في الإعدادات. receiver نفسه يعمل.`,
+          ? "Webhook receiver يعمل لكن رفض التوقيع (HTTP 401). السر المرسل لا يطابق webhook secret."
+          : "Webhook receiver يطلب توقيعًا ولم يتم إرسال secret صالح.",
       });
     }
+
     if (r.status === 403) {
-      console.warn(`[webhook-test] ✗ id=${correlationId} ip rejected (HTTP 403)`);
       return res.json({
         ok: false,
         status: "rejected_request",
         httpStatus: 403,
         url,
         correlationId,
-        durationMs: elapsed,
-        message: `Webhook receiver يعمل لكن رفض الـ IP (HTTP 403). تحقق من allowedIps في الإعدادات. receiver نفسه يعمل.`,
+        durationMs: Date.now() - t0,
+        message: "Webhook receiver يعمل لكن رفض الـ IP (HTTP 403). تحقق من allowedIps.",
       });
     }
+
     if (r.status === 503) {
-      console.warn(`[webhook-test] ✗ id=${correlationId} disabled (HTTP 503)`);
       return res.json({
         ok: false,
         status: "rejected_request",
         httpStatus: 503,
         url,
         correlationId,
-        durationMs: elapsed,
-        message: `Webhook receiver يعمل لكن معطّل من لوحة التحكم (HTTP 503). فعّل enableWebhook.`,
+        durationMs: Date.now() - t0,
+        message: "Webhook receiver يعمل لكن webhook معطّل من الإعدادات (HTTP 503).",
       });
     }
-    console.warn(`[webhook-test] ✗ id=${correlationId} rejected http=${r.status} body="${txt.slice(0, 200)}"`);
-    return res.json({
-      ok: false,
-      status: "rejected_request",
-      httpStatus: r.status,
-      url,
-      correlationId,
-      durationMs: elapsed,
-      message: `Webhook receiver وصلنا إليه لكنه ردّ بـ HTTP ${r.status}: ${txt.slice(0, 200)}`,
-    });
+
+    if (!r.ok) {
+      return res.json({
+        ok: false,
+        status: "rejected_request",
+        httpStatus: r.status,
+        url,
+        correlationId,
+        durationMs: Date.now() - t0,
+        message: `Webhook receiver ردّ بـ HTTP ${r.status}: ${postBodyText.slice(0, 200)}`,
+      });
+    }
   } catch (e) {
     clearTimeout(timer);
-    const elapsed = Date.now() - t0;
+
     if (e.name === "AbortError") {
-      // فرّق بين "no_callback_received" (انتظرنا كامل المهلة)
-      // و "timeout_only" (انقطع قبل المهلة لسبب خارجي).
-      const status = elapsed >= WEBHOOK_TEST_TIMEOUT_MS - 500 ? "no_callback_received" : "timeout_only";
       console.warn(
-        `[webhook-test] ⏱ id=${correlationId} aborted status=${status}`,
-        `elapsed=${elapsed}ms target=${url}`,
+        `[webhook-test] ⏱ initial POST timeout id=${correlationId}`,
+        `elapsed=${Date.now() - t0}ms target=${url}`
       );
       return res.json({
         ok: false,
-        status,
+        status: "endpoint_unreachable",
         url,
         correlationId,
-        durationMs: elapsed,
-        message: status === "no_callback_received"
-          ? `لم يصلنا أي callback خلال ${WEBHOOK_TEST_TIMEOUT_MS}ms من ${url}. تحقّق أن Nginx يُمرّر /api/ إلى المنفذ ${process.env.PORT || 4000}، وأن جدار الحماية يسمح. هذا لا يعني بالضرورة أن webhook receiver معطوب — قد تكون المشكلة في الشبكة فقط.`
-          : `قُطع الاختبار قبل اكتمال المهلة (${elapsed}ms / ${WEBHOOK_TEST_TIMEOUT_MS}ms). أعد المحاولة. webhook receiver قد يكون سليماً.`,
+        durationMs: Date.now() - t0,
+        message: "انتهت مهلة الوصول الأولي إلى endpoint قبل أي استجابة.",
       });
     }
-    const code = e.code || "ERR";
-    console.warn(`[webhook-test] ✗ id=${correlationId} unreachable code=${code} msg="${e.message}"`);
+
+    console.warn(
+      `[webhook-test] ✗ initial POST unreachable id=${correlationId}`,
+      `code=${e.code || "ERR"} msg="${e.message}"`
+    );
+
     return res.json({
       ok: false,
       status: "endpoint_unreachable",
       url,
       correlationId,
-      durationMs: elapsed,
-      message: `تعذّر الوصول للـ endpoint (${code}): ${e.message}. تحقّق من DNS وNginx والمنفذ.`,
+      durationMs: Date.now() - t0,
+      message: `تعذّر الوصول للـ endpoint (${e.code || "ERR"}): ${e.message}`,
     });
   }
+
+  console.log(
+    `[webhook-test] ⏱ waiting for telemetry delta… id=${correlationId} (≤${WEBHOOK_TEST_TIMEOUT_MS}ms)`
+  );
+
+  const waitStart = Date.now();
+
+  while (Date.now() - waitStart < WEBHOOK_TEST_TIMEOUT_MS) {
+    const current = getWebhookStatus();
+    const currentEventAt = Number(current?.lastEventAt || 0);
+    const currentTotalEvents = Number(current?.totalEvents || 0);
+
+    const advancedByTime = currentEventAt > beforeEventAt;
+    const advancedByCount = currentTotalEvents > beforeTotalEvents;
+
+    if (advancedByTime || advancedByCount) {
+      const elapsed = Date.now() - t0;
+
+      console.log(
+        `[webhook-test] ✓ callback observed id=${correlationId}`,
+        `elapsed=${elapsed}ms`,
+        `lastEventAt=${currentEventAt || null}`,
+        `totalEvents=${currentTotalEvents}`
+      );
+
+      return res.json({
+        ok: true,
+        status: "receiver_active",
+        httpStatus: postHttpStatus,
+        url,
+        correlationId,
+        durationMs: elapsed,
+        endpointReachable,
+        lastEventAt: current.lastEventAt || null,
+        lastEventFrom: current.lastEventFrom || null,
+        lastEventType: current.lastEventType || null,
+        totalEvents: current.totalEvents || 0,
+        message: "Webhook receiver يعمل وتم رصد callback جديد فعليًا أثناء نافذة الاختبار.",
+      });
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  const elapsed = Date.now() - t0;
+
+  console.warn(
+    `[webhook-test] ⏱ id=${correlationId} aborted status=no_callback_received`,
+    `elapsed=${elapsed}ms target=${url}`,
+    `endpointReachable=${endpointReachable}`,
+    `postHttpStatus=${postHttpStatus}`
+  );
+
+  return res.json({
+    ok: false,
+    status: "no_callback_received",
+    httpStatus: postHttpStatus,
+    url,
+    correlationId,
+    durationMs: elapsed,
+    endpointReachable,
+    endpointBody: postBodyText.slice(0, 200),
+    message:
+      "وصلنا إلى endpoint بنجاح، لكن telemetry لم تسجل حدثًا جديدًا أثناء نافذة الاختبار. هذا يعني أن مشكلة التتبع داخل التطبيق ما زالت قائمة.",
+  });
 });
 
 // ============================================================================
-// OpenAPI test — يجرّب get_token مباشرة على PBX
-// OAuth حصراً (client_id + client_secret). لا fallback إلى username/password.
-//
-// ⚠️  fix 2026-04 (B): الـ baseUrl يُعقَّم دوماً — يُرفض/يُجرَّد أي قيمة
-//     تحتوي على /openapi أو /api/yeastar أو webhook URL.
-//     المسار /openapi/v1.0/get_token ثابت في الكود.
+// OpenAPI test — client_credentials أولاً ثم fallback إلى basic_credentials
 // ============================================================================
 const OPENAPI_TEST_TIMEOUT_MS = 15_000;
+
+async function postJsonWithTimeout(url, payload, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+    const data = await r.json().catch(() => ({}));
+    return { ok: true, response: r, data };
+  } catch (e) {
+    return { ok: false, error: e };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildBasicFallbackShape(live) {
+  const username = live.apiUsername || process.env.YEASTAR_API_USER || live.clientId || process.env.YEASTAR_CLIENT_ID || "";
+  const password = live.apiPassword || process.env.YEASTAR_API_PASS || live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
+
+  const payload = { username, password };
+  const fields = ["username", "password"];
+  const missing = fields.filter((f) => !payload[f]);
+
+  return {
+    effectiveMode: "basic_credentials",
+    fields,
+    payload,
+    missing,
+  };
+}
 
 router.post("/test/openapi", async (_req, res) => {
   const t0 = Date.now();
   const live = getEffectiveConfigSync() || {};
-  const src  = getConfigSource() || { baseUrl: "none" };
+  const src = getConfigSource() || { baseUrl: "none" };
 
   const rawBase = live.baseUrl || process.env.YEASTAR_BASE_URL || process.env.YEASTAR_API_BASE || "";
-  const base    = sanitizeBaseUrl(rawBase);
-  const shape   = buildAuthPayloadShape(live);
+  const base = sanitizeBaseUrl(rawBase);
+  const primaryShape = buildAuthPayloadShape(live);
 
-  console.log("[integrations/test/openapi] starting",
+  console.log(
+    "[integrations/test/openapi] starting",
     `base="${base || "(empty)"}" (source=${src.baseUrl})`,
     rawBase && rawBase !== base ? `(raw was sanitized from "${rawBase.slice(0, 120)}")` : "",
-    `authMode="${shape.effectiveMode}"${shape.explicit ? "" : " (inferred)"}`,
-    `fields=[${shape.fields.join(", ")}]`,
-    `values={ ${shape.fields.map((f) => `${f}=${maskSecret(shape.payload[f])}`).join(", ")} }`,
+    `authMode="${primaryShape.effectiveMode}"${primaryShape.explicit ? "" : " (inferred)"}`,
+    `fields=[${primaryShape.fields.join(", ")}]`,
+    `values={ ${primaryShape.fields.map((f) => `${f}=${maskSecret(primaryShape.payload[f])}`).join(", ")} }`
   );
 
   if (!base) {
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
-      authMode: shape.effectiveMode,
+      authMode: primaryShape.effectiveMode,
       message: rawBase
-        ? `Base URL مرفوض بعد التعقيم — القيمة المخزّنة "${rawBase.slice(0, 80)}…" تبدو وكأنها webhook URL أو مسار. ضع origin فقط مثل https://pbx.example.com`
+        ? `Base URL مرفوض بعد التعقيم — القيمة المخزنة "${rawBase.slice(0, 80)}…" تبدو وكأنها webhook URL أو مسار. ضع origin فقط مثل https://pbx.example.com`
         : "YEASTAR_BASE_URL غير مضبوط في الإعدادات/البيئة",
     });
   }
-  if (shape.missing.length) {
-    return res.json({
-      ok: false,
-      durationMs: Date.now() - t0,
-      authMode: shape.effectiveMode,
-      authFields: shape.fields,
-      message: `بيانات المصادقة ناقصة لوضع "${shape.effectiveMode}" — الحقول الناقصة: ${shape.missing.join(", ")}`,
-    });
-  }
 
-  // ⚠️ المسار ثابت — لا يأتي من DB ولا env
   const url = `${base}/openapi/v1.0/get_token`;
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), OPENAPI_TEST_TIMEOUT_MS);
-  try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(shape.payload),
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    const data = await r.json().catch(() => ({}));
+  // ========= المحاولة الأولى =========
+  if (!primaryShape.missing.length) {
+    const first = await postJsonWithTimeout(url, primaryShape.payload, OPENAPI_TEST_TIMEOUT_MS);
+
+    if (!first.ok) {
+      const reason = first.error.name === "AbortError"
+        ? `انتهت المهلة بعد ${OPENAPI_TEST_TIMEOUT_MS}ms`
+        : first.error.message;
+
+      console.warn(`[integrations/test/openapi] network error: ${reason} endpoint="${url}"`);
+
+      return res.json({
+        ok: false,
+        durationMs: Date.now() - t0,
+        endpoint: url,
+        baseUrl: base,
+        baseUrlSource: src.baseUrl,
+        authMode: primaryShape.effectiveMode,
+        message: `تعذّر الوصول لـ ${base}: ${reason}`,
+      });
+    }
+
+    const r = first.response;
+    const data = first.data;
 
     console.log(
       `[integrations/test/openapi] response http=${r.status}`,
-      `authMode="${shape.effectiveMode}"`,
+      `authMode="${primaryShape.effectiveMode}"`,
       `errcode=${data.errcode ?? "-"}`,
       `errmsg="${data.errmsg ?? ""}"`,
-      `endpoint="${url}"`,
+      `endpoint="${url}"`
     );
 
     const accessToken = data.access_token || data.data?.access_token;
@@ -329,66 +414,212 @@ router.post("/test/openapi", async (_req, res) => {
         endpoint: url,
         baseUrl: base,
         baseUrlSource: src.baseUrl,
-        authMode: shape.effectiveMode,
-        authFields: shape.fields,
+        authMode: primaryShape.effectiveMode,
+        authFields: primaryShape.fields,
         expiresIn: data.expire_time || data.data?.expire_time || 1800,
-        message: `حصلنا على access_token من ${base} بنجاح (authMode=${shape.effectiveMode}).`,
+        message: `حصلنا على access_token من ${base} بنجاح (authMode=${primaryShape.effectiveMode}).`,
       });
     }
+
+    // ========= fallback إذا 40002 =========
+    if (Number(data.errcode) === 40002) {
+      const fallbackShape = buildBasicFallbackShape(live);
+
+      console.log(
+        `[integrations/test/openapi] fallback from authMode="${primaryShape.effectiveMode}" to authMode="${fallbackShape.effectiveMode}"`,
+        `fields=[${fallbackShape.fields.join(", ")}]`,
+        `values={ ${fallbackShape.fields.map((f) => `${f}=${maskSecret(fallbackShape.payload[f])}`).join(", ")} }`
+      );
+
+      if (!fallbackShape.missing.length) {
+        const second = await postJsonWithTimeout(url, fallbackShape.payload, OPENAPI_TEST_TIMEOUT_MS);
+
+        if (!second.ok) {
+          const reason = second.error.name === "AbortError"
+            ? `انتهت المهلة بعد ${OPENAPI_TEST_TIMEOUT_MS}ms`
+            : second.error.message;
+
+          return res.json({
+            ok: false,
+            durationMs: Date.now() - t0,
+            endpoint: url,
+            baseUrl: base,
+            baseUrlSource: src.baseUrl,
+            authMode: fallbackShape.effectiveMode,
+            authFields: fallbackShape.fields,
+            message: `تعذّر الوصول لـ ${base} أثناء fallback: ${reason}`,
+          });
+        }
+
+        const r2 = second.response;
+        const data2 = second.data;
+
+        console.log(
+          `[integrations/test/openapi] fallback response http=${r2.status}`,
+          `authMode="${fallbackShape.effectiveMode}"`,
+          `errcode=${data2.errcode ?? "-"}`,
+          `errmsg="${data2.errmsg ?? ""}"`,
+          `endpoint="${url}"`
+        );
+
+        const fallbackToken = data2.access_token || data2.data?.access_token;
+        if (r2.ok && (data2.errcode === 0 || data2.errcode === undefined) && fallbackToken) {
+          return res.json({
+            ok: true,
+            durationMs: Date.now() - t0,
+            endpoint: url,
+            baseUrl: base,
+            baseUrlSource: src.baseUrl,
+            authMode: fallbackShape.effectiveMode,
+            authFields: fallbackShape.fields,
+            fallbackFrom: primaryShape.effectiveMode,
+            expiresIn: data2.expire_time || data2.data?.expire_time || 1800,
+            message: `حصلنا على access_token من ${base} بنجاح بعد fallback إلى ${fallbackShape.effectiveMode}.`,
+          });
+        }
+
+        return res.json({
+          ok: false,
+          durationMs: Date.now() - t0,
+          endpoint: url,
+          baseUrl: base,
+          baseUrlSource: src.baseUrl,
+          authMode: fallbackShape.effectiveMode,
+          authFields: fallbackShape.fields,
+          fallbackFrom: primaryShape.effectiveMode,
+          httpStatus: r2.status,
+          errcode: data2.errcode ?? null,
+          errmsg: data2.errmsg ?? null,
+          message: `رفض PBX المصادقة حتى بعد fallback (authMode=${fallbackShape.effectiveMode}, fields=[${fallbackShape.fields.join(",")}]) errcode=${data2.errcode ?? r2.status} ${data2.errmsg || ""}`.trim(),
+        });
+      }
+    }
+
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
       endpoint: url,
       baseUrl: base,
       baseUrlSource: src.baseUrl,
-      authMode: shape.effectiveMode,
-      authFields: shape.fields,
+      authMode: primaryShape.effectiveMode,
+      authFields: primaryShape.fields,
       httpStatus: r.status,
       errcode: data.errcode ?? null,
       errmsg: data.errmsg ?? null,
-      message: `رفض PBX المصادقة (authMode=${shape.effectiveMode}, fields=[${shape.fields.join(",")}]): errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
+      message: `رفض PBX المصادقة (authMode=${primaryShape.effectiveMode}, fields=[${primaryShape.fields.join(",")}]) errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim(),
     });
-  } catch (e) {
-    clearTimeout(timer);
-    const reason = e.name === "AbortError"
+  }
+
+  // إذا الحقول الأساسية ناقصة، جرّب fallback basic مباشرة
+  const fallbackShape = buildBasicFallbackShape(live);
+  if (fallbackShape.missing.length) {
+    return res.json({
+      ok: false,
+      durationMs: Date.now() - t0,
+      authMode: fallbackShape.effectiveMode,
+      authFields: fallbackShape.fields,
+      message: `بيانات المصادقة ناقصة. الحقول الناقصة: ${fallbackShape.missing.join(", ")}`,
+    });
+  }
+
+  const second = await postJsonWithTimeout(url, fallbackShape.payload, OPENAPI_TEST_TIMEOUT_MS);
+  if (!second.ok) {
+    const reason = second.error.name === "AbortError"
       ? `انتهت المهلة بعد ${OPENAPI_TEST_TIMEOUT_MS}ms`
-      : e.message;
-    console.warn(`[integrations/test/openapi] network error: ${reason} endpoint="${url}"`);
+      : second.error.message;
+
     return res.json({
       ok: false,
       durationMs: Date.now() - t0,
       endpoint: url,
       baseUrl: base,
       baseUrlSource: src.baseUrl,
-      authMode: shape.effectiveMode,
+      authMode: fallbackShape.effectiveMode,
+      authFields: fallbackShape.fields,
       message: `تعذّر الوصول لـ ${base}: ${reason}`,
     });
   }
+
+  const r2 = second.response;
+  const data2 = second.data;
+  const fallbackToken = data2.access_token || data2.data?.access_token;
+
+  if (r2.ok && (data2.errcode === 0 || data2.errcode === undefined) && fallbackToken) {
+    return res.json({
+      ok: true,
+      durationMs: Date.now() - t0,
+      endpoint: url,
+      baseUrl: base,
+      baseUrlSource: src.baseUrl,
+      authMode: fallbackShape.effectiveMode,
+      authFields: fallbackShape.fields,
+      expiresIn: data2.expire_time || data2.data?.expire_time || 1800,
+      message: `حصلنا على access_token من ${base} بنجاح (authMode=${fallbackShape.effectiveMode}).`,
+    });
+  }
+
+  return res.json({
+    ok: false,
+    durationMs: Date.now() - t0,
+    endpoint: url,
+    baseUrl: base,
+    baseUrlSource: src.baseUrl,
+    authMode: fallbackShape.effectiveMode,
+    authFields: fallbackShape.fields,
+    httpStatus: r2.status,
+    errcode: data2.errcode ?? null,
+    errmsg: data2.errmsg ?? null,
+    message: `رفض PBX المصادقة (authMode=${fallbackShape.effectiveMode}, fields=[${fallbackShape.fields.join(",")}]) errcode=${data2.errcode ?? r2.status} ${data2.errmsg || ""}`.trim(),
+  });
 });
 
-// ----- AMI: يفتح TCP connect فقط (login بدون مزامنة)
+// ============================================================================
+// AMI TCP test
+// ============================================================================
 router.post("/test/ami", async (_req, res) => {
   const t0 = Date.now();
   const live = getEffectiveConfigSync() || {};
   const host = live.amiHost || process.env.YEASTAR_AMI_HOST || "";
-  const port = (Number.isInteger(live.amiPort) && live.amiPort > 0)
+  const port = Number.isInteger(live.amiPort) && live.amiPort > 0
     ? live.amiPort
     : parseInt(process.env.YEASTAR_AMI_PORT || "5038", 10);
+
   if (!host) {
-    return res.json({ ok: false, durationMs: Date.now() - t0,
-      message: "YEASTAR_AMI_HOST غير مضبوط (AMI معطّل)" });
+    return res.json({
+      ok: false,
+      durationMs: Date.now() - t0,
+      message: "YEASTAR_AMI_HOST غير مضبوط (AMI معطّل)",
+    });
   }
+
   const result = await new Promise((resolve) => {
     const sock = new net.Socket();
     let done = false;
-    const finish = (ok, msg) => { if (!done) { done = true; try { sock.destroy(); } catch { /* noop */ } resolve({ ok, msg }); } };
+
+    const finish = (ok, msg) => {
+      if (!done) {
+        done = true;
+        try {
+          sock.destroy();
+        } catch {
+          // noop
+        }
+        resolve({ ok, msg });
+      }
+    };
+
     sock.setTimeout(8000);
     sock.once("connect", () => finish(true, `TCP متصل بـ ${host}:${port}`));
     sock.once("timeout", () => finish(false, `انتهت المهلة عند الاتصال بـ ${host}:${port} (الـ VPS لا يصل للسنترال)`));
-    sock.once("error",   (e) => finish(false, `${e.code || "ERR"}: ${e.message}`));
+    sock.once("error", (e) => finish(false, `${e.code || "ERR"}: ${e.message}`));
     sock.connect(port, host);
   });
-  res.json({ ok: result.ok, durationMs: Date.now() - t0, message: result.msg });
+
+  res.json({
+    ok: result.ok,
+    durationMs: Date.now() - t0,
+    message: result.msg,
+  });
 });
 
 export default router;
