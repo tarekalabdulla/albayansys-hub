@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusDoughnut } from "@/components/dashboard/StatusDoughnut";
@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/SidePanels";
 import {
   Users, PhoneCall, PhoneIncoming, PhoneMissed, Timer, Gauge,
+  History, Loader2, PhoneForwarded,
   type LucideIcon,
 } from "lucide-react";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
@@ -21,9 +22,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type { Agent } from "@/lib/mockData";
+import { pbxApi, type CallLog } from "@/lib/pbxApi";
 
 type MetricKey = "total" | "in_call" | "answered" | "missed" | "avg" | "sla";
+
+const CALL_STATUS_LABEL: Record<string, string> = {
+  ringing: "يرن",
+  answered: "مُجابة",
+  busy: "مشغول",
+  no_answer: "بدون رد",
+  failed: "فشلت",
+  cancelled: "ملغاة",
+  completed: "مكتملة",
+};
+
+const CALL_STATUS_BADGE: Record<string, string> = {
+  answered: "bg-success/15 text-success border-success/30",
+  completed: "bg-success/15 text-success border-success/30",
+  ringing: "bg-info/15 text-info border-info/30",
+  busy: "bg-warning/15 text-warning border-warning/30",
+  no_answer: "bg-destructive/15 text-destructive border-destructive/30",
+  failed: "bg-destructive/15 text-destructive border-destructive/30",
+  cancelled: "bg-muted text-muted-foreground border-border",
+};
+
+const DIRECTION_LABEL: Record<string, string> = {
+  incoming: "واردة",
+  outgoing: "صادرة",
+  internal: "داخلية",
+  transferred: "محوّلة",
+  forwarded: "مُعاد توجيهها",
+  unknown: "غير معروف",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   online: "متاح",
