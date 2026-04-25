@@ -7,6 +7,7 @@ interface StatCardProps {
   icon: LucideIcon;
   trend?: { value: number; positive: boolean };
   accent?: "primary" | "success" | "warning" | "info" | "destructive";
+  onClick?: () => void;
 }
 
 const ACCENT_CLASSES = {
@@ -17,10 +18,19 @@ const ACCENT_CLASSES = {
   destructive: { bg: "bg-destructive/10", text: "text-destructive" },
 };
 
-export function StatCard({ label, value, icon: Icon, trend, accent = "primary" }: StatCardProps) {
+export function StatCard({ label, value, icon: Icon, trend, accent = "primary", onClick }: StatCardProps) {
   const c = ACCENT_CLASSES[accent];
+  const clickable = typeof onClick === "function";
+  const Comp: any = clickable ? "button" : "div";
   return (
-    <div className="stat-card anim-slide-up">
+    <Comp
+      type={clickable ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "stat-card anim-slide-up text-right w-full",
+        clickable && "cursor-pointer transition-transform hover:-translate-y-0.5 hover:shadow-elegant focus:outline-none focus:ring-2 focus:ring-primary/40"
+      )}
+    >
       <div className="relative flex items-start justify-between">
         <div>
           <p className="text-sm text-muted-foreground font-medium">{label}</p>
@@ -39,6 +49,6 @@ export function StatCard({ label, value, icon: Icon, trend, accent = "primary" }
           <Icon className="w-6 h-6" />
         </div>
       </div>
-    </div>
+    </Comp>
   );
 }
