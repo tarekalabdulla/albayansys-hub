@@ -323,6 +323,56 @@ const Index = () => {
             <DialogDescription>
               التحويلة <span dir="ltr" className="tabular-nums">{callsAgent?.ext}</span> · آخر 25 مكالمة
             </DialogDescription>
+            {callsList.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => {
+                    const rows = callsList.map((c) => ({
+                      startedAt: c.startedAt || "",
+                      remote: c.remote || "",
+                      direction: c.direction || "",
+                      status: c.status || "",
+                      durationSec: c.duration || c.talkSeconds || 0,
+                      ext: c.ext || "",
+                      agentName: c.agentName || callsAgent?.name || "",
+                    }));
+                    const csv = rowsToCsv(rows, [
+                      "startedAt","remote","direction","status","durationSec","ext","agentName",
+                    ]);
+                    const safeName = (callsAgent?.name || "agent").replace(/\s+/g, "_");
+                    downloadFile(`calls_${safeName}_${callsAgent?.ext || ""}.csv`, csv);
+                  }}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  تصدير CSV
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => {
+                    const payload = {
+                      agent: { name: callsAgent?.name, ext: callsAgent?.ext },
+                      exportedAt: new Date().toISOString(),
+                      count: callsList.length,
+                      calls: callsList,
+                    };
+                    const safeName = (callsAgent?.name || "agent").replace(/\s+/g, "_");
+                    downloadFile(
+                      `calls_${safeName}_${callsAgent?.ext || ""}.json`,
+                      JSON.stringify(payload, null, 2),
+                      "application/json;charset=utf-8;"
+                    );
+                  }}
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  تصدير JSON
+                </Button>
+              </div>
+            )}
           </DialogHeader>
 
           {callsLoading ? (
