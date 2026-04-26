@@ -493,6 +493,61 @@ export default function Yeastar() {
     }
   }
 
+  async function onSyncToPbx() {
+    setSyncingToPbx(true);
+    setPbxSyncResult(null);
+    try {
+      const { data: r } = await api.post("/yeastar/sync-webhook-to-pbx");
+      setPbxSyncResult({
+        ok: Boolean(r?.ok),
+        message: r?.message || "تم",
+        instructions: r?.instructions,
+      });
+      toast({
+        title: r?.ok ? "اتصال PBX ناجح" : "فشل التزامن",
+        description: r?.message || "—",
+        variant: r?.ok ? "default" : "destructive",
+      });
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string; error?: string } }; message?: string })?.response?.data?.message
+        || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (e as { message?: string })?.message
+        || "تعذّر التزامن";
+      setPbxSyncResult({ ok: false, message: msg });
+      toast({ title: "فشل التزامن", description: msg, variant: "destructive" });
+    } finally {
+      setSyncingToPbx(false);
+    }
+  }
+
+  async function onTestReceiver() {
+    setTestingReceiver(true);
+    setReceiverTestResult(null);
+    try {
+      const { data: r } = await api.post("/yeastar/test-webhook-receiver");
+      setReceiverTestResult({
+        ok: Boolean(r?.ok),
+        message: r?.message || "—",
+        url: r?.url || null,
+        httpStatus: r?.httpStatus || null,
+      });
+      toast({
+        title: r?.ok ? "Receiver يعمل" : "Receiver لا يستجيب",
+        description: r?.message || "—",
+        variant: r?.ok ? "default" : "destructive",
+      });
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string; error?: string } }; message?: string })?.response?.data?.message
+        || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (e as { message?: string })?.message
+        || "تعذّر الاختبار";
+      setReceiverTestResult({ ok: false, message: msg });
+      toast({ title: "فشل الاختبار", description: msg, variant: "destructive" });
+    } finally {
+      setTestingReceiver(false);
+    }
+  }
+
   const status = data ? deriveStatus(data) : null;
   const c = data?.config || {};
 
