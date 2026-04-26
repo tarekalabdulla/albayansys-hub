@@ -167,19 +167,43 @@ async function fetchTokenFresh() {
 async function refreshIfNeeded() {
   if (!cache.accessToken) return fetchTokenFresh();
   if (Date.now() < cache.expireAt - TOKEN_REFRESH_MARGIN_MS) return cache.accessToken;
+
   // محاولة refresh أولاً، fallback لـ get_token
+  // ⚠️  Yeastar OpenAPI أحيانًا يرفض refresh_token وحده بـ 40002 PARAMETER ERROR.
+  //     لذا نُرسل client_id/client_secret (أو username/password) معه عند توفّرهما.
   if (cache.refreshToken) {
     try {
-      const { base } = cfg();
+      const { base, authMode, authPayload } = cfg();
+
+      const payload = { refresh_token: cache.refreshToken };
+      const includedFields = ["refresh_token"];
+      if (authPayload && typeof authPayload === "object") {
+        for (const [k, v] of Object.entries(authPayload)) {
+          if (v !== undefined && v !== null && String(v).trim() !== "") {
+            payload[k] = v;
+            includedFields.push(k);
+          }
+        }
+      }
+
+      log(
+        `refresh_token → ${base}/openapi/v1.0/refresh_token`,
+        `authMode="${authMode}" fields=[${includedFields.join(", ")}]`
+      );
+
       const res = await safeFetch(`${base}/openapi/v1.0/refresh_token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: cache.refreshToken }),
+        body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (!data.errcode || data.errcode === 0) {
-          cache.accessToken  = data.access_token  || data.data?.access_token;
+
+      let data = {};
+      try { data = await res.json(); } catch { data = {}; }
+
+      if (res.ok && (!data.errcode || data.errcode === 0)) {
+        const newAccess = data.access_token || data.data?.access_token;
+        if (newAccess) {
+          cache.accessToken  = newAccess;
           cache.refreshToken = data.refresh_token || data.data?.refresh_token || cache.refreshToken;
           const ttl = data.expire_time || data.data?.expire_time || 1800;
           cache.expireAt = Date.now() + ttl * 1000;
@@ -187,10 +211,23 @@ async function refreshIfNeeded() {
           return cache.accessToken;
         }
       }
+
+      // فشل: سجّل السبب وامسح refresh_token حتى لا نُكرّر نفس الفشل
+      warn(
+        `refresh rejected — http=${res.status} errcode=${data.errcode ?? "-"} ` +
+        `errmsg="${data.errmsg ?? ""}" sentFields=[${includedFields.join(", ")}] ` +
+        `→ clearing refresh_token and falling back to fresh get_token`
+      );
     } catch (e) {
       warn("refresh failed, falling back to fresh get_token:", e.message);
     }
+    // امسح refresh_token المعطوب لتجنّب حلقة
+    cache.refreshToken = null;
   }
+
+  // إعادة الحصول على توكن جديد كامل المصادقة
+  cache.accessToken = null;
+  cache.expireAt = 0;
   return fetchTokenFresh();
 }
 
