@@ -34,6 +34,7 @@ import {
   Filler,
 } from "chart.js";
 import { AGENTS, formatDuration, type Agent } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { cn } from "@/lib/utils";
 
 ChartJS.register(
@@ -107,9 +108,15 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
   const reportRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
 
+  // ابحث في الموظفين الحيين أولاً (وضع الإنتاج) ثم في البيانات الوهمية (التطوير)
+  const liveAgents = useLiveAgents();
   const agent = useMemo(
-    () => AGENTS.find((a) => a.id === agentId) || null,
-    [agentId],
+    () =>
+      (agentId
+        ? liveAgents.find((a) => a.id === agentId) ||
+          AGENTS.find((a) => a.id === agentId)
+        : null) || null,
+    [agentId, liveAgents],
   );
 
   const recentCalls = useMemo(
