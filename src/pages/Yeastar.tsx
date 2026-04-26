@@ -409,7 +409,61 @@ export default function Yeastar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Pre-save validation — تنبيهات تحقق قبل إرسال الإعدادات للسيرفر.
+   * تتحقق من اكتمال الحقول الأساسية حسب الميزات المفعّلة:
+   *   • OpenAPI مفعّل  → Base URL + Client ID مطلوبين، و Client Secret لازم يكون مضبوطاً مسبقاً أو مُدخلاً الآن.
+   *   • Webhook مفعّل → Webhook Path موجود، و Webhook Secret/Token لازم يكون مضبوطاً مسبقاً أو مُدخلاً الآن.
+   *   • AMI مفعّل     → Host + Username + Password (مضبوط مسبقاً أو مُدخل الآن).
+   * ترجع قائمة بالأخطاء — فارغة تعني "صالح للحفظ".
+   */
+  function collectPreSaveIssues(): string[] {
+    const issues: string[] = [];
+    const env = data?.env;
+    const cfg = data?.config;
+
+    // OpenAPI checks
+    if (form.enableOpenAPI) {
+      if (!form.baseUrl.trim())                 issues.push("Base URL مطلوب عند تفعيل OpenAPI.");
+      else if (baseUrlValidation.kind === "error") issues.push(`Base URL غير صالح: ${baseUrlValidation.message}`);
+      if (!form.clientId.trim())                issues.push("Client ID مطلوب عند تفعيل OpenAPI.");
+      const clientSecretReady = Boolean(form.clientSecret) || Boolean(env?.clientSecretSet) || Boolean(cfg?.clientSecretIsSet);
+      if (!clientSecretReady)                   issues.push("Client Secret غير مضبوط — أدخله مرة واحدة على الأقل.");
+    }
+
+    // Webhook checks
+    if (form.enableWebhook) {
+      if (!form.webhookPath.trim())             issues.push("Webhook Path مطلوب عند تفعيل Webhook.");
+      else if (webhookPathValidation.kind === "error") issues.push(`Webhook Path غير صالح: ${webhookPathValidation.message}`);
+      const webhookSecretReady = Boolean(form.webhookSecret) || Boolean(env?.webhookTokenSet) || Boolean(env?.webhookSecretSet) || Boolean(cfg?.webhookSecretIsSet);
+      if (!webhookSecretReady)                  issues.push("Webhook Secret/Token غير مضبوط — أدخله مرة واحدة على الأقل لتأمين الاستقبال.");
+    }
+
+    // AMI checks
+    if (form.enableAMI) {
+      if (!form.amiHost.trim())                 issues.push("AMI Host مطلوب عند تفعيل AMI.");
+      if (!form.amiUsername.trim())             issues.push("AMI Username مطلوب عند تفعيل AMI.");
+      const amiPwdReady = Boolean(form.amiPassword) || Boolean(cfg?.amiPasswordIsSet);
+      if (!amiPwdReady)                         issues.push("AMI Password غير مضبوط — أدخله مرة واحدة على الأقل.");
+    }
+
+    return issues;
+  }
+
   async function onSave(thenSync = false) {
+    // ---- تنبيهات تحقق قبل الحفظ ----
+    const issues = collectPreSaveIssues();
+    if (issues.length > 0) {
+      toast({
+        title: "تحقّق من الإعدادات قبل الحفظ",
+        description: issues.slice(0, 3).join(" • ") + (issues.length > 3 ? ` (+${issues.length - 3} أخرى)` : ""),
+        variant: "destructive",
+      });
+      setPreSaveIssues(issues);
+      return;
+    }
+    setPreSaveIssues([]);
+
     setSaving(true);
     try {
       const allowedIps = form.allowedIpsText
