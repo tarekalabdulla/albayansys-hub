@@ -1141,14 +1141,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="amiPassword"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.amiPassword}
-                  onChange={(e) => setForm((p) => ({ ...p, amiPassword: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="amiPassword"
+                    dir="ltr"
+                    type={showAmiPassword ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.amiPassword}
+                    onChange={(e) => setForm((p) => ({ ...p, amiPassword: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAmiPassword((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showAmiPassword ? "إخفاء" : "إظهار"}
+                  >
+                    {showAmiPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
