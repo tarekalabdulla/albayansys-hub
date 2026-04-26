@@ -127,6 +127,185 @@ function AgentRow({ agent }: { agent: Agent }) {
   );
 }
 
+// ============================================================================
+// CallLogsSection — سجل المكالمات الواردة/الصادرة/الفائتة (بيانات حقيقية فقط)
+// ----------------------------------------------------------------------------
+// • يقرأ من /api/calls (جدول calls المرتبط بـ agents عبر agent_id)
+// • ثلاث تبويبات: واردة، صادرة، فائتة
+// • لا توجد بيانات وهمية إطلاقاً — حالة فارغة واضحة عند غياب السجلات
+// ============================================================================
+type CallRow = {
+  id: string;
+  number: string;
+  duration: number;
+  status: "answered" | "missed" | "transferred";
+  direction: "inbound" | "outbound" | "internal";
+  startedAt: string;
+  agent: string | null;
+  ext: string | null;
+};
+
+type TabKey = "inbound" | "outbound" | "missed";
+
+const TAB_META: Record<TabKey, { label: string; icon: typeof PhoneIncoming; color: string }> = {
+  inbound:  { label: "واردة", icon: PhoneIncoming,  color: "text-info" },
+  outbound: { label: "صادرة", icon: PhoneOutgoing,  color: "text-success" },
+  missed:   { label: "فائتة", icon: PhoneMissed,    color: "text-destructive" },
+};
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return new Intl.DateTimeFormat("ar", {
+      hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit",
+    }).format(d);
+  } catch { return "—"; }
+}
+
+function CallLogsSection() {
+  const [tab, setTab] = useState<TabKey>("inbound");
+  const [calls, setCalls] = useState<CallRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchCalls() {
+      setLoading(true);
+      setError(null);
+      try {
+        // فلترة على مستوى السيرفر لتقليل الحمل
+        const params: Record<string, string> = { limit: "50" };
+        if (tab === "missed") params.status = "missed";
+        else if (tab === "inbound")  params.direction = "inbound";
+        else if (tab === "outbound") params.direction = "outbound";
+
+        const { data } = await api.get<{ calls: CallRow[] }>("/calls", { params });
+        if (!cancelled) setCalls(Array.isArray(data?.calls) ? data.calls : []);
+      } catch (e) {
+        if (!cancelled) {
+          const msg = (e as { response?: { data?: { error?: string } }; message?: string })
+            ?.response?.data?.error
+            || (e as { message?: string })?.message
+            || "تعذّر تحميل المكالمات";
+          setError(msg);
+          setCalls([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchCalls();
+    const t = setInterval(fetchCalls, 15_000); // تحديث كل 15 ثانية
+    return () => { cancelled = true; clearInterval(t); };
+  }, [tab]);
+
+  const counts = useMemo(() => ({
+    // العدّاد يعكس الصفحة الحالية فقط (آخر 50) — كافٍ لمؤشّر بصري
+    current: calls.length,
+  }), [calls]);
+
+  return (
+    <section className="glass-card overflow-hidden anim-fade-in mt-5">
+      <div className="flex items-center justify-between p-5 border-b border-border/60 flex-wrap gap-3">
+        <div>
+          <h3 className="text-base font-bold">سجل المكالمات</h3>
+          <p className="text-xs text-muted-foreground">واردة / صادرة / فائتة — بيانات حقيقية من السنترال</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {(Object.keys(TAB_META) as TabKey[]).map((k) => {
+            const meta = TAB_META[k];
+            const Icon = meta.icon;
+            const active = tab === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/40 text-muted-foreground border-border hover:bg-muted",
+                )}
+              >
+                <Icon className={cn("w-3.5 h-3.5", active ? "text-primary-foreground" : meta.color)} />
+                {meta.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        {loading && calls.length === 0 ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">جاري التحميل...</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-sm text-destructive font-semibold">{error}</p>
+            <p className="text-xs text-muted-foreground mt-1">تأكد من اتصال الخادم وتشغيل الـ API.</p>
+          </div>
+        ) : calls.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Inbox className="w-10 h-10 text-muted-foreground/60 mb-2" />
+            <p className="text-sm font-semibold text-foreground">لا توجد مكالمات {TAB_META[tab].label}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              ستظهر السجلات تلقائياً عند ورود أحداث من السنترال.
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-right">
+            <thead className="bg-muted/50 text-xs font-bold text-muted-foreground uppercase">
+              <tr>
+                <th className="px-4 py-3 text-right">الوقت</th>
+                <th className="px-4 py-3 text-right">الرقم</th>
+                <th className="px-4 py-3 text-right">الموظف</th>
+                <th className="px-4 py-3 text-right">التحويلة</th>
+                <th className="px-4 py-3 text-right">الحالة</th>
+                <th className="px-4 py-3 text-right">المدة</th>
+              </tr>
+            </thead>
+            <tbody>
+              {calls.map((c) => (
+                <tr key={c.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
+                  <td className="px-4 py-3 text-xs text-muted-foreground tabular-nums" dir="ltr">
+                    {formatTime(c.startedAt)}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold tabular-nums" dir="ltr">{c.number}</td>
+                  <td className="px-4 py-3 text-sm">{c.agent || <span className="text-muted-foreground">—</span>}</td>
+                  <td className="px-4 py-3 text-sm tabular-nums" dir="ltr">
+                    {c.ext || <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      "text-[10px] font-bold px-2 py-1 rounded-full border whitespace-nowrap",
+                      c.status === "answered" && "bg-success/15 text-success border-success/30",
+                      c.status === "missed" && "bg-destructive/15 text-destructive border-destructive/30",
+                      c.status === "transferred" && "bg-info/15 text-info border-info/30",
+                    )}>
+                      {c.status === "answered" ? "مجابة" : c.status === "missed" ? "فائتة" : "محوّلة"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm tabular-nums" dir="ltr">{formatDuration(c.duration)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {calls.length > 0 && (
+        <div className="px-5 py-2 border-t border-border/60 text-[11px] text-muted-foreground">
+          عرض {counts.current} سجل (آخر 50)
+        </div>
+      )}
+    </section>
+  );
+}
+
 const LiveReport = () => {
   const agents = useLiveAgents();
 
