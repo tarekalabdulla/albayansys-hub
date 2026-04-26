@@ -229,6 +229,8 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     ],
   };
 
+  // لون احترافي للمنحنى — نستخدم لون "info" (أزرق سماوي) مع تدرّج خلفي ناعم
+  const lineAccent = `hsl(${css.getPropertyValue("--info").trim()})`;
   const lineData = {
     labels: weekly.map((w) => w.day),
     datasets: [
@@ -238,12 +240,24 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
           const t = w.answered + w.missed;
           return t === 0 ? 0 : Math.round((w.answered / t) * 100);
         }),
-        borderColor: primaryC,
-        backgroundColor: primaryC + "22",
+        borderColor: lineAccent,
+        backgroundColor: (ctx: any) => {
+          const chart = ctx.chart;
+          const { ctx: c, chartArea } = chart;
+          if (!chartArea) return lineAccent + "33";
+          const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          g.addColorStop(0, lineAccent + "66");
+          g.addColorStop(1, lineAccent + "08");
+          return g;
+        },
         fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointBackgroundColor: primaryC,
+        tension: 0.45,
+        borderWidth: 3,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: "#fff",
+        pointBorderColor: lineAccent,
+        pointBorderWidth: 2.5,
       },
     ],
   };
