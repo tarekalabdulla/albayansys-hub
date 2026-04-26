@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
@@ -18,6 +19,8 @@ import {
 import { useLiveTimer } from "@/hooks/useLiveTimer";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/lib/mockData";
+import { api } from "@/lib/api";
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Inbox, Loader2 } from "lucide-react";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
