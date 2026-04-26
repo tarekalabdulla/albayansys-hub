@@ -565,6 +565,52 @@ export default function Yeastar() {
       ) : (
         <div className="space-y-6">
 
+          {/* ====== تنبيه: هذه صفحة إعدادات فقط، ليست رابط Webhook ====== */}
+          <Alert className="border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-foreground">صفحة إعدادات فقط — ليست رابط Webhook</AlertTitle>
+            <AlertDescription className="text-muted-foreground text-sm leading-relaxed">
+              هذا رابط صفحة الإعدادات (<code dir="ltr" className="text-foreground">/yeastar</code>).
+              <b className="text-foreground"> رابط استقبال أحداث Yeastar الصحيح هو Webhook Full URL </b>
+              المعروض في البطاقة أدناه — أدخله في واجهة Yeastar PBX من
+              <code dir="ltr" className="mx-1">Integrations → API → Webhook</code>.
+            </AlertDescription>
+          </Alert>
+
+          {/* ====== بطاقة Webhook Full URL — للنسخ السريع ====== */}
+          <Card className="p-5 border-primary/30 bg-primary/5">
+            <div className="flex items-start gap-3 mb-3">
+              <Webhook className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-foreground">Webhook Full URL</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  هذا هو العنوان الذي يجب نسخه ولصقه في <b>Yeastar PBX → Integrations → API → Webhook</b>.
+                  Method: <code dir="ltr">POST</code> • Events: <code dir="ltr">30016, 30012</code>.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-stretch gap-2 flex-wrap">
+              <div className="flex-1 min-w-[280px] rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground break-all" dir="ltr">
+                {webhookFullUrl}
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => copyToClipboard(webhookFullUrl, "Webhook URL")}
+                className="gap-2 shrink-0"
+              >
+                <Copy className="w-4 h-4" /> نسخ
+              </Button>
+            </div>
+            <div className="mt-3 flex items-start gap-2 text-[11px] text-muted-foreground">
+              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>
+                إذا كان <code dir="ltr">YEASTAR_WEBHOOK_TOKEN</code> مضبوطاً، Yeastar يجب أن يلحقه في نهاية الـ URL
+                (<code dir="ltr">/{`{TOKEN}`}</code>). يحتفظ السيرفر بالـ token في <code>.env</code> فقط ولا يعرضه هنا.
+              </span>
+            </div>
+          </Card>
+
           {/* ====== شريط الحالة العلوي + زر المزامنة ====== */}
           <Card className="p-5">
             <div className="flex items-start justify-between flex-wrap gap-4">
