@@ -20,7 +20,8 @@ import { useLiveTimer } from "@/hooks/useLiveTimer";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/lib/mockData";
 import { api } from "@/lib/api";
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Inbox, Loader2 } from "lucide-react";
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Inbox, Loader2, Download, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
