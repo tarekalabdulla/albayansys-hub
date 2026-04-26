@@ -339,11 +339,42 @@ async function fetchToken() {
   throw new Error(`get_token_errcode_${code}_${msg || "UNKNOWN"}`);
 }
 
+// -----------------------------------------------------------------------------
+// refreshAccessToken
+// -----------------------------------------------------------------------------
+// Yeastar OpenAPI أحيانًا يرفض refresh_token بـ 40002 PARAMETER ERROR إذا لم
+// نُرسل معه client_id/client_secret (أو username/password حسب وضع المصادقة).
+// نُضمّن credentials المتاحة في نفس الـ payload، وعند فشل 40002 (أو انتهاء
+// صلاحية الـ refresh_token) نمسحه ونسقط تلقائيًا إلى get_token كامل.
+// -----------------------------------------------------------------------------
 async function refreshAccessToken() {
-  const { base, baseSource } = cfg();
+  const { base, baseSource, live } = cfg();
 
   if (!state.refreshToken) {
     return fetchToken();
+  }
+
+  // اجمع credentials المتاحة لإرفاقها مع refresh_token
+  const clientId =
+    live.clientId || process.env.YEASTAR_CLIENT_ID || "";
+  const clientSecret =
+    live.clientSecret || process.env.YEASTAR_CLIENT_SECRET || "";
+  const apiUser =
+    live.apiUser || process.env.YEASTAR_API_USER || "";
+  const apiPass =
+    live.apiPass || process.env.YEASTAR_API_PASS || "";
+
+  const payload = { refresh_token: state.refreshToken };
+  const includedFields = ["refresh_token"];
+
+  if (isNonEmpty(clientId) && isNonEmpty(clientSecret)) {
+    payload.client_id = clientId;
+    payload.client_secret = clientSecret;
+    includedFields.push("client_id", "client_secret");
+  } else if (isNonEmpty(apiUser) && isNonEmpty(apiPass)) {
+    payload.username = apiUser;
+    payload.password = apiPass;
+    includedFields.push("username", "password");
   }
 
   try {
@@ -352,26 +383,42 @@ async function refreshAccessToken() {
       `refresh_token →`,
       url,
       `(base="${base}" source=${baseSource})`,
+      `fields=[${includedFields.join(", ")}]`,
       "refresh_token=" + maskSecret(state.refreshToken)
     );
 
     const res = await httpJson(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: state.refreshToken }),
+      body: JSON.stringify(payload),
     });
 
-    if (!res.ok) throw new Error(`refresh_http_${res.status}`);
+    let data = {};
+    try { data = await res.json(); } catch { data = {}; }
 
-    const data = await res.json();
+    if (!res.ok) {
+      warn(
+        `refresh HTTP ${res.status} errcode=${data.errcode ?? "-"} ` +
+        `errmsg="${data.errmsg ?? ""}" endpoint="${url}"`
+      );
+      throw new Error(`refresh_http_${res.status}_errcode_${data.errcode ?? "?"}`);
+    }
 
     if (data.errcode && data.errcode !== 0) {
-      throw new Error(`refresh_errcode_${data.errcode}`);
+      warn(
+        `refresh rejected by PBX: errcode=${data.errcode} ` +
+        `errmsg="${data.errmsg ?? ""}" sentFields=[${includedFields.join(", ")}]`
+      );
+      throw new Error(`refresh_errcode_${data.errcode}_${data.errmsg || ""}`);
     }
 
     const accessToken = data.access_token || data.data?.access_token;
     const refreshToken = data.refresh_token || data.data?.refresh_token || state.refreshToken;
     const expireSec = data.expire_time || data.data?.expire_time || 1800;
+
+    if (!accessToken) {
+      throw new Error("refresh_no_access_token");
+    }
 
     state.accessToken = accessToken;
     state.refreshToken = refreshToken;
@@ -381,7 +428,14 @@ async function refreshAccessToken() {
     scheduleRefresh(expireSec * 1000);
     return accessToken;
   } catch (e) {
-    warn("refresh failed, falling back to fresh get_token:", e.message);
+    // امسح refresh_token المعطوب/منتهي الصلاحية لتجنّب حلقة فشل لانهائية،
+    // ثم اطلب توكنًا جديدًا كامل المصادقة عبر get_token.
+    warn(
+      `refresh failed (${e.message}) — clearing refresh_token and falling back to fresh get_token`
+    );
+    state.refreshToken = null;
+    state.accessToken = null;
+    state.expireAt = 0;
     return fetchToken();
   }
 }
