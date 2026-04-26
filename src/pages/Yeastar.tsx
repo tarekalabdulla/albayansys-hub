@@ -1075,6 +1075,119 @@ export default function Yeastar() {
                   : <span className="text-destructive">غير مضبوط (YEASTAR_WEBHOOK_TOKEN)</span>}
               </p>
             </div>
+
+            {/* أزرار: Sync to PBX + Test Receiver */}
+            <div className="mt-5 flex items-center justify-end flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={onTestReceiver}
+                disabled={testingReceiver || syncingToPbx}
+                className="gap-2"
+              >
+                {testingReceiver ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                {testingReceiver ? "جاري الاختبار..." : "Test Webhook Receiver"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onSyncToPbx}
+                disabled={syncingToPbx || testingReceiver}
+                className="gap-2"
+              >
+                {syncingToPbx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {syncingToPbx ? "جاري التزامن..." : "Sync Webhook to Yeastar PBX"}
+              </Button>
+            </div>
+
+            {/* نتيجة Test Receiver */}
+            {receiverTestResult && (
+              <div className={cn(
+                "mt-4 rounded-md border p-3 text-xs",
+                receiverTestResult.ok
+                  ? "border-success/30 bg-success/10"
+                  : "border-destructive/30 bg-destructive/10"
+              )}>
+                <div className="flex items-center gap-2 mb-1">
+                  {receiverTestResult.ok
+                    ? <CheckCircle2 className="w-4 h-4 text-success" />
+                    : <XCircle className="w-4 h-4 text-destructive" />}
+                  <p className="text-sm font-medium text-foreground">نتيجة Test Webhook Receiver</p>
+                  {receiverTestResult.httpStatus && (
+                    <Badge variant="outline" className="text-[10px]">
+                      HTTP {receiverTestResult.httpStatus}
+                    </Badge>
+                  )}
+                </div>
+                <p className={cn(
+                  "break-words",
+                  receiverTestResult.ok ? "text-muted-foreground" : "text-destructive"
+                )}>
+                  {receiverTestResult.message}
+                </p>
+                {receiverTestResult.url && (
+                  <p className="text-[11px] text-muted-foreground mt-1 font-mono break-all" dir="ltr">
+                    {receiverTestResult.url}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* نتيجة Sync to PBX */}
+            {pbxSyncResult && (
+              <div className={cn(
+                "mt-4 rounded-md border p-3 text-xs space-y-2",
+                pbxSyncResult.ok
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-destructive/30 bg-destructive/10"
+              )}>
+                <div className="flex items-center gap-2">
+                  {pbxSyncResult.ok
+                    ? <CheckCircle2 className="w-4 h-4 text-success" />
+                    : <XCircle className="w-4 h-4 text-destructive" />}
+                  <p className="text-sm font-medium text-foreground">Sync to Yeastar PBX</p>
+                </div>
+                <p className={cn(
+                  "break-words",
+                  pbxSyncResult.ok ? "text-muted-foreground" : "text-destructive"
+                )}>
+                  {pbxSyncResult.message}
+                </p>
+                {pbxSyncResult.instructions && (
+                  <div className="rounded-md border border-border/60 bg-background/60 p-3 mt-2 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      <b className="text-foreground">المسار في Yeastar:</b> {pbxSyncResult.instructions.path}
+                    </p>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1"><b className="text-foreground">Webhook URL:</b></p>
+                      <div className="flex items-stretch gap-2">
+                        <code className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-xs break-all" dir="ltr">
+                          {pbxSyncResult.instructions.webhookUrl}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyToClipboard(pbxSyncResult.instructions!.webhookUrl, "Webhook URL")}
+                          className="shrink-0 gap-1"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <Badge variant="outline">Method: {pbxSyncResult.instructions.method}</Badge>
+                      <Badge variant="outline">Events: {pbxSyncResult.instructions.events.join(", ")}</Badge>
+                      <Badge variant="outline" className={cn(
+                        pbxSyncResult.instructions.secretConfigured
+                          ? "bg-success/15 text-success border-success/30"
+                          : "bg-warning/15 text-warning border-warning/30"
+                      )}>
+                        HMAC: {pbxSyncResult.instructions.secretConfigured ? "مضبوط" : "غير مضبوط"}
+                      </Badge>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* ====== إعدادات AMI (Asterisk Manager Interface) ====== */}
