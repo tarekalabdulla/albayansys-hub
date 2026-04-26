@@ -230,7 +230,9 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
   };
 
   // لون احترافي للمنحنى — نستخدم لون "info" (أزرق سماوي) مع تدرّج خلفي ناعم
-  const lineAccent = `hsl(${css.getPropertyValue("--info").trim()})`;
+  const lineAccentRaw = css.getPropertyValue("--info").trim();
+  const lineAccent = `hsl(${lineAccentRaw})`;
+  const lineAccentAlpha = (a: number) => `hsla(${lineAccentRaw.replace(/\s+/g, ", ")}, ${a})`;
   const lineData = {
     labels: weekly.map((w) => w.day),
     datasets: [
@@ -244,10 +246,10 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
         backgroundColor: (ctx: any) => {
           const chart = ctx.chart;
           const { ctx: c, chartArea } = chart;
-          if (!chartArea) return lineAccent + "33";
+          if (!chartArea) return lineAccentAlpha(0.2);
           const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-          g.addColorStop(0, lineAccent + "66");
-          g.addColorStop(1, lineAccent + "08");
+          g.addColorStop(0, lineAccentAlpha(0.4));
+          g.addColorStop(1, lineAccentAlpha(0.03));
           return g;
         },
         fill: true,
