@@ -80,6 +80,41 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
     });
   };
 
+  const handleHangup = async () => {
+    const result = await Swal.fire({
+      title: `فصل مكالمة ${agent.name}؟`,
+      text: `سيتم إنهاء المكالمة الحالية على التحويلة ${agent.ext}.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "نعم، افصل الآن",
+      cancelButtonText: "إلغاء",
+      confirmButtonColor: "hsl(0 72% 51%)",
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      const res = await fetch(`/api/yeastar/hangup/${encodeURIComponent(agent.ext)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      Swal.fire({
+        icon: "success",
+        title: "تم إرسال أمر الفصل",
+        text: `التحويلة ${agent.ext}`,
+        timer: 1800,
+        showConfirmButton: false,
+      });
+    } catch (e) {
+      Swal.fire({
+        icon: "error",
+        title: "تعذّر تنفيذ الفصل",
+        text: "تأكد من تفعيل تكامل Yeastar وصلاحية التوكن.",
+      });
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -158,7 +193,7 @@ function AgentCard({ agent, onOpen }: { agent: Agent; onOpen: (id: string) => vo
         <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => onOpen(agent.id)}>
           <Eye className="w-3 h-3 ml-1" /> تفاصيل
         </Button>
-        <Button size="sm" variant="outline" className="text-xs h-8 text-destructive hover:text-destructive">
+        <Button size="sm" variant="outline" className="text-xs h-8 text-destructive hover:text-destructive" onClick={handleHangup}>
           <PhoneOff className="w-3 h-3 ml-1" /> فصل
         </Button>
       </div>
