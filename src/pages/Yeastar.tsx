@@ -1019,14 +1019,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="webhookSecret"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.webhookSecret}
-                  onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="webhookSecret"
+                    dir="ltr"
+                    type={showWebhookSecret ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.webhookSecret}
+                    onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showWebhookSecret ? "إخفاء" : "إظهار"}
+                  >
+                    {showWebhookSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
