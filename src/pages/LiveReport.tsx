@@ -262,7 +262,7 @@ function CallLogsSection() {
           <h3 className="text-base font-bold">سجل المكالمات</h3>
           <p className="text-xs text-muted-foreground">واردة / صادرة / فائتة — بيانات حقيقية من السنترال</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {(Object.keys(TAB_META) as TabKey[]).map((k) => {
             const meta = TAB_META[k];
             const Icon = meta.icon;
@@ -284,6 +284,39 @@ function CallLogsSection() {
               </button>
             );
           })}
+
+          {/* فاصل بصري بين التبويبات وأزرار التصدير */}
+          <span className="w-px h-5 bg-border mx-1" aria-hidden />
+
+          {/* أزرار التصدير — تصدّر السجلات الظاهرة في التبويب الحالي فقط */}
+          <button
+            type="button"
+            onClick={() => exportCallsCsv(calls, TAB_META[tab].label)}
+            disabled={calls.length === 0}
+            title="تصدير CSV"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors",
+              "bg-muted/40 text-muted-foreground border-border hover:bg-muted",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+            )}
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCallsXlsx(calls, TAB_META[tab].label)}
+            disabled={calls.length === 0}
+            title="تصدير Excel"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors",
+              "bg-success/15 text-success border-success/30 hover:bg-success/25",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+            )}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Excel
+          </button>
         </div>
       </div>
 
