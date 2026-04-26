@@ -162,6 +162,55 @@ function formatTime(iso: string): string {
     }).format(d);
   } catch { return "—"; }
 }
+// ---- مساعدات تصدير سجل المكالمات (CSV / Excel) ------------------------------
+const STATUS_AR: Record<CallRow["status"], string> = {
+  answered: "مجابة",
+  missed: "فائتة",
+  transferred: "محوّلة",
+};
+
+function buildExportRows(calls: CallRow[]) {
+  return calls.map((c) => ({
+    "الوقت": formatTime(c.startedAt),
+    "الرقم": c.number ?? "",
+    "الموظف": c.agent ?? "",
+    "التحويلة": c.ext ?? "",
+    "الحالة": STATUS_AR[c.status] ?? c.status,
+    "المدة (ث)": c.duration ?? 0,
+  }));
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportCallsCsv(calls: CallRow[], tabLabel: string) {
+  const rows = buildExportRows(calls);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // \ufeff = BOM لضمان فتح Excel للملف بترميز UTF-8 وعرض العربية صحيحاً
+  const csv = "\ufeff" + XLSX.utils.sheet_to_csv(ws);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  downloadBlob(blob, `call-logs-${tabLabel}-${stamp}.csv`);
+}
+
+function exportCallsXlsx(calls: CallRow[], tabLabel: string) {
+  const rows = buildExportRows(calls);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // عرض الأعمدة المناسب
+  ws["!cols"] = [{ wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, tabLabel);
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  XLSX.writeFile(wb, `call-logs-${tabLabel}-${stamp}.xlsx`);
+}
 
 function CallLogsSection() {
   const [tab, setTab] = useState<TabKey>("inbound");
