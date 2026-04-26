@@ -888,6 +888,21 @@ export default function Yeastar() {
               </div>
             </div>
 
+            {/* تنبيه تحقق قبل الحفظ — يظهر بعد محاولة حفظ غير مكتملة */}
+            {preSaveIssues.length > 0 && (
+              <Alert className="mt-4 border-destructive/40 bg-destructive/10">
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+                <AlertTitle className="text-foreground">لا يمكن الحفظ — أكمل الحقول التالية</AlertTitle>
+                <AlertDescription className="text-muted-foreground text-sm">
+                  <ul className="list-disc ms-5 mt-1 space-y-1">
+                    {preSaveIssues.map((m, i) => (
+                      <li key={i} className="text-foreground/90">{m}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <ShieldCheck className="w-4 h-4 text-success" />
