@@ -291,6 +291,8 @@ export default function Yeastar() {
   const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
+  // قائمة مشاكل التحقق قبل الحفظ — تظهر كـ Alert في الأعلى لإرشاد المستخدم
+  const [preSaveIssues, setPreSaveIssues] = useState<string[]>([]);
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
