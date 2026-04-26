@@ -25,11 +25,12 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, History, ShieldCheck, TrendingUp, Plug, Zap, PhoneCall,
-  Webhook, Network,
+  Webhook, Network, Eye, EyeOff, Copy, Info, Send, PlayCircle, AlertTriangle,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // ---------------- Types ----------------
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
