@@ -294,6 +294,52 @@ export default function Yeastar() {
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
+  // إظهار/إخفاء الأسرار
+  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+  const [showAmiPassword, setShowAmiPassword] = useState(false);
+
+  // أزرار التزامن مع PBX واختبار المستقبل
+  const [syncingToPbx, setSyncingToPbx] = useState(false);
+  const [testingReceiver, setTestingReceiver] = useState(false);
+  const [pbxSyncResult, setPbxSyncResult] = useState<null | {
+    ok: boolean;
+    message: string;
+    instructions?: {
+      path: string;
+      webhookUrl: string;
+      method: string;
+      events: string[];
+      secretConfigured: boolean;
+      signatureHeader: string;
+      contentType: string;
+    };
+  }>(null);
+  const [receiverTestResult, setReceiverTestResult] = useState<null | {
+    ok: boolean;
+    message: string;
+    url?: string | null;
+    httpStatus?: number | null;
+  }>(null);
+
+  // Webhook Full URL — يُحسب من window.location.origin + المسار من الإعدادات (بدون token حسّاس)
+  const webhookFullUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const origin = window.location.origin.replace(/\/+$/, "");
+    // نعرض المسار العام بدون {TOKEN} (Yeastar سيُلحقه بنفسه عند الاستدعاء)
+    const path = "/api/yeastar/webhook/call-event";
+    return `${origin}${path}`;
+  }, []);
+
+  async function copyToClipboard(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "تم النسخ", description: `${label} نُسخ إلى الحافظة` });
+    } catch {
+      toast({ title: "فشل النسخ", description: "تعذّر النسخ — انسخ يدوياً", variant: "destructive" });
+    }
+  }
+
   // form state — يشمل الآن: API + Webhook + AMI
   const [form, setForm] = useState({
     baseUrl: "",
