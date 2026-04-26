@@ -841,4 +841,117 @@ router.get("/effective-config", requireRole("admin"), async (_req, res) => {
   }
 });
 
+// ============================================================================
+// POST /sync-webhook-to-pbx — تسجيل/تحديث Webhook على Yeastar PBX عن بُعد
+// ----------------------------------------------------------------------------
+// ⚠️  ملاحظة مهمة:
+//   Yeastar P-Series Open API لا يدعم رسمياً (حتى Apr 2026) تسجيل Webhook
+//   عن بُعد عبر API. يجب على المسؤول إضافة عنوان الـ Webhook يدوياً من واجهة
+//   Yeastar: Integrations → API → Webhook.
+//
+// لذلك هذا الـ endpoint placeholder ذكي:
+//   1) يتحقق من توفّر access_token (يضمن الاتصال مع PBX)
+//   2) يُرجع تعليمات واضحة بالـ Webhook URL الصحيح + الأحداث + Secret
+//   3) عند توفّر دعم API لاحقاً، يُمكن استبدال placeholder بـ POST فعلي
+//      إلى /openapi/v1.0/event_subscription/add (أو ما يماثله).
+// ============================================================================
+router.post("/sync-webhook-to-pbx", requireRole("admin"), async (req, res) => {
+  const t0 = Date.now();
+  try {
+    const cfg = await loadConfig();
+    const eff = getEffective(cfg);
+
+    if (!eff.baseUrl) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_base_url",
+        message: "Base URL غير مضبوط. احفظ الإعدادات أولاً.",
+      });
+    }
+
+    if (eff.authMissing.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_credentials",
+        message: `بيانات اعتماد ناقصة (${eff.authMissing.join(", ")}). احفظ الإعدادات أولاً.`,
+      });
+    }
+
+    // اختبار الاتصال مع PBX (للتأكد أن البيانات صحيحة)
+    const t = await fetchAccessToken(eff.baseUrl, {
+      effectiveMode: eff.authMode, fields: eff.authFields,
+      payload: eff.authPayload, missing: eff.authMissing, explicit: eff.authExplicit,
+    });
+
+    if (!t.ok) {
+      return res.status(502).json({
+        ok: false,
+        error: "pbx_connection_failed",
+        message: `تعذّر الاتصال مع PBX: ${t.error}`,
+        durationMs: Date.now() - t0,
+      });
+    }
+
+    // بناء الـ URL الكامل المطلوب إدخاله يدوياً في Yeastar
+    const publicHost = process.env.PUBLIC_API_HOST || `${req.protocol}://${req.get("host")}`;
+    const path = (eff.webhookPath || "/api/yeastar/webhook/call-event").replace("{TOKEN}", eff.webhookToken || "");
+    const fullUrl = `${publicHost}${path.startsWith("/") ? "" : "/"}${path}`;
+
+    const events = (process.env.YEASTAR_WEBHOOK_EVENTS || "30016,30012")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+
+    return res.json({
+      ok: true,
+      mode: "manual_instructions",
+      durationMs: Date.now() - t0,
+      pbxReachable: true,
+      tokenExpiresIn: t.expiresIn,
+      message:
+        "تم التحقق من الاتصال مع PBX بنجاح. " +
+        "Yeastar P-Series لا يدعم تسجيل Webhook عن بُعد عبر API — " +
+        "يجب إدخال البيانات التالية يدوياً من واجهة Yeastar.",
+      instructions: {
+        path: "Yeastar PBX → Integrations → API → Webhook → Add",
+        webhookUrl: fullUrl,
+        method: "POST",
+        events,
+        secretConfigured: Boolean(eff.webhookSecret),
+        signatureHeader: "X-Yeastar-Signature",
+        contentType: "application/json",
+      },
+    });
+  } catch (e) {
+    console.error("[yeastar/sync-webhook-to-pbx]", e);
+    res.status(500).json({ ok: false, error: "sync_failed", message: e.message });
+  }
+});
+
+// ============================================================================
+// POST /test-webhook-receiver — استدعاء self-test للـ webhook المحلي فقط
+// ----------------------------------------------------------------------------
+// مفيد للتأكد أن السيرفر يستقبل ويفك تشفير HMAC بشكل صحيح، حتى قبل ربط Yeastar.
+// ============================================================================
+router.post("/test-webhook-receiver", requireRole("admin"), async (req, res) => {
+  const t0 = Date.now();
+  try {
+    const cfg = await loadConfig();
+    const eff = getEffective(cfg);
+    const baseReq = `${req.protocol}://${req.get("host") || `127.0.0.1:${process.env.PORT || 4000}`}`;
+    const w = await selfTestWebhook(baseReq, eff.webhookToken, eff.webhookSecret, eff.webhookPath);
+    res.json({
+      ok: w.ok,
+      durationMs: Date.now() - t0,
+      url: w.url || null,
+      httpStatus: w.httpStatus || null,
+      status: w.status,
+      message: w.ok
+        ? `Webhook استقبل الاختبار بنجاح من ${w.url}`
+        : (w.error || "فشل اختبار webhook"),
+    });
+  } catch (e) {
+    console.error("[yeastar/test-webhook-receiver]", e);
+    res.status(500).json({ ok: false, error: "test_failed", message: e.message });
+  }
+});
+
 export default router;

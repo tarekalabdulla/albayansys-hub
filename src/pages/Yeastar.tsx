@@ -25,11 +25,12 @@ import { cn } from "@/lib/utils";
 import {
   RefreshCw, Save, Loader2, CheckCircle2, XCircle, MinusCircle, Clock,
   Server, KeyRound, History, ShieldCheck, TrendingUp, Plug, Zap, PhoneCall,
-  Webhook, Network,
+  Webhook, Network, Eye, EyeOff, Copy, Info, Send, PlayCircle, AlertTriangle,
 } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 // ---------------- Types ----------------
 type ServiceStatus = "connected" | "failed" | "disabled" | "idle";
@@ -293,6 +294,52 @@ export default function Yeastar() {
   const [history, setHistory] = useState<SyncReport[]>([]);
   const [trend, setTrend]     = useState<{ day: string; total: number }[]>([]);
 
+  // إظهار/إخفاء الأسرار
+  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+  const [showAmiPassword, setShowAmiPassword] = useState(false);
+
+  // أزرار التزامن مع PBX واختبار المستقبل
+  const [syncingToPbx, setSyncingToPbx] = useState(false);
+  const [testingReceiver, setTestingReceiver] = useState(false);
+  const [pbxSyncResult, setPbxSyncResult] = useState<null | {
+    ok: boolean;
+    message: string;
+    instructions?: {
+      path: string;
+      webhookUrl: string;
+      method: string;
+      events: string[];
+      secretConfigured: boolean;
+      signatureHeader: string;
+      contentType: string;
+    };
+  }>(null);
+  const [receiverTestResult, setReceiverTestResult] = useState<null | {
+    ok: boolean;
+    message: string;
+    url?: string | null;
+    httpStatus?: number | null;
+  }>(null);
+
+  // Webhook Full URL — يُحسب من window.location.origin + المسار من الإعدادات (بدون token حسّاس)
+  const webhookFullUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const origin = window.location.origin.replace(/\/+$/, "");
+    // نعرض المسار العام بدون {TOKEN} (Yeastar سيُلحقه بنفسه عند الاستدعاء)
+    const path = "/api/yeastar/webhook/call-event";
+    return `${origin}${path}`;
+  }, []);
+
+  async function copyToClipboard(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "تم النسخ", description: `${label} نُسخ إلى الحافظة` });
+    } catch {
+      toast({ title: "فشل النسخ", description: "تعذّر النسخ — انسخ يدوياً", variant: "destructive" });
+    }
+  }
+
   // form state — يشمل الآن: API + Webhook + AMI
   const [form, setForm] = useState({
     baseUrl: "",
@@ -446,6 +493,61 @@ export default function Yeastar() {
     }
   }
 
+  async function onSyncToPbx() {
+    setSyncingToPbx(true);
+    setPbxSyncResult(null);
+    try {
+      const { data: r } = await api.post("/yeastar/sync-webhook-to-pbx");
+      setPbxSyncResult({
+        ok: Boolean(r?.ok),
+        message: r?.message || "تم",
+        instructions: r?.instructions,
+      });
+      toast({
+        title: r?.ok ? "اتصال PBX ناجح" : "فشل التزامن",
+        description: r?.message || "—",
+        variant: r?.ok ? "default" : "destructive",
+      });
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string; error?: string } }; message?: string })?.response?.data?.message
+        || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (e as { message?: string })?.message
+        || "تعذّر التزامن";
+      setPbxSyncResult({ ok: false, message: msg });
+      toast({ title: "فشل التزامن", description: msg, variant: "destructive" });
+    } finally {
+      setSyncingToPbx(false);
+    }
+  }
+
+  async function onTestReceiver() {
+    setTestingReceiver(true);
+    setReceiverTestResult(null);
+    try {
+      const { data: r } = await api.post("/yeastar/test-webhook-receiver");
+      setReceiverTestResult({
+        ok: Boolean(r?.ok),
+        message: r?.message || "—",
+        url: r?.url || null,
+        httpStatus: r?.httpStatus || null,
+      });
+      toast({
+        title: r?.ok ? "Receiver يعمل" : "Receiver لا يستجيب",
+        description: r?.message || "—",
+        variant: r?.ok ? "default" : "destructive",
+      });
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string; error?: string } }; message?: string })?.response?.data?.message
+        || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (e as { message?: string })?.message
+        || "تعذّر الاختبار";
+      setReceiverTestResult({ ok: false, message: msg });
+      toast({ title: "فشل الاختبار", description: msg, variant: "destructive" });
+    } finally {
+      setTestingReceiver(false);
+    }
+  }
+
   const status = data ? deriveStatus(data) : null;
   const c = data?.config || {};
 
@@ -462,6 +564,52 @@ export default function Yeastar() {
         </div>
       ) : (
         <div className="space-y-6">
+
+          {/* ====== تنبيه: هذه صفحة إعدادات فقط، ليست رابط Webhook ====== */}
+          <Alert className="border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-foreground">صفحة إعدادات فقط — ليست رابط Webhook</AlertTitle>
+            <AlertDescription className="text-muted-foreground text-sm leading-relaxed">
+              هذا رابط صفحة الإعدادات (<code dir="ltr" className="text-foreground">/yeastar</code>).
+              <b className="text-foreground"> رابط استقبال أحداث Yeastar الصحيح هو Webhook Full URL </b>
+              المعروض في البطاقة أدناه — أدخله في واجهة Yeastar PBX من
+              <code dir="ltr" className="mx-1">Integrations → API → Webhook</code>.
+            </AlertDescription>
+          </Alert>
+
+          {/* ====== بطاقة Webhook Full URL — للنسخ السريع ====== */}
+          <Card className="p-5 border-primary/30 bg-primary/5">
+            <div className="flex items-start gap-3 mb-3">
+              <Webhook className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-foreground">Webhook Full URL</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  هذا هو العنوان الذي يجب نسخه ولصقه في <b>Yeastar PBX → Integrations → API → Webhook</b>.
+                  Method: <code dir="ltr">POST</code> • Events: <code dir="ltr">30016, 30012</code>.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-stretch gap-2 flex-wrap">
+              <div className="flex-1 min-w-[280px] rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground break-all" dir="ltr">
+                {webhookFullUrl}
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => copyToClipboard(webhookFullUrl, "Webhook URL")}
+                className="gap-2 shrink-0"
+              >
+                <Copy className="w-4 h-4" /> نسخ
+              </Button>
+            </div>
+            <div className="mt-3 flex items-start gap-2 text-[11px] text-muted-foreground">
+              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>
+                إذا كان <code dir="ltr">YEASTAR_WEBHOOK_TOKEN</code> مضبوطاً، Yeastar يجب أن يلحقه في نهاية الـ URL
+                (<code dir="ltr">/{`{TOKEN}`}</code>). يحتفظ السيرفر بالـ token في <code>.env</code> فقط ولا يعرضه هنا.
+              </span>
+            </div>
+          </Card>
 
           {/* ====== شريط الحالة العلوي + زر المزامنة ====== */}
           <Card className="p-5">
@@ -662,14 +810,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="clientSecret"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.clientSecret}
-                  onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="clientSecret"
+                    dir="ltr"
+                    type={showClientSecret ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.clientSecret}
+                    onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowClientSecret((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showClientSecret ? "إخفاء" : "إظهار"}
+                  >
+                    {showClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -860,14 +1019,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="webhookSecret"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.webhookSecret}
-                  onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="webhookSecret"
+                    dir="ltr"
+                    type={showWebhookSecret ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.webhookSecret}
+                    onChange={(e) => setForm((p) => ({ ...p, webhookSecret: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowWebhookSecret((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showWebhookSecret ? "إخفاء" : "إظهار"}
+                  >
+                    {showWebhookSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -905,6 +1075,119 @@ export default function Yeastar() {
                   : <span className="text-destructive">غير مضبوط (YEASTAR_WEBHOOK_TOKEN)</span>}
               </p>
             </div>
+
+            {/* أزرار: Sync to PBX + Test Receiver */}
+            <div className="mt-5 flex items-center justify-end flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={onTestReceiver}
+                disabled={testingReceiver || syncingToPbx}
+                className="gap-2"
+              >
+                {testingReceiver ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                {testingReceiver ? "جاري الاختبار..." : "Test Webhook Receiver"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onSyncToPbx}
+                disabled={syncingToPbx || testingReceiver}
+                className="gap-2"
+              >
+                {syncingToPbx ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {syncingToPbx ? "جاري التزامن..." : "Sync Webhook to Yeastar PBX"}
+              </Button>
+            </div>
+
+            {/* نتيجة Test Receiver */}
+            {receiverTestResult && (
+              <div className={cn(
+                "mt-4 rounded-md border p-3 text-xs",
+                receiverTestResult.ok
+                  ? "border-success/30 bg-success/10"
+                  : "border-destructive/30 bg-destructive/10"
+              )}>
+                <div className="flex items-center gap-2 mb-1">
+                  {receiverTestResult.ok
+                    ? <CheckCircle2 className="w-4 h-4 text-success" />
+                    : <XCircle className="w-4 h-4 text-destructive" />}
+                  <p className="text-sm font-medium text-foreground">نتيجة Test Webhook Receiver</p>
+                  {receiverTestResult.httpStatus && (
+                    <Badge variant="outline" className="text-[10px]">
+                      HTTP {receiverTestResult.httpStatus}
+                    </Badge>
+                  )}
+                </div>
+                <p className={cn(
+                  "break-words",
+                  receiverTestResult.ok ? "text-muted-foreground" : "text-destructive"
+                )}>
+                  {receiverTestResult.message}
+                </p>
+                {receiverTestResult.url && (
+                  <p className="text-[11px] text-muted-foreground mt-1 font-mono break-all" dir="ltr">
+                    {receiverTestResult.url}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* نتيجة Sync to PBX */}
+            {pbxSyncResult && (
+              <div className={cn(
+                "mt-4 rounded-md border p-3 text-xs space-y-2",
+                pbxSyncResult.ok
+                  ? "border-primary/30 bg-primary/5"
+                  : "border-destructive/30 bg-destructive/10"
+              )}>
+                <div className="flex items-center gap-2">
+                  {pbxSyncResult.ok
+                    ? <CheckCircle2 className="w-4 h-4 text-success" />
+                    : <XCircle className="w-4 h-4 text-destructive" />}
+                  <p className="text-sm font-medium text-foreground">Sync to Yeastar PBX</p>
+                </div>
+                <p className={cn(
+                  "break-words",
+                  pbxSyncResult.ok ? "text-muted-foreground" : "text-destructive"
+                )}>
+                  {pbxSyncResult.message}
+                </p>
+                {pbxSyncResult.instructions && (
+                  <div className="rounded-md border border-border/60 bg-background/60 p-3 mt-2 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      <b className="text-foreground">المسار في Yeastar:</b> {pbxSyncResult.instructions.path}
+                    </p>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1"><b className="text-foreground">Webhook URL:</b></p>
+                      <div className="flex items-stretch gap-2">
+                        <code className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-xs break-all" dir="ltr">
+                          {pbxSyncResult.instructions.webhookUrl}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => copyToClipboard(pbxSyncResult.instructions!.webhookUrl, "Webhook URL")}
+                          className="shrink-0 gap-1"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <Badge variant="outline">Method: {pbxSyncResult.instructions.method}</Badge>
+                      <Badge variant="outline">Events: {pbxSyncResult.instructions.events.join(", ")}</Badge>
+                      <Badge variant="outline" className={cn(
+                        pbxSyncResult.instructions.secretConfigured
+                          ? "bg-success/15 text-success border-success/30"
+                          : "bg-warning/15 text-warning border-warning/30"
+                      )}>
+                        HMAC: {pbxSyncResult.instructions.secretConfigured ? "مضبوط" : "غير مضبوط"}
+                      </Badge>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* ====== إعدادات AMI (Asterisk Manager Interface) ====== */}
@@ -971,14 +1254,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="amiPassword"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.amiPassword}
-                  onChange={(e) => setForm((p) => ({ ...p, amiPassword: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="amiPassword"
+                    dir="ltr"
+                    type={showAmiPassword ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.amiPassword}
+                    onChange={(e) => setForm((p) => ({ ...p, amiPassword: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAmiPassword((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showAmiPassword ? "إخفاء" : "إظهار"}
+                  >
+                    {showAmiPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
