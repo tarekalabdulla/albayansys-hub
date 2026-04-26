@@ -354,6 +354,9 @@ const LiveReport = () => {
           </table>
         </div>
       </section>
+
+      {/* قسم سجل المكالمات الحقيقية — تحت قسم التقرير الحي */}
+      <CallLogsSection />
     </AppLayout>
   );
 };
