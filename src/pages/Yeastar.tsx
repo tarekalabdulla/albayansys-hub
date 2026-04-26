@@ -810,14 +810,25 @@ export default function Yeastar() {
                     </Badge>
                   )}
                 </Label>
-                <Input
-                  id="clientSecret"
-                  dir="ltr"
-                  type="password"
-                  placeholder="••••••••  (اتركه فارغاً للإبقاء)"
-                  value={form.clientSecret}
-                  onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="clientSecret"
+                    dir="ltr"
+                    type={showClientSecret ? "text" : "password"}
+                    placeholder="••••••••  (اتركه فارغاً للإبقاء)"
+                    value={form.clientSecret}
+                    onChange={(e) => setForm((p) => ({ ...p, clientSecret: e.target.value }))}
+                    className="pe-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowClientSecret((v) => !v)}
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showClientSecret ? "إخفاء" : "إظهار"}
+                  >
+                    {showClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
