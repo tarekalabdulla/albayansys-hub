@@ -102,6 +102,7 @@ const Performance = () => {
   const [from, setFrom] = useState("2025-04-01");
   const [to, setTo] = useState("2025-04-18");
   const [supervisor, setSupervisor] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<AgentStatus | "all">("all");
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("answered");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -158,6 +159,7 @@ const Performance = () => {
   const filtered = useMemo(() => {
     let arr = rows;
     if (supervisor !== "all") arr = arr.filter((r) => r.supervisor === supervisor);
+    if (statusFilter !== "all") arr = arr.filter((r) => r.status === statusFilter);
     if (query) arr = arr.filter((r) => r.name.includes(query) || r.ext.includes(query));
     arr = [...arr].sort((a, b) => {
       const va = sortKey === "idle" ? a.idleSeconds : a[sortKey as keyof Row];
@@ -168,7 +170,7 @@ const Performance = () => {
       return sortDir === "asc" ? Number(va) - Number(vb) : Number(vb) - Number(va);
     });
     return arr;
-  }, [rows, supervisor, query, sortKey, sortDir]);
+  }, [rows, supervisor, statusFilter, query, sortKey, sortDir]);
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -256,7 +258,7 @@ const Performance = () => {
           <Filter className="w-4 h-4 text-primary" />
           <h3 className="text-sm font-bold">أدوات التصفية</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
           <div className="relative">
             <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="pr-10 bg-background/60" />
@@ -270,6 +272,17 @@ const Performance = () => {
             <SelectContent>
               <SelectItem value="all">جميع المشرفين</SelectItem>
               {supervisors.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as AgentStatus | "all")}>
+            <SelectTrigger className="bg-background/60"><SelectValue placeholder="الحالة" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">جميع الحالات</SelectItem>
+              <SelectItem value="in_call">{STATUS_LABEL.in_call}</SelectItem>
+              <SelectItem value="online">{STATUS_LABEL.online}</SelectItem>
+              <SelectItem value="idle">{STATUS_LABEL.idle}</SelectItem>
+              <SelectItem value="break">{STATUS_LABEL.break}</SelectItem>
+              <SelectItem value="offline">{STATUS_LABEL.offline}</SelectItem>
             </SelectContent>
           </Select>
           <div className="relative">
