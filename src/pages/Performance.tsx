@@ -159,6 +159,7 @@ const Performance = () => {
   const filtered = useMemo(() => {
     let arr = rows;
     if (supervisor !== "all") arr = arr.filter((r) => r.supervisor === supervisor);
+    if (statusFilter !== "all") arr = arr.filter((r) => r.status === statusFilter);
     if (query) arr = arr.filter((r) => r.name.includes(query) || r.ext.includes(query));
     arr = [...arr].sort((a, b) => {
       const va = sortKey === "idle" ? a.idleSeconds : a[sortKey as keyof Row];
@@ -169,7 +170,7 @@ const Performance = () => {
       return sortDir === "asc" ? Number(va) - Number(vb) : Number(vb) - Number(va);
     });
     return arr;
-  }, [rows, supervisor, query, sortKey, sortDir]);
+  }, [rows, supervisor, statusFilter, query, sortKey, sortDir]);
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
