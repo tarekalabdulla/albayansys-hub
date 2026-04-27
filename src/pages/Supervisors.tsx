@@ -71,6 +71,7 @@ export default function Supervisors() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | ApiSupervisor["role"]>("all");
   const [editing, setEditing] = useState<ApiSupervisor | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [open, setOpen] = useState(false);
@@ -103,12 +104,18 @@ export default function Supervisors() {
     return m;
   }, [liveAgents]);
 
-  const filtered = useMemo(
-    () => supervisors.filter((s) =>
-      s.name.includes(search) || s.email.includes(search) || s.ext.includes(search)
-    ),
-    [supervisors, search],
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return supervisors.filter((s) => {
+      if (roleFilter !== "all" && s.role !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.ext.toLowerCase().includes(q)
+      );
+    });
+  }, [supervisors, search, roleFilter]);
 
   const stats = useMemo(() => {
     const totalAgents = AGENTS.length;
