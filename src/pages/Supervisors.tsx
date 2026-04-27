@@ -71,6 +71,7 @@ export default function Supervisors() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | ApiSupervisor["role"]>("all");
   const [editing, setEditing] = useState<ApiSupervisor | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [open, setOpen] = useState(false);
@@ -103,12 +104,18 @@ export default function Supervisors() {
     return m;
   }, [liveAgents]);
 
-  const filtered = useMemo(
-    () => supervisors.filter((s) =>
-      s.name.includes(search) || s.email.includes(search) || s.ext.includes(search)
-    ),
-    [supervisors, search],
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return supervisors.filter((s) => {
+      if (roleFilter !== "all" && s.role !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.email.toLowerCase().includes(q) ||
+        s.ext.toLowerCase().includes(q)
+      );
+    });
+  }, [supervisors, search, roleFilter]);
 
   const stats = useMemo(() => {
     const totalAgents = AGENTS.length;
@@ -244,11 +251,43 @@ export default function Supervisors() {
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث عن مشرف..." className="pr-10" />
+          <div className="flex flex-col sm:flex-row gap-2 flex-1">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="بحث بالاسم أو البريد أو التحويلة..."
+                className="pr-10"
+              />
+            </div>
+            <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as typeof roleFilter)}>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue placeholder="كل الأدوار" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">كل الأدوار</SelectItem>
+                <SelectItem value="مشرف">مشرف</SelectItem>
+                <SelectItem value="مشرف أول">مشرف أول</SelectItem>
+                <SelectItem value="مدير قسم">مدير قسم</SelectItem>
+              </SelectContent>
+            </Select>
+            {(search || roleFilter !== "all") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setSearch(""); setRoleFilter("all"); }}
+                className="gap-1.5 text-muted-foreground"
+              >
+                <X className="w-3.5 h-3.5" />
+                مسح
+              </Button>
+            )}
           </div>
-          <Button onClick={openNew} className="gap-1.5"><Plus className="w-4 h-4" />مشرف جديد</Button>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="hidden sm:inline-flex">{filtered.length} نتيجة</Badge>
+            <Button onClick={openNew} className="gap-1.5"><Plus className="w-4 h-4" />مشرف جديد</Button>
+          </div>
         </div>
 
         {/* Cards Grid */}
