@@ -102,6 +102,7 @@ const Performance = () => {
   const [from, setFrom] = useState("2025-04-01");
   const [to, setTo] = useState("2025-04-18");
   const [supervisor, setSupervisor] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<AgentStatus | "all">("all");
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("answered");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
