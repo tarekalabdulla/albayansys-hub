@@ -451,7 +451,7 @@ export default function Supervisors() {
                   <Badge variant="secondary">{editing.agentIds.length} محدد</Badge>
                 </div>
                 <div className="rounded-lg border border-border max-h-64 overflow-y-auto divide-y divide-border">
-                  {AGENTS.map((a) => {
+                  {liveAgents.map((a) => {
                     const checked = editing.agentIds.includes(a.id);
                     return (
                       <label key={a.id} className={cn(
@@ -495,7 +495,7 @@ export default function Supervisors() {
                 <Badge variant="secondary">{assignFor.agentIds.length} محدد</Badge>
               </div>
               <div className="rounded-lg border border-border max-h-80 overflow-y-auto divide-y divide-border">
-                {AGENTS.map((a) => {
+                {liveAgents.map((a) => {
                   const checked = assignFor.agentIds.includes(a.id);
                   const live = agentsMap.get(a.id) ?? a;
                   return (
