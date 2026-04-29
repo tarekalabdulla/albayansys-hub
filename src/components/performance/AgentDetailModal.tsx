@@ -33,7 +33,7 @@ import {
   Legend,
   Filler,
 } from "chart.js";
-import { AGENTS, formatDuration, type Agent } from "@/lib/mockData";
+import { formatDuration, type Agent } from "@/lib/mockData";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { cn } from "@/lib/utils";
 
@@ -113,14 +113,10 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
   const [callStatusFilter, setCallStatusFilter] = useState<CallStatusFilter>("all");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
 
-  // ابحث في الموظفين الحيين أولاً (وضع الإنتاج) ثم في البيانات الوهمية (التطوير)
+  // ابحث عن الموظف ضمن القائمة الحية
   const liveAgents = useLiveAgents();
   const agent = useMemo(
-    () =>
-      (agentId
-        ? liveAgents.find((a) => a.id === agentId) ||
-          AGENTS.find((a) => a.id === agentId)
-        : null) || null,
+    () => (agentId ? liveAgents.find((a) => a.id === agentId) || null : null),
     [agentId, liveAgents],
   );
 

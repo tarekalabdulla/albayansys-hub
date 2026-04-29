@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AGENTS as MOCK_AGENTS, formatDuration, STATUS_LABEL, type AgentStatus } from "@/lib/mockData";
+import { formatDuration, STATUS_LABEL, type AgentStatus } from "@/lib/mockData";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
-import { USE_REAL_API } from "@/lib/config";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -122,8 +121,7 @@ const Performance = () => {
     }
   };
 
-  const liveAgents = useLiveAgents();
-  const sourceAgents = USE_REAL_API ? liveAgents : MOCK_AGENTS;
+  const sourceAgents = useLiveAgents();
 
   const rows: Row[] = useMemo(
     () =>
@@ -151,8 +149,8 @@ const Performance = () => {
     [sourceAgents],
   );
 
-  const supervisors = useMemo(
-    () => Array.from(new Set(sourceAgents.map((a) => a.supervisor))),
+  const supervisors = useMemo<string[]>(
+    () => Array.from(new Set(sourceAgents.map((a) => a.supervisor).filter(Boolean))),
     [sourceAgents],
   );
 

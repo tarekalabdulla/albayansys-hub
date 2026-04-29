@@ -14,7 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AGENTS, STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { STATUS_LABEL, statusBadgeClass } from "@/lib/mockData";
+import { useLiveAgents } from "@/hooks/useLiveAgents";
 import {
   ArrowRight,
   Phone,
@@ -41,7 +42,7 @@ import {
   Line,
 } from "recharts";
 
-import { supervisorsApi, isRealApi, type ApiSupervisor } from "@/lib/dataApi";
+import { supervisorsApi, type ApiSupervisor } from "@/lib/dataApi";
 
 type Range = "day" | "week" | "month";
 
@@ -50,10 +51,10 @@ export default function SupervisorDetail() {
   const [supervisor, setSupervisor] = useState<ApiSupervisor | null>(null);
   const [loadingSup, setLoadingSup] = useState(true);
   const [range, setRange] = useState<Range>("week");
+  const liveAgents = useLiveAgents();
 
   useEffect(() => {
     if (!id) { setLoadingSup(false); return; }
-    if (!isRealApi) { setLoadingSup(false); return; }
     (async () => {
       try {
         const s = await supervisorsApi.get(id);
@@ -76,8 +77,8 @@ export default function SupervisorDetail() {
   };
 
   const team = useMemo(
-    () => (supervisor ? AGENTS.filter((a) => supervisor.agentIds.includes(a.id)) : []),
-    [supervisor],
+    () => (supervisor ? liveAgents.filter((a) => supervisor.agentIds.includes(a.id)) : []),
+    [supervisor, liveAgents],
   );
 
   const stats = useMemo(() => {
