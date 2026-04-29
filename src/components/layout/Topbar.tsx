@@ -30,7 +30,7 @@ import {
   THEMES,
   type ThemeId,
 } from "@/lib/themes";
-import { MAILS, formatMailDate, priorityMeta } from "@/lib/mailData";
+import { formatMailDate, priorityMeta, type InternalMail } from "@/lib/mailData";
 import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
@@ -99,7 +99,7 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
   };
 
   // الرسائل غير المقروءة في الوارد — في وضع REAL_API لا نعرض بيانات mock
-  const inboxMails = USE_REAL_API ? [] : MAILS.filter((m) => m.folder === "inbox");
+  const inboxMails: InternalMail[] = [];
   const unreadCount = inboxMails.filter((m) => !m.read).length;
   const latestThree = [...inboxMails]
     .sort((a, b) => +new Date(b.date) - +new Date(a.date))
