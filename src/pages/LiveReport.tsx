@@ -20,6 +20,7 @@ import { useLiveTimer } from "@/hooks/useLiveTimer";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/lib/mockData";
 import { api } from "@/lib/api";
+import { socketProvider } from "@/lib/socketProvider";
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Inbox, Loader2, Download, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -34,21 +35,70 @@ function cssVarA(name: string, alpha: number): string {
   return `hsl(${v} / ${alpha})`;
 }
 
+// نطاق ساعات العمل (8 ص → 5 م) — يوافق التسميات المعروضة
+const WORK_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const HOUR_LABELS = ["8", "9", "10", "11", "12", "1", "2", "3", "4", "5"];
+
 function HourlyDistribution() {
-  const HOURS = ["8", "9", "10", "11", "12", "1", "2", "3", "4", "5"];
-  const data = [12, 28, 45, 62, 38, 25, 51, 70, 48, 22];
+  const [buckets, setBuckets] = useState<number[]>(() => Array(WORK_HOURS.length).fill(0));
+  const [loading, setLoading] = useState(true);
+
+  // نقطة البدء: تحميل مكالمات اليوم من /api/calls ثم تجميعها لكل ساعة
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const since = new Date();
+        since.setHours(0, 0, 0, 0);
+        const { data } = await api.get<{ calls: Array<{ startedAt: string }> }>("/calls", {
+          params: { limit: "500", since: since.toISOString() },
+        });
+        if (cancelled) return;
+        const next = Array(WORK_HOURS.length).fill(0);
+        (data?.calls || []).forEach((c) => {
+          const h = new Date(c.startedAt).getHours();
+          const idx = WORK_HOURS.indexOf(h);
+          if (idx >= 0) next[idx] += 1;
+        });
+        setBuckets(next);
+      } catch {
+        if (!cancelled) setBuckets(Array(WORK_HOURS.length).fill(0));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // تحديث حي: كلما انتهت مكالمة جديدة (call:ended) نزيد عدّاد الساعة الموافقة
+  useEffect(() => {
+    const off = socketProvider.on("call:ended", (payload: any) => {
+      const iso = payload?.startedAt || payload?.endedAt || new Date().toISOString();
+      const h = new Date(iso).getHours();
+      const idx = WORK_HOURS.indexOf(h);
+      if (idx < 0) return;
+      setBuckets((prev) => {
+        const copy = [...prev];
+        copy[idx] = (copy[idx] || 0) + 1;
+        return copy;
+      });
+    });
+    return off;
+  }, []);
 
   return (
     <div className="glass-card p-5 anim-fade-in">
       <h3 className="text-base font-bold mb-1">توزيع المكالمات بالساعة</h3>
-      <p className="text-xs text-muted-foreground mb-4">اليوم — حسب ساعة الاستلام</p>
+      <p className="text-xs text-muted-foreground mb-4">
+        اليوم — حسب ساعة الاستلام {loading ? "(جاري التحميل…)" : "(تحديث حي)"}
+      </p>
       <div className="h-[240px]">
         <Bar
           data={{
-            labels: HOURS,
+            labels: HOUR_LABELS,
             datasets: [{
               label: "مكالمات",
-              data,
+              data: buckets,
               backgroundColor: cssVarA("--primary", 0.7),
               hoverBackgroundColor: cssVar("--primary"),
               borderRadius: 8,
@@ -389,11 +439,50 @@ function CallLogsSection() {
   );
 }
 
+function LiveKpiStrip({ agents }: { agents: Agent[] }) {
+  // KPIs محسوبة من القائمة الحيّة — تُعاد عند كل تحديث agent:update
+  const stats = useMemo(() => {
+    const total = agents.length;
+    const inCall = agents.filter((a) => a.status === "in_call").length;
+    const online = agents.filter((a) => a.status === "online").length;
+    const offline = agents.filter((a) => a.status === "offline").length;
+    const answered = agents.reduce((s, a) => s + (a.answered || 0), 0);
+    const missed = agents.reduce((s, a) => s + (a.missed || 0), 0);
+    const totalCalls = answered + missed;
+    const rate = totalCalls === 0 ? 0 : Math.round((answered / totalCalls) * 100);
+    return { total, inCall, online, offline, answered, missed, rate };
+  }, [agents]);
+
+  const items = [
+    { label: "إجمالي الموظفين", value: stats.total, color: "text-foreground" },
+    { label: "في مكالمة الآن", value: stats.inCall, color: "text-primary" },
+    { label: "متصل", value: stats.online, color: "text-success" },
+    { label: "غير متصل", value: stats.offline, color: "text-muted-foreground" },
+    { label: "مكالمات مجابة", value: stats.answered, color: "text-success" },
+    { label: "مكالمات فائتة", value: stats.missed, color: "text-destructive" },
+    { label: "معدل الإجابة", value: `${stats.rate}%`, color: "text-info" },
+  ];
+
+  return (
+    <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+      {items.map((it) => (
+        <div key={it.label} className="glass-card p-3 text-center anim-fade-in">
+          <p className="text-[11px] text-muted-foreground mb-1">{it.label}</p>
+          <p className={cn("text-xl font-bold tabular-nums", it.color)}>{it.value}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 const LiveReport = () => {
   const agents = useLiveAgents();
 
   return (
     <AppLayout title="التقرير الحي" subtitle="بيانات لحظية لأداء فريق العمل">
+      {/* KPI Strip — يتحدث لحظياً مع كل حدث agent:update */}
+      <LiveKpiStrip agents={agents} />
+
       {/* Charts Row */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <StatusDoughnut />

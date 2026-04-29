@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { socketProvider } from "@/lib/socketProvider";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useLiveAgents, useLiveAlerts } from "@/hooks/useLiveAgents";
 import { useLiveTimer } from "@/hooks/useLiveTimer";
@@ -217,6 +218,25 @@ const Monitoring = () => {
   const [query, setQuery] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [liveCallsCount, setLiveCallsCount] = useState(0);
+
+  // عدّاد المكالمات الجارية الآن — يستجيب لأحداث socket.io مباشرة
+  useEffect(() => {
+    socketProvider.start();
+    const active = new Set<string>();
+    const offLive = socketProvider.on("call:live", (p: any) => {
+      if (!p?.callKey) return;
+      active.add(p.callKey);
+      setLiveCallsCount(active.size);
+    });
+    const offEnded = socketProvider.on("call:ended", (p: any) => {
+      if (!p?.callKey) return;
+      active.delete(p.callKey);
+      setLiveCallsCount(active.size);
+    });
+    return () => { offLive(); offEnded(); };
+  }, []);
+
 
   // helper: تحديد الدور الفعلي للموظف (من role أو fallback من supervisor label)
   const isStaff = (a: Agent) =>
@@ -243,11 +263,45 @@ const Monitoring = () => {
 
   const visibleAlerts = alerts.filter((a) => !dismissed.has(a.id));
 
+  // KPIs لحظية محسوبة من القائمة الحيّة
+  const kpis = useMemo(() => ({
+    total: roleFiltered.length,
+    inCall: roleFiltered.filter((a) => a.status === "in_call").length,
+    online: roleFiltered.filter((a) => a.status === "online").length,
+    idle: roleFiltered.filter((a) => a.status === "idle").length,
+    offline: roleFiltered.filter((a) => a.status === "offline").length,
+  }), [roleFiltered]);
+
   return (
     <AppLayout
       title="مراقبة الموظفين"
       subtitle="تحديثات حية كل بضع ثوانٍ"
     >
+      {/* Live KPI strip — يتحدث لحظياً مع كل حدث socket */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+        {[
+          { label: "إجمالي", value: kpis.total, color: "text-foreground" },
+          { label: "مكالمات جارية", value: liveCallsCount, color: "text-primary", pulse: true },
+          { label: "في مكالمة", value: kpis.inCall, color: "text-primary" },
+          { label: "متصل", value: kpis.online, color: "text-success" },
+          { label: "خامل", value: kpis.idle, color: "text-warning" },
+          { label: "غير متصل", value: kpis.offline, color: "text-muted-foreground" },
+        ].map((it) => (
+          <div key={it.label} className="glass-card p-3 text-center anim-fade-in">
+            <p className="text-[11px] text-muted-foreground mb-1 flex items-center justify-center gap-1">
+              {it.pulse && (
+                <span className="relative flex w-2 h-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+                </span>
+              )}
+              {it.label}
+            </p>
+            <p className={cn("text-xl font-bold tabular-nums", it.color)}>{it.value}</p>
+          </div>
+        ))}
+      </section>
+
       {/* Smart Alerts */}
       <section className="space-y-2 mb-5">
         {visibleAlerts.length === 0 ? (
