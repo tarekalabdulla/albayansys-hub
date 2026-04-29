@@ -1,45 +1,31 @@
 // ============================================================
-// إعدادات بيئة التشغيل — التبديل بين Mock و Real API
+// إعدادات بيئة التشغيل — API حقيقي فقط (لا يوجد وضع Mock)
 // ============================================================
-// منطق التفعيل (بالأولوية):
-//   1) VITE_USE_REAL_API="true"  → API حقيقي (يتجاوز كل شيء)
-//   2) VITE_USE_REAL_API="false" → Mock (يتجاوز الاستنتاج التلقائي)
-//   3) لو غير مضبوط:
-//      - النطاق ينتهي بـ .lovable.app أو localhost → Mock
-//      - أي نطاق آخر (مثل hulul-albayan.com)       → Real API تلقائياً
-//
 // عنوان الـ API:
-//   - VITE_API_URL إن وُجد
-//   - وإلا: https://api.<النطاق الحالي بدون www>
+//   - VITE_API_URL إن وُجد (مثلاً https://api.hulul-albayan.com)
+//   - وإلا يُستنتج من النطاق الحالي: https://api.<host>
+//   - localhost → http://localhost:4000
 // ============================================================
 
-const envFlag = (import.meta.env.VITE_USE_REAL_API ?? "").toString().toLowerCase();
 const envApiUrl = import.meta.env.VITE_API_URL as string | undefined;
-
-function inferUseRealApi(): boolean {
-  if (envFlag === "true")  return true;
-  if (envFlag === "false") return false;
-  // استنتاج تلقائي من hostname
-  if (typeof window === "undefined") return false;
-  const host = window.location.hostname.toLowerCase();
-  if (host === "localhost" || host === "127.0.0.1") return false;
-  if (host.endsWith(".lovable.app") || host.endsWith(".lovableproject.com")) return false;
-  return true; // أي نطاق مخصص → API حقيقي
-}
 
 function inferApiUrl(): string {
   if (envApiUrl) return envApiUrl;
   if (typeof window === "undefined") return "http://localhost:4000";
-  const host = window.location.hostname.replace(/^www\./, "");
+  const host = window.location.hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "localhost" || host === "127.0.0.1") return "http://localhost:4000";
+  // داخل preview الـ Lovable: نسمح للمستخدم بضبط VITE_API_URL يدوياً
+  if (host.endsWith(".lovable.app") || host.endsWith(".lovableproject.com")) {
+    return envApiUrl || "http://localhost:4000";
+  }
   return `https://api.${host}`;
 }
 
-export const USE_REAL_API = inferUseRealApi();
-export const API_URL = USE_REAL_API ? inferApiUrl() : "http://localhost:4000";
+// ⚠️ نُبقي ثابت USE_REAL_API لأن أكواد كثيرة تستورده — لكنه دائماً true الآن.
+export const USE_REAL_API = true;
+export const API_URL = inferApiUrl();
 
 if (typeof window !== "undefined") {
   // eslint-disable-next-line no-console
-  console.info(
-    `[config] mode=${USE_REAL_API ? "REAL" : "MOCK"} api=${API_URL} host=${window.location.hostname}`
-  );
+  console.info(`[config] api=${API_URL} host=${window.location.hostname}`);
 }
