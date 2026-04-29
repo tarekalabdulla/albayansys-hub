@@ -217,6 +217,33 @@ const Monitoring = () => {
   const [query, setQuery] = useState("");
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [liveCallsCount, setLiveCallsCount] = useState(0);
+
+  // عدّاد المكالمات الجارية الآن — يستجيب لـ call:live و call:ended مباشرة
+  useEffect(() => {
+    const active = new Set<string>();
+    const offLive = (window as any); // placeholder — مُستبدَل أسفل
+    void offLive;
+    return () => { active.clear(); };
+  }, []);
+
+  useEffect(() => {
+    const active = new Set<string>();
+    const offLive = (require("@/lib/socketProvider").socketProvider as typeof import("@/lib/socketProvider").socketProvider)
+      .on("call:live", (p: any) => {
+        if (!p?.callKey) return;
+        active.add(p.callKey);
+        setLiveCallsCount(active.size);
+      });
+    const offEnded = (require("@/lib/socketProvider").socketProvider as typeof import("@/lib/socketProvider").socketProvider)
+      .on("call:ended", (p: any) => {
+        if (!p?.callKey) return;
+        active.delete(p.callKey);
+        setLiveCallsCount(active.size);
+      });
+    return () => { offLive(); offEnded(); };
+  }, []);
+
 
   // helper: تحديد الدور الفعلي للموظف (من role أو fallback من supervisor label)
   const isStaff = (a: Agent) =>
