@@ -277,6 +277,31 @@ const Monitoring = () => {
       title="مراقبة الموظفين"
       subtitle="تحديثات حية كل بضع ثوانٍ"
     >
+      {/* Live KPI strip — يتحدث لحظياً مع كل حدث socket */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+        {[
+          { label: "إجمالي", value: kpis.total, color: "text-foreground" },
+          { label: "مكالمات جارية", value: liveCallsCount, color: "text-primary", pulse: true },
+          { label: "في مكالمة", value: kpis.inCall, color: "text-primary" },
+          { label: "متصل", value: kpis.online, color: "text-success" },
+          { label: "خامل", value: kpis.idle, color: "text-warning" },
+          { label: "غير متصل", value: kpis.offline, color: "text-muted-foreground" },
+        ].map((it) => (
+          <div key={it.label} className="glass-card p-3 text-center anim-fade-in">
+            <p className="text-[11px] text-muted-foreground mb-1 flex items-center justify-center gap-1">
+              {it.pulse && (
+                <span className="relative flex w-2 h-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-75 animate-ping" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+                </span>
+              )}
+              {it.label}
+            </p>
+            <p className={cn("text-xl font-bold tabular-nums", it.color)}>{it.value}</p>
+          </div>
+        ))}
+      </section>
+
       {/* Smart Alerts */}
       <section className="space-y-2 mb-5">
         {visibleAlerts.length === 0 ? (
