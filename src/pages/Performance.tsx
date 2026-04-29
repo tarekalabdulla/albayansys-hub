@@ -149,8 +149,8 @@ const Performance = () => {
     [sourceAgents],
   );
 
-  const supervisors = useMemo(
-    () => Array.from(new Set(sourceAgents.map((a) => a.supervisor))),
+  const supervisors = useMemo<string[]>(
+    () => Array.from(new Set(sourceAgents.map((a) => a.supervisor).filter(Boolean))),
     [sourceAgents],
   );
 
