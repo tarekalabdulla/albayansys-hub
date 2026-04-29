@@ -104,9 +104,14 @@ function generateWeeklyData(agent: Agent) {
   }));
 }
 
+type CallStatusFilter = "all" | "answered" | "missed" | "transferred";
+type TimeFilter = "all" | "morning" | "afternoon" | "evening";
+
 export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalProps) {
   const reportRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  const [callStatusFilter, setCallStatusFilter] = useState<CallStatusFilter>("all");
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
 
   // ابحث في الموظفين الحيين أولاً (وضع الإنتاج) ثم في البيانات الوهمية (التطوير)
   const liveAgents = useLiveAgents();
@@ -123,6 +128,19 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     () => (agent ? generateRecentCalls(agent) : []),
     [agent],
   );
+
+  const filteredCalls = useMemo(() => {
+    return recentCalls.filter((c) => {
+      if (callStatusFilter !== "all" && c.status !== callStatusFilter) return false;
+      if (timeFilter !== "all") {
+        const hour = parseInt(c.time.split(":")[0], 10);
+        if (timeFilter === "morning" && !(hour >= 6 && hour < 12)) return false;
+        if (timeFilter === "afternoon" && !(hour >= 12 && hour < 17)) return false;
+        if (timeFilter === "evening" && !(hour >= 17 || hour < 6)) return false;
+      }
+      return true;
+    });
+  }, [recentCalls, callStatusFilter, timeFilter]);
 
   const weekly = useMemo(
     () => (agent ? generateWeeklyData(agent) : []),
