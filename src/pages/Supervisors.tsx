@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { AGENTS, type Agent, type AgentStatus } from "@/lib/mockData";
+import { type Agent, type AgentStatus } from "@/lib/mockData";
 import {
   UserCog, Users, Plus, Trash2, Pencil, Search, ShieldCheck,
   Loader2, UserPlus, Phone, Power, Coffee, PowerOff, PauseCircle, X,
@@ -78,10 +78,6 @@ export default function Supervisors() {
   const [assignFor, setAssignFor] = useState<ApiSupervisor | null>(null);
 
   useEffect(() => {
-    if (!isRealApi) {
-      setLoading(false);
-      return;
-    }
     (async () => {
       try {
         const list = await supervisorsApi.list();
@@ -97,10 +93,7 @@ export default function Supervisors() {
   // خريطة الموظفين الحية للوصول السريع بالـ id
   const agentsMap = useMemo(() => {
     const m = new Map<string, Agent>();
-    const source = liveAgents.length ? liveAgents : AGENTS;
-    source.forEach((a) => m.set(a.id, a));
-    // ادمج أي موظفين موجودين في القائمة الأساسية ولم يصلوا بعد
-    AGENTS.forEach((a) => { if (!m.has(a.id)) m.set(a.id, a); });
+    liveAgents.forEach((a) => m.set(a.id, a));
     return m;
   }, [liveAgents]);
 
@@ -118,14 +111,14 @@ export default function Supervisors() {
   }, [supervisors, search, roleFilter]);
 
   const stats = useMemo(() => {
-    const totalAgents = AGENTS.length;
+    const totalAgents = liveAgents.length;
     const assignedIds = new Set(supervisors.flatMap((s) => s.agentIds));
     return {
       supervisors: supervisors.length,
       assigned: assignedIds.size,
-      unassigned: totalAgents - assignedIds.size,
+      unassigned: Math.max(0, totalAgents - assignedIds.size),
     };
-  }, [supervisors]);
+  }, [supervisors, liveAgents]);
 
   const openNew = () => {
     setEditing({ id: "", name: "", email: "", ext: "", role: "مشرف", agentIds: [] });
@@ -218,17 +211,7 @@ export default function Supervisors() {
     }
   };
 
-  if (!isRealApi) {
-    return (
-      <AppLayout title="إدارة المشرفين">
-        <div className="glass-card p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            هذه الصفحة تتطلب تفعيل API الحقيقي (VITE_USE_REAL_API=true).
-          </p>
-        </div>
-      </AppLayout>
-    );
-  }
+  // ملاحظة: isRealApi = true دائماً الآن — لا حاجة لشاشة تفعيل خاصة.
 
   return (
     <AppLayout title="إدارة المشرفين" subtitle="إدارة المشرفين وتعيين الموظفين">
