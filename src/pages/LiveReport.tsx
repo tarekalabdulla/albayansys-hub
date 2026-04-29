@@ -20,6 +20,7 @@ import { useLiveTimer } from "@/hooks/useLiveTimer";
 import { cn } from "@/lib/utils";
 import type { Agent } from "@/lib/mockData";
 import { api } from "@/lib/api";
+import { socketProvider } from "@/lib/socketProvider";
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Inbox, Loader2, Download, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -94,10 +95,10 @@ function HourlyDistribution() {
       <div className="h-[240px]">
         <Bar
           data={{
-            labels: HOURS,
+            labels: HOUR_LABELS,
             datasets: [{
               label: "مكالمات",
-              data,
+              data: buckets,
               backgroundColor: cssVarA("--primary", 0.7),
               hoverBackgroundColor: cssVar("--primary"),
               borderRadius: 8,
