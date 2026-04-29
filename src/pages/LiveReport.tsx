@@ -439,11 +439,50 @@ function CallLogsSection() {
   );
 }
 
+function LiveKpiStrip({ agents }: { agents: Agent[] }) {
+  // KPIs محسوبة من القائمة الحيّة — تُعاد عند كل تحديث agent:update
+  const stats = useMemo(() => {
+    const total = agents.length;
+    const inCall = agents.filter((a) => a.status === "in_call").length;
+    const online = agents.filter((a) => a.status === "online").length;
+    const offline = agents.filter((a) => a.status === "offline").length;
+    const answered = agents.reduce((s, a) => s + (a.answered || 0), 0);
+    const missed = agents.reduce((s, a) => s + (a.missed || 0), 0);
+    const totalCalls = answered + missed;
+    const rate = totalCalls === 0 ? 0 : Math.round((answered / totalCalls) * 100);
+    return { total, inCall, online, offline, answered, missed, rate };
+  }, [agents]);
+
+  const items = [
+    { label: "إجمالي الموظفين", value: stats.total, color: "text-foreground" },
+    { label: "في مكالمة الآن", value: stats.inCall, color: "text-primary" },
+    { label: "متصل", value: stats.online, color: "text-success" },
+    { label: "غير متصل", value: stats.offline, color: "text-muted-foreground" },
+    { label: "مكالمات مجابة", value: stats.answered, color: "text-success" },
+    { label: "مكالمات فائتة", value: stats.missed, color: "text-destructive" },
+    { label: "معدل الإجابة", value: `${stats.rate}%`, color: "text-info" },
+  ];
+
+  return (
+    <section className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+      {items.map((it) => (
+        <div key={it.label} className="glass-card p-3 text-center anim-fade-in">
+          <p className="text-[11px] text-muted-foreground mb-1">{it.label}</p>
+          <p className={cn("text-xl font-bold tabular-nums", it.color)}>{it.value}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 const LiveReport = () => {
   const agents = useLiveAgents();
 
   return (
     <AppLayout title="التقرير الحي" subtitle="بيانات لحظية لأداء فريق العمل">
+      {/* KPI Strip — يتحدث لحظياً مع كل حدث agent:update */}
+      <LiveKpiStrip agents={agents} />
+
       {/* Charts Row */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <StatusDoughnut />
