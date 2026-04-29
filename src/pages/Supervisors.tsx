@@ -21,7 +21,7 @@ import {
   Loader2, UserPlus, Phone, Power, Coffee, PowerOff, PauseCircle, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supervisorsApi, isRealApi, type ApiSupervisor } from "@/lib/dataApi";
+import { supervisorsApi, type ApiSupervisor } from "@/lib/dataApi";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
 
 // ============================================================

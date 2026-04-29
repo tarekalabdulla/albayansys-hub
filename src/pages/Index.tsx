@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { rowsToCsv, downloadFile } from "@/lib/csvImport";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
-import { USE_REAL_API } from "@/lib/config";
+
 import {
   Dialog,
   DialogContent,

@@ -34,7 +34,7 @@ import { formatMailDate, priorityMeta, type InternalMail } from "@/lib/mailData"
 import { clearSession, getSession, ROLE_LABELS } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
-import { USE_REAL_API } from "@/lib/config";
+
 import { cn } from "@/lib/utils";
 
 interface TopbarProps {
@@ -113,15 +113,8 @@ export function Topbar({ onMenuClick, title, subtitle }: TopbarProps) {
     message: string;
     time: string;
   };
-  // في وضع REAL_API نبدأ بقائمة فارغة — التنبيهات الحقيقية تأتي من Socket في صفحة /alerts
-  const initialAlerts: AlertItem[] = useMemo(
-    () => USE_REAL_API ? [] : [
-      { id: "n1", level: "danger",  title: "تجاوز SLA حرج",   message: "6 مكالمات في الانتظار > دقيقتين", time: "منذ 3 د" },
-      { id: "n2", level: "warning", title: "خمول مطوّل",       message: "الموظفة هند خاملة منذ 14 دقيقة",  time: "منذ 12 د" },
-      { id: "n3", level: "warning", title: "تجاوز الاستراحة",  message: "يوسف تجاوز 25 دقيقة استراحة",     time: "منذ 18 د" },
-    ],
-    [],
-  );
+  // التنبيهات الحقيقية تأتي من Socket في صفحة /alerts
+  const initialAlerts: AlertItem[] = useMemo(() => [], []);
   const [readAlerts, setReadAlerts] = useState<Set<string>>(new Set());
   const unreadAlertsCount = initialAlerts.filter((a) => !readAlerts.has(a.id)).length;
   const markAllAlertsRead = () => setReadAlerts(new Set(initialAlerts.map((a) => a.id)));
