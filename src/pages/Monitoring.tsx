@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { socketProvider } from "@/lib/socketProvider";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useLiveAgents, useLiveAlerts } from "@/hooks/useLiveAgents";
 import { useLiveTimer } from "@/hooks/useLiveTimer";
@@ -219,28 +220,20 @@ const Monitoring = () => {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [liveCallsCount, setLiveCallsCount] = useState(0);
 
-  // عدّاد المكالمات الجارية الآن — يستجيب لـ call:live و call:ended مباشرة
+  // عدّاد المكالمات الجارية الآن — يستجيب لأحداث socket.io مباشرة
   useEffect(() => {
+    socketProvider.start();
     const active = new Set<string>();
-    const offLive = (window as any); // placeholder — مُستبدَل أسفل
-    void offLive;
-    return () => { active.clear(); };
-  }, []);
-
-  useEffect(() => {
-    const active = new Set<string>();
-    const offLive = (require("@/lib/socketProvider").socketProvider as typeof import("@/lib/socketProvider").socketProvider)
-      .on("call:live", (p: any) => {
-        if (!p?.callKey) return;
-        active.add(p.callKey);
-        setLiveCallsCount(active.size);
-      });
-    const offEnded = (require("@/lib/socketProvider").socketProvider as typeof import("@/lib/socketProvider").socketProvider)
-      .on("call:ended", (p: any) => {
-        if (!p?.callKey) return;
-        active.delete(p.callKey);
-        setLiveCallsCount(active.size);
-      });
+    const offLive = socketProvider.on("call:live", (p: any) => {
+      if (!p?.callKey) return;
+      active.add(p.callKey);
+      setLiveCallsCount(active.size);
+    });
+    const offEnded = socketProvider.on("call:ended", (p: any) => {
+      if (!p?.callKey) return;
+      active.delete(p.callKey);
+      setLiveCallsCount(active.size);
+    });
     return () => { offLive(); offEnded(); };
   }, []);
 
