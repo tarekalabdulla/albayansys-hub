@@ -22,3 +22,23 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Build / dependencies
+node_modules/
+dist/
+
+# Logs
+logs/
+*.log
+
+# Backups / temporary files
+*.bak*
+*.backup
+*.tmp
+*.sql
+backend/ql*

@@ -43,54 +43,138 @@ function HourlyDistribution() {
   const [buckets, setBuckets] = useState<number[]>(() => Array(WORK_HOURS.length).fill(0));
   const [loading, setLoading] = useState(true);
 
-  // نقطة البدء: تحميل مكالمات اليوم من /api/calls ثم تجميعها لكل ساعة
+  function buildHourlyBuckets(calls: Array<{ startedAt?: string | null }>) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const next = Array(WORK_HOURS.length).fill(0);
+
+    calls.forEach((c) => {
+      if (!c.startedAt) return;
+
+      const d = new Date(c.startedAt);
+      if (Number.isNaN(d.getTime())) return;
+
+      // مكالمات اليوم فقط حسب توقيت المتصفح
+      if (d < today || d >= tomorrow) return;
+
+      const h = d.getHours();
+      const idx = WORK_HOURS.indexOf(h);
+      if (idx >= 0) next[idx] += 1;
+    });
+
+    return next;
+  }
+
+  async function fetchHourlyCalls() {
+    try {
+      const { data } = await api.get<{
+        calls: Array<{
+          id: number | string;
+          startedAt: string;
+          endedAt?: string | null;
+          direction?: string | null;
+          status?: string | null;
+        }>;
+      }>("/pbx/calls", {
+        params: { limit: "500" },
+      });
+
+      setBuckets(buildHourlyBuckets(Array.isArray(data?.calls) ? data.calls : []));
+    } catch (e) {
+      console.warn("[HourlyDistribution] fetch:", e);
+      setBuckets(Array(WORK_HOURS.length).fill(0));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // تحميل أولي + تحديث دوري من /api/pbx/calls الحقيقي
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    async function run() {
       try {
-        const since = new Date();
-        since.setHours(0, 0, 0, 0);
-        const { data } = await api.get<{ calls: Array<{ startedAt: string }> }>("/calls", {
-          params: { limit: "500", since: since.toISOString() },
+        const { data } = await api.get<{
+          calls: Array<{
+            id: number | string;
+            startedAt: string;
+            endedAt?: string | null;
+            direction?: string | null;
+            status?: string | null;
+          }>;
+        }>("/pbx/calls", {
+          params: { limit: "500" },
         });
-        if (cancelled) return;
-        const next = Array(WORK_HOURS.length).fill(0);
-        (data?.calls || []).forEach((c) => {
-          const h = new Date(c.startedAt).getHours();
-          const idx = WORK_HOURS.indexOf(h);
-          if (idx >= 0) next[idx] += 1;
-        });
-        setBuckets(next);
-      } catch {
+
+        if (!cancelled) {
+          setBuckets(buildHourlyBuckets(Array.isArray(data?.calls) ? data.calls : []));
+        }
+      } catch (e) {
+        console.warn("[HourlyDistribution] initial fetch:", e);
         if (!cancelled) setBuckets(Array(WORK_HOURS.length).fill(0));
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    }
+
+    run();
+
+    const interval = window.setInterval(fetchHourlyCalls, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
-  // تحديث حي: كلما انتهت مكالمة جديدة (call:ended) نزيد عدّاد الساعة الموافقة
+  // تحديث حي: عند انتهاء مكالمة جديدة نزيد عداد الساعة الموافقة
   useEffect(() => {
-    const off = socketProvider.on("call:ended", (payload: any) => {
+    socketProvider.start();
+
+    const offEnded = socketProvider.on("call:ended" as any, (payload: any) => {
       const iso = payload?.startedAt || payload?.endedAt || new Date().toISOString();
-      const h = new Date(iso).getHours();
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      if (d < today || d >= tomorrow) return;
+
+      const h = d.getHours();
       const idx = WORK_HOURS.indexOf(h);
       if (idx < 0) return;
+
       setBuckets((prev) => {
         const copy = [...prev];
         copy[idx] = (copy[idx] || 0) + 1;
         return copy;
       });
     });
-    return off;
+
+    const offLive = socketProvider.on("call:live" as any, () => {
+      // احتياط: عند بدء مكالمة حية نعمل refresh سريع حتى لا يبقى الرسم فارغاً
+      fetchHourlyCalls();
+    });
+
+    return () => {
+      offEnded?.();
+      offLive?.();
+    };
   }, []);
 
   return (
     <div className="glass-card p-5 anim-fade-in">
       <h3 className="text-base font-bold mb-1">توزيع المكالمات بالساعة</h3>
       <p className="text-xs text-muted-foreground mb-4">
-        اليوم — حسب ساعة الاستلام {loading ? "(جاري التحميل…)" : "(تحديث حي)"}
+        اليوم — حسب ساعة الاستلام {loading ? "(جاري التحميل…)" : "(بيانات حقيقية من PBX)"}
       </p>
       <div className="h-[240px]">
         <Bar
@@ -118,7 +202,8 @@ function HourlyDistribution() {
                 grid: { display: false },
               },
               y: {
-                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" } },
+                beginAtZero: true,
+                ticks: { color: cssVar("--muted-foreground"), font: { family: "Cairo" }, precision: 0 },
                 grid: { color: cssVarA("--border", 0.6) },
               },
             },
@@ -179,44 +264,105 @@ function AgentRow({ agent }: { agent: Agent }) {
 }
 
 // ============================================================================
-// CallLogsSection — سجل المكالمات الواردة/الصادرة/الفائتة (بيانات حقيقية فقط)
+// CallLogsSection — سجل المكالمات الواردة/الصادرة/الفائتة (PBX حقيقي)
 // ----------------------------------------------------------------------------
-// • يقرأ من /api/calls (جدول calls المرتبط بـ agents عبر agent_id)
-// • ثلاث تبويبات: واردة، صادرة، فائتة
-// • لا توجد بيانات وهمية إطلاقاً — حالة فارغة واضحة عند غياب السجلات
+// • يقرأ من /api/pbx/calls وليس /api/calls القديم
+// • يستخدم اتجاهات PBX الجديدة: incoming / outgoing / internal
+// • تبويب الفائتة يتم فلترته محلياً من حالات no_answer/failed/cancelled
 // ============================================================================
+type PbxCallRow = {
+  id: string | number;
+  callKey?: string;
+  ext: string | null;
+  agentName: string | null;
+  remote: string | null;
+  direction: "incoming" | "outgoing" | "internal" | "transferred" | "forwarded" | "unknown";
+  status: "ringing" | "answered" | "busy" | "no_answer" | "failed" | "cancelled" | "completed";
+  answered: boolean;
+  startedAt: string;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  duration: number;
+  talkSeconds?: number;
+  failureReason?: string | null;
+};
+
 type CallRow = {
   id: string;
   number: string;
   duration: number;
   status: "answered" | "missed" | "transferred";
-  direction: "inbound" | "outbound" | "internal";
+  direction: "incoming" | "outgoing" | "internal" | "transferred" | "forwarded" | "unknown";
   startedAt: string;
   agent: string | null;
   ext: string | null;
 };
 
-type TabKey = "inbound" | "outbound" | "missed";
+type TabKey = "incoming" | "outgoing" | "missed";
 
 const TAB_META: Record<TabKey, { label: string; icon: typeof PhoneIncoming; color: string }> = {
-  inbound:  { label: "واردة", icon: PhoneIncoming,  color: "text-info" },
-  outbound: { label: "صادرة", icon: PhoneOutgoing,  color: "text-success" },
-  missed:   { label: "فائتة", icon: PhoneMissed,    color: "text-destructive" },
+  incoming: { label: "واردة", icon: PhoneIncoming, color: "text-info" },
+  outgoing: { label: "صادرة", icon: PhoneOutgoing, color: "text-success" },
+  missed:   { label: "فائتة", icon: PhoneMissed,   color: "text-destructive" },
 };
+
+function normalizePbxStatus(c: PbxCallRow): CallRow["status"] {
+  if (c.status === "no_answer" || c.status === "failed" || c.status === "cancelled") return "missed";
+  if (c.direction === "transferred" || c.direction === "forwarded") return "transferred";
+  if (c.answered || c.status === "answered" || c.status === "completed") return "answered";
+  return "missed";
+}
+
+function mapPbxCall(c: PbxCallRow): CallRow {
+  const duration =
+    Number(c.duration || 0) > 0
+      ? Number(c.duration || 0)
+      : Number(c.talkSeconds || 0) > 0
+        ? Number(c.talkSeconds || 0)
+        : c.startedAt && c.endedAt
+          ? Math.max(0, Math.round((new Date(c.endedAt).getTime() - new Date(c.startedAt).getTime()) / 1000))
+          : 0;
+
+  return {
+    id: String(c.id ?? c.callKey ?? `${c.ext}-${c.startedAt}`),
+    number: c.remote || "—",
+    duration,
+    status: normalizePbxStatus(c),
+    direction: c.direction || "unknown",
+    startedAt: c.startedAt,
+    agent: c.agentName || null,
+    ext: c.ext || null,
+  };
+}
 
 function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
     return new Intl.DateTimeFormat("ar", {
-      hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
     }).format(d);
-  } catch { return "—"; }
+  } catch {
+    return "—";
+  }
 }
+
 // ---- مساعدات تصدير سجل المكالمات (CSV / Excel) ------------------------------
 const STATUS_AR: Record<CallRow["status"], string> = {
   answered: "مجابة",
   missed: "فائتة",
   transferred: "محوّلة",
+};
+
+const DIRECTION_AR: Record<CallRow["direction"], string> = {
+  incoming: "واردة",
+  outgoing: "صادرة",
+  internal: "داخلية",
+  transferred: "محوّلة",
+  forwarded: "معاد توجيهها",
+  unknown: "غير معروف",
 };
 
 function buildExportRows(calls: CallRow[]) {
@@ -225,6 +371,7 @@ function buildExportRows(calls: CallRow[]) {
     "الرقم": c.number ?? "",
     "الموظف": c.agent ?? "",
     "التحويلة": c.ext ?? "",
+    "الاتجاه": DIRECTION_AR[c.direction] ?? c.direction,
     "الحالة": STATUS_AR[c.status] ?? c.status,
     "المدة (ث)": c.duration ?? 0,
   }));
@@ -244,7 +391,6 @@ function downloadBlob(blob: Blob, filename: string) {
 function exportCallsCsv(calls: CallRow[], tabLabel: string) {
   const rows = buildExportRows(calls);
   const ws = XLSX.utils.json_to_sheet(rows);
-  // \ufeff = BOM لضمان فتح Excel للملف بترميز UTF-8 وعرض العربية صحيحاً
   const csv = "\ufeff" + XLSX.utils.sheet_to_csv(ws);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -254,8 +400,7 @@ function exportCallsCsv(calls: CallRow[], tabLabel: string) {
 function exportCallsXlsx(calls: CallRow[], tabLabel: string) {
   const rows = buildExportRows(calls);
   const ws = XLSX.utils.json_to_sheet(rows);
-  // عرض الأعمدة المناسب
-  ws["!cols"] = [{ wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+  ws["!cols"] = [{ wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, tabLabel);
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
@@ -263,29 +408,43 @@ function exportCallsXlsx(calls: CallRow[], tabLabel: string) {
 }
 
 function CallLogsSection() {
-  const [tab, setTab] = useState<TabKey>("inbound");
+  const [tab, setTab] = useState<TabKey>("incoming");
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
     async function fetchCalls() {
       setLoading(true);
       setError(null);
-      try {
-        // فلترة على مستوى السيرفر لتقليل الحمل
-        const params: Record<string, string> = { limit: "50" };
-        if (tab === "missed") params.status = "missed";
-        else if (tab === "inbound")  params.direction = "inbound";
-        else if (tab === "outbound") params.direction = "outbound";
 
-        const { data } = await api.get<{ calls: CallRow[] }>("/calls", { params });
-        if (!cancelled) setCalls(Array.isArray(data?.calls) ? data.calls : []);
+      try {
+        const params: Record<string, string> = { limit: "100" };
+
+        // فلترة الاتجاه في الباكند للواردة/الصادرة فقط
+        if (tab === "incoming") params.direction = "incoming";
+        if (tab === "outgoing") params.direction = "outgoing";
+
+        // تبويب الفائتة يحتاج كل آخر المكالمات ثم فلترة محلية حسب status
+        const { data } = await api.get<{ calls: PbxCallRow[] }>("/pbx/calls", {
+          params: tab === "missed" ? { limit: "200" } : params,
+        });
+
+        const raw = Array.isArray(data?.calls) ? data.calls : [];
+        const mapped = raw.map(mapPbxCall);
+        const filtered = tab === "missed"
+          ? mapped.filter((c) => c.status === "missed")
+          : mapped;
+
+        if (!cancelled) setCalls(filtered.slice(0, 50));
       } catch (e) {
         if (!cancelled) {
-          const msg = (e as { response?: { data?: { error?: string } }; message?: string })
-            ?.response?.data?.error
+          const msg =
+            (e as { response?: { data?: { error?: string; message?: string } }; message?: string })
+              ?.response?.data?.message
+            || (e as { response?: { data?: { error?: string } } })?.response?.data?.error
             || (e as { message?: string })?.message
             || "تعذّر تحميل المكالمات";
           setError(msg);
@@ -295,13 +454,16 @@ function CallLogsSection() {
         if (!cancelled) setLoading(false);
       }
     }
+
     fetchCalls();
-    const t = setInterval(fetchCalls, 15_000); // تحديث كل 15 ثانية
-    return () => { cancelled = true; clearInterval(t); };
+    const t = setInterval(fetchCalls, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [tab]);
 
   const counts = useMemo(() => ({
-    // العدّاد يعكس الصفحة الحالية فقط (آخر 50) — كافٍ لمؤشّر بصري
     current: calls.length,
   }), [calls]);
 
@@ -312,11 +474,13 @@ function CallLogsSection() {
           <h3 className="text-base font-bold">سجل المكالمات</h3>
           <p className="text-xs text-muted-foreground">واردة / صادرة / فائتة — بيانات حقيقية من السنترال</p>
         </div>
+
         <div className="flex items-center gap-2 flex-wrap">
           {(Object.keys(TAB_META) as TabKey[]).map((k) => {
             const meta = TAB_META[k];
             const Icon = meta.icon;
             const active = tab === k;
+
             return (
               <button
                 key={k}
@@ -335,10 +499,8 @@ function CallLogsSection() {
             );
           })}
 
-          {/* فاصل بصري بين التبويبات وأزرار التصدير */}
           <span className="w-px h-5 bg-border mx-1" aria-hidden />
 
-          {/* أزرار التصدير — تصدّر السجلات الظاهرة في التبويب الحالي فقط */}
           <button
             type="button"
             onClick={() => exportCallsCsv(calls, TAB_META[tab].label)}
@@ -353,6 +515,7 @@ function CallLogsSection() {
             <Download className="w-3.5 h-3.5" />
             CSV
           </button>
+
           <button
             type="button"
             onClick={() => exportCallsXlsx(calls, TAB_META[tab].label)}
@@ -397,20 +560,29 @@ function CallLogsSection() {
                 <th className="px-4 py-3 text-right">الرقم</th>
                 <th className="px-4 py-3 text-right">الموظف</th>
                 <th className="px-4 py-3 text-right">التحويلة</th>
+                <th className="px-4 py-3 text-right">الاتجاه</th>
                 <th className="px-4 py-3 text-right">الحالة</th>
                 <th className="px-4 py-3 text-right">المدة</th>
               </tr>
             </thead>
+
             <tbody>
               {calls.map((c) => (
                 <tr key={c.id} className="border-b border-border/50 hover:bg-muted/40 transition-colors">
                   <td className="px-4 py-3 text-xs text-muted-foreground tabular-nums" dir="ltr">
                     {formatTime(c.startedAt)}
                   </td>
-                  <td className="px-4 py-3 text-sm font-semibold tabular-nums" dir="ltr">{c.number}</td>
-                  <td className="px-4 py-3 text-sm">{c.agent || <span className="text-muted-foreground">—</span>}</td>
+                  <td className="px-4 py-3 text-sm font-semibold tabular-nums" dir="ltr">
+                    {c.number}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {c.agent || <span className="text-muted-foreground">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-sm tabular-nums" dir="ltr">
                     {c.ext || <span className="text-muted-foreground">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {DIRECTION_AR[c.direction] ?? "غير معروف"}
                   </td>
                   <td className="px-4 py-3">
                     <span className={cn(
@@ -419,10 +591,12 @@ function CallLogsSection() {
                       c.status === "missed" && "bg-destructive/15 text-destructive border-destructive/30",
                       c.status === "transferred" && "bg-info/15 text-info border-info/30",
                     )}>
-                      {c.status === "answered" ? "مجابة" : c.status === "missed" ? "فائتة" : "محوّلة"}
+                      {STATUS_AR[c.status] ?? c.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm tabular-nums" dir="ltr">{formatDuration(c.duration)}</td>
+                  <td className="px-4 py-3 text-sm tabular-nums" dir="ltr">
+                    {formatDuration(c.duration)}
+                  </td>
                 </tr>
               ))}
             </tbody>

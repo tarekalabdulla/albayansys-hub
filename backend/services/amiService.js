@@ -122,12 +122,92 @@ function amiToNormalized(evt) {
 
   // استخرج extension و remote number
   const channel = evt.Channel || "";
-  const callerIdNum = evt.CallerIDNum || evt.ConnectedLineNum || "";
+  
+function cleanAmiNumber(v) {
+  return String(v || "").trim().replace(/[^\d+]/g, "");
+}
+
+function isAmiPlaceholderNumber(v) {
+  const s = cleanAmiNumber(v).replace(/^\+/, "");
+  return !s || /^0+$/.test(s) || /^(unknown|anonymous|restricted)$/i.test(String(v || "").trim());
+}
+
+function isAmiInternalExt(v) {
+  const s = cleanAmiNumber(v).replace(/^\+/, "");
+  return /^\d{2,5}$/.test(s);
+}
+
+function pickAmiRemoteNumber(evt, ext) {
+  const extClean = cleanAmiNumber(ext).replace(/^\+/, "");
+
+  // نفضّل أرقام الطرف الآخر الحقيقية، ونتجاهل التحويلات والأصفار
+  const externalCandidates = [
+    evt.ConnectedLineNum,
+    evt.DestConnectedLineNum,
+    evt.DestCallerIDNum,
+    evt.Exten,
+    evt.CallerIDNum,
+  ];
+
+  for (const value of externalCandidates) {
+    const n = cleanAmiNumber(value);
+    const nPlain = n.replace(/^\+/, "");
+    if (!n || isAmiPlaceholderNumber(n)) continue;
+    if (extClean && nPlain === extClean) continue;
+    if (isAmiInternalExt(n)) continue;
+    return n;
+  }
+
+  // fallback للاتصالات الداخلية فقط
+  const internalCandidates = [
+    evt.ConnectedLineNum,
+    evt.DestConnectedLineNum,
+    evt.DestCallerIDNum,
+    evt.Exten,
+    evt.CallerIDNum,
+  ];
+
+  for (const value of internalCandidates) {
+    const n = cleanAmiNumber(value);
+    const nPlain = n.replace(/^\+/, "");
+    if (!n || isAmiPlaceholderNumber(n)) continue;
+    if (extClean && nPlain === extClean) continue;
+    return n;
+  }
+
+  return "";
+}
+
+function pickAmiDirection(evt, ext, remoteNumber) {
+  const extClean = cleanAmiNumber(ext).replace(/^\+/, "");
+  const remote = cleanAmiNumber(remoteNumber).replace(/^\+/, "");
+  const caller = cleanAmiNumber(evt.CallerIDNum).replace(/^\+/, "");
+  const connected = cleanAmiNumber(evt.ConnectedLineNum).replace(/^\+/, "");
+  const exten = cleanAmiNumber(evt.Exten).replace(/^\+/, "");
+
+  if (extClean && remote && isAmiInternalExt(remote)) return "internal";
+
+  // غالبًا اتصال صادر: CallerIDNum هو التحويلة، و ConnectedLineNum هو الرقم الخارجي
+  if (extClean && caller === extClean && remote && !isAmiInternalExt(remote)) return "outgoing";
+
+  // غالبًا اتصال وارد: CallerIDNum هو رقم خارجي، و ConnectedLineNum/Exten هو التحويلة
+  if (extClean && caller && !isAmiInternalExt(caller)) return "incoming";
+  if (extClean && connected === extClean && remote && !isAmiInternalExt(remote)) return "incoming";
+
+  // fallback
+  if (extClean && exten && !isAmiInternalExt(exten)) return "outgoing";
+
+  return null;
+}
+
+const callerIdNum = evt.CallerIDNum || evt.ConnectedLineNum || "";
   const exten = evt.Exten || evt.ConnectedLineNum || "";
   // مثال Channel: SIP/1001-00000003 → ext = 1001
   const extMatch = channel.match(/[A-Z]+\/(\d{2,5})-/);
   const ext = (extMatch?.[1]) || (/^\d{2,5}$/.test(exten) ? exten : "");
 
+  const remoteNumber = pickAmiRemoteNumber(evt, ext);
+  const amiDirection = pickAmiDirection(evt, ext, remoteNumber);
   return {
     eventId,
     eventName: event,
@@ -135,10 +215,10 @@ function amiToNormalized(evt) {
     linkedId,
     callId: uniqueId,
     ext,
-    remoteNumber: callerIdNum,
+    remoteNumber,
     fromNum: evt.CallerIDNum || "",
     toNum: evt.Exten || evt.ConnectedLineNum || "",
-    direction: ext && callerIdNum && /^\d{2,5}$/.test(callerIdNum) ? "internal" : null,
+    direction: amiDirection,
     trunk: (channel.match(/PJSIP\/(trunk-[^-]+)/) || [])[1] || null,
     duration: parseInt(evt.Duration || 0, 10),
     talkDuration: parseInt(evt.BillableSeconds || evt.Billsec || 0, 10),

@@ -23,11 +23,16 @@ router.get("/live", async (_req, res) => {
   try {
     const { rows } = await query(
       `SELECT
-         l.id, l.call_unique_key AS "callKey",
-         l.ext, a.name AS "agentName",
+         l.id,
+         l.call_unique_key AS "callKey",
+         l.ext,
+         l.agent_id AS "agentId",
+         a.name AS "agentName",
          l.remote_number AS "remote",
-         l.direction, l.status_last AS "status",
-         l.answered, l.started_at AS "startedAt",
+         l.direction,
+         l.status_last AS "status",
+         l.answered,
+         l.started_at AS "startedAt",
          l.answered_at AS "answeredAt",
          l.last_seen_at AS "lastSeenAt",
          EXTRACT(EPOCH FROM (NOW() - l.started_at))::int AS "elapsedSec",
@@ -36,17 +41,21 @@ router.get("/live", async (_req, res) => {
          l.customer_id AS "customerId",
          l.customer_name AS "customerName",
          l.claim_number AS "claimNumber",
-         l.trunk_name AS "trunk", l.queue_name AS "queue"
+         l.trunk_name AS "trunk",
+         l.queue_name AS "queue"
        FROM pbx_call_logs l
        LEFT JOIN agents a ON a.id = l.agent_id
        WHERE l.ended_at IS NULL
+         AND l.status_last IN ('ringing', 'answered', 'busy')
        ORDER BY l.started_at DESC
        LIMIT 200`
     );
+
+    res.set("Cache-Control", "no-store");
     res.json({ live: rows, count: rows.length });
   } catch (e) {
     console.error("[pbx/live]", e);
-    res.status(500).json({ error: "fetch_failed" });
+    res.status(500).json({ error: "fetch_failed", message: e.message });
   }
 });
 

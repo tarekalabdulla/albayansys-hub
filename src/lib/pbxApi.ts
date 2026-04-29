@@ -30,6 +30,7 @@ export interface CallLog extends Omit<LiveCall, "elapsedSec" | "lastSeenAt"> {
   failureReason: string | null;
   transferFrom: string | null;
   recordingUrl: string | null;
+  recordingFile?: string | null;
   claimId: string | null;
 }
 
@@ -48,6 +49,10 @@ export const pbxApi = {
   calls: async (params: { limit?: number; direction?: string; ext?: string } = {}): Promise<CallLog[]> => {
     const { data } = await api.get("/pbx/calls", { params });
     return data.calls || [];
+  },
+  recordings: async (params: { limit?: number; ext?: string; q?: string } = {}): Promise<CallLog[]> => {
+    const { data } = await api.get("/pbx/recordings", { params });
+    return data.recordings || [];
   },
   status: async (): Promise<PbxStatus> => {
     const { data } = await api.get("/pbx/status");

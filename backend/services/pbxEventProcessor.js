@@ -273,22 +273,62 @@ function mapStatusFromKind(kind, evt) {
   return "ringing";
 }
 
-function deriveKindFromEventId(eventId, payload) {
-  const e = parseInt(eventId, 10);
-  if (e === 30013) return "transfer";
-  if (e === 30014) return "forward";
-  if (e === 30033) return "recording";
-  if (e === 30012) return "end";
-  if (e === 30011) {
-    const st = (payload?.call_status || payload?.status || "").toString().toLowerCase();
-    if (/ring|alert/.test(st))                return "ring";
-    if (/answer|talking|connected/.test(st))  return "answer";
-    if (/hangup|end|released|terminated/.test(st)) return "hangup";
+function deriveKindFromEventId(eventId, payload = {}) {
+  const p = payload || {};
+
+  const rawEvent = String(
+    p._amiEvent ||
+    p.Event ||
+    p.event ||
+    p.eventName ||
+    p.type ||
+    ""
+  ).toLowerCase();
+
+  const state = String(
+    p.ChannelStateDesc ||
+    p.channel_state_desc ||
+    p.status ||
+    p.call_status ||
+    p.state ||
+    ""
+  ).toLowerCase();
+
+  // AMI events
+  if (rawEvent === "bridgeenter" || rawEvent === "agentconnect") return "answer";
+  if (rawEvent === "newchannel") return "ring";
+  if (rawEvent === "hangup" || rawEvent === "bridgeleave") return "hangup";
+
+  if (rawEvent === "newstate") {
+    if (/up|answer|answered|talking|connected|bridge/.test(state)) return "answer";
+    if (/ring|ringing|dial|dialing|pre-ring/.test(state)) return "ring";
+    if (/busy/.test(state)) return "answer";
+    if (/down|hangup|end|released|terminated/.test(state)) return "hangup";
+    return "ring";
   }
-  if (e === 30008) return "ext_state";
-  if (e === 30009 || e === 30029) return "presence";
-  if (e === 30025) return "agent_pause";
-  if (e === 30026) return "ring_timeout";
+
+  // Yeastar / OpenAPI event ids
+  if (Number(eventId) === 30011) {
+    if (/bridgeenter|answer|answered|talking|connected|up/.test(rawEvent + " " + state)) return "answer";
+    if (/ring|ringing|dial|dialing|newchannel|pre-ring/.test(rawEvent + " " + state)) return "ring";
+    return "ring";
+  }
+
+  if (Number(eventId) === 30012) return "hangup";
+  if (Number(eventId) === 30013) return "transfer";
+  if (Number(eventId) === 30014) return "forward";
+  if (Number(eventId) === 30033) return "recording";
+
+  if (Number(eventId) === 30008) return "ext_state";
+  if (Number(eventId) === 30009 || Number(eventId) === 30029) return "presence";
+  if (Number(eventId) === 30025 || Number(eventId) === 30026) return "agent_pause";
+
+  // Generic fallback
+  const text = `${rawEvent} ${state}`.toLowerCase();
+  if (/bridgeenter|agentconnect|answer|answered|talking|connected|\bup\b/.test(text)) return "answer";
+  if (/newchannel|ring|ringing|dial|dialing|pre-ring/.test(text)) return "ring";
+  if (/hangup|bridgeleave|end|released|terminated/.test(text)) return "hangup";
+
   return null;
 }
 
@@ -372,6 +412,14 @@ export async function processPbxEvent(evt, io) {
       const log = result?.log;
       if (log) {
         const isLive = !log.ended_at;
+
+        // تحديث حالة الوكيل فور وجود مكالمة نشطة
+        // مهم: agent_status enum يقبل in_call وليس busy
+        if (log.agent_id && isLive && ["ring", "answer", "transfer", "forward"].includes(kind)) {
+          const refreshed = await setAgentStatus(log.agent_id, "in_call");
+          if (refreshed) io?.emit("agent:update", refreshed);
+        }
+
         // بثّ socket.io
         io?.emit(isLive ? "call:live" : "call:ended", {
           id: log.id,

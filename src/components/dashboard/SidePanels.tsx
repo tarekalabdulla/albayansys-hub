@@ -1,31 +1,29 @@
 // ============================================================================
 // SidePanels — لوحات جانبية لصفحة الـ Dashboard.
-// كل البيانات تأتي من /api (المشرفون / المكالمات / التنبيهات).
+// البيانات الحقيقية تأتي من PBX: /api/pbx/calls + socket.io.
 // ============================================================================
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api";
 import { supervisorsApi, type ApiSupervisor } from "@/lib/dataApi";
 import { useLiveAgents, useLiveAlerts } from "@/hooks/useLiveAgents";
 import { formatDuration } from "@/lib/mockData";
+import { pbxApi, type CallLog } from "@/lib/pbxApi";
+import { socketProvider } from "@/lib/socketProvider";
 import {
-  PhoneIncoming, PhoneMissed, PhoneForwarded, Loader2, Inbox,
-  AlertTriangle, Activity as ActivityIcon, Info,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneForwarded,
+  PhoneOutgoing,
+  PhoneCall,
+  Loader2,
+  Inbox,
+  AlertTriangle,
+  Activity as ActivityIcon,
+  Info,
 } from "lucide-react";
 
 // ---- Types -----------------------------------------------------------------
-interface ApiCallRow {
-  id: string;
-  number: string;
-  duration: number;
-  status: "answered" | "missed" | "transferred";
-  direction: string;
-  startedAt: string;
-  agent: string | null;
-  ext: string | null;
-}
-
 interface ApiAlertRow {
   id: string;
   level: "info" | "warning" | "danger";
@@ -68,6 +66,79 @@ function LoadingState() {
       <Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…
     </div>
   );
+}
+
+function callDuration(c: CallLog): number {
+  if (Number.isFinite(c.duration) && c.duration > 0) return c.duration;
+  if (Number.isFinite(c.talkSeconds) && c.talkSeconds > 0) return c.talkSeconds;
+  if (c.startedAt && c.endedAt) {
+    const diff = Math.round((new Date(c.endedAt).getTime() - new Date(c.startedAt).getTime()) / 1000);
+    return Math.max(0, diff);
+  }
+  return 0;
+}
+
+function isMissedCall(c: CallLog): boolean {
+  return c.status === "no_answer" || c.status === "failed" || c.status === "cancelled";
+}
+
+function isAnsweredCall(c: CallLog): boolean {
+  return Boolean(c.answered) || c.status === "answered" || c.status === "completed";
+}
+
+function directionLabel(direction?: string | null): string {
+  const map: Record<string, string> = {
+    incoming: "واردة",
+    outgoing: "صادرة",
+    internal: "داخلية",
+    transferred: "محوّلة",
+    forwarded: "معاد توجيهها",
+    unknown: "غير معروف",
+  };
+  return map[String(direction || "unknown")] || String(direction || "غير معروف");
+}
+
+function statusLabel(c: CallLog): string {
+  if (isMissedCall(c)) return "فائتة";
+  if (isAnsweredCall(c)) return "مجابة";
+  if (c.status === "ringing") return "يرن";
+  if (c.status === "busy") return "مشغول";
+  return c.status || "غير معروف";
+}
+
+function callIcon(c: CallLog) {
+  if (isMissedCall(c)) return PhoneMissed;
+  if (c.direction === "outgoing") return PhoneOutgoing;
+  if (c.direction === "internal") return PhoneCall;
+  if (c.direction === "transferred" || c.direction === "forwarded") return PhoneForwarded;
+  return PhoneIncoming;
+}
+
+function callColor(c: CallLog): string {
+  if (isMissedCall(c)) return "text-destructive bg-destructive/10";
+  if (c.direction === "outgoing") return "text-info bg-info/10";
+  if (c.direction === "internal") return "text-primary bg-primary/10";
+  return "text-success bg-success/10";
+}
+
+function callActivity(c: CallLog): ApiAlertRow {
+  const missed = isMissedCall(c);
+  const outgoing = c.direction === "outgoing";
+  const internal = c.direction === "internal";
+
+  return {
+    id: `call-${c.id}`,
+    level: missed ? "warning" : "info",
+    title: missed
+      ? "مكالمة فائتة"
+      : outgoing
+        ? "مكالمة صادرة"
+        : internal
+          ? "مكالمة داخلية"
+          : "مكالمة واردة",
+    message: `${c.agentName || c.ext || "موظف غير محدد"} · ${c.remote || "رقم غير معروف"} · ${statusLabel(c)}`,
+    time: c.startedAt ? new Date(c.startedAt).getTime() : Date.now(),
+  };
 }
 
 // ============================================================================
@@ -138,29 +209,51 @@ export function SupervisorList() {
 }
 
 // ============================================================================
-// RecentCallsList — أحدث المكالمات من /api/calls
+// RecentCallsList — أحدث المكالمات من /api/pbx/calls
 // ============================================================================
 export function RecentCallsList() {
-  const [calls, setCalls] = useState<ApiCallRow[]>([]);
+  const [calls, setCalls] = useState<CallLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchCalls() {
-      try {
-        const { data } = await api.get<{ calls: ApiCallRow[] }>("/calls", {
-          params: { limit: 6 },
-        });
-        if (!cancelled) setCalls(Array.isArray(data?.calls) ? data.calls : []);
-      } catch {
-        if (!cancelled) setCalls([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  async function fetchCalls() {
+    try {
+      const data = await pbxApi.calls({ limit: 6 });
+      setCalls(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.warn("[RecentCallsList] fetch:", e);
+      setCalls([]);
+    } finally {
+      setLoading(false);
     }
-    fetchCalls();
-    const t = setInterval(fetchCalls, 20_000);
-    return () => { cancelled = true; clearInterval(t); };
+  }
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const data = await pbxApi.calls({ limit: 6 });
+        if (mounted) setCalls(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.warn("[RecentCallsList] initial fetch:", e);
+        if (mounted) setCalls([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    socketProvider.start();
+    const offEnded = socketProvider.on("call:ended" as any, () => {
+      fetchCalls();
+    });
+
+    const t = window.setInterval(fetchCalls, 20_000);
+
+    return () => {
+      mounted = false;
+      offEnded?.();
+      window.clearInterval(t);
+    };
   }, []);
 
   return (
@@ -174,24 +267,22 @@ export function RecentCallsList() {
       ) : (
         <ul className="space-y-2.5">
           {calls.map((c) => {
-            const Icon =
-              c.status === "answered" ? PhoneIncoming :
-              c.status === "missed"   ? PhoneMissed   : PhoneForwarded;
-            const color =
-              c.status === "answered" ? "text-success bg-success/10" :
-              c.status === "missed"   ? "text-destructive bg-destructive/10" :
-              "text-info bg-info/10";
+            const Icon = callIcon(c);
+            const color = callColor(c);
+
             return (
-              <li key={c.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/60 transition-colors">
+              <li key={c.id || c.callKey} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/60 transition-colors">
                 <div className={cn("w-9 h-9 rounded-lg grid place-items-center", color)}>
                   <Icon className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{c.agent || "—"}</p>
-                  <p className="text-[11px] text-muted-foreground" dir="ltr">{c.number}</p>
+                  <p className="text-sm font-semibold truncate">{c.agentName || c.ext || "—"}</p>
+                  <p className="text-[11px] text-muted-foreground" dir="ltr">
+                    {c.remote || "—"} · {directionLabel(c.direction)}
+                  </p>
                 </div>
                 <div className="text-left">
-                  <p className="text-xs font-bold tabular-nums">{formatDuration(c.duration)}</p>
+                  <p className="text-xs font-bold tabular-nums">{formatDuration(callDuration(c))}</p>
                   <p className="text-[10px] text-muted-foreground">{formatTimeShort(c.startedAt)}</p>
                 </div>
               </li>
@@ -204,32 +295,81 @@ export function RecentCallsList() {
 }
 
 // ============================================================================
-// ActivityList — التنبيهات من /api/alerts + التحديثات الحية من socket
+// ActivityList — سجل النشاطات من آخر مكالمات PBX + socket
 // ============================================================================
 export function ActivityList() {
   const [items, setItems] = useState<ApiAlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const liveAlerts = useLiveAlerts(10);
 
+  async function fetchActivities() {
+    try {
+      const calls = await pbxApi.calls({ limit: 10 });
+      setItems((Array.isArray(calls) ? calls : []).map(callActivity));
+    } catch (e) {
+      console.warn("[ActivityList] fetch:", e);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    let cancelled = false;
+    let mounted = true;
+
     (async () => {
       try {
-        const { data } = await api.get<{ alerts: ApiAlertRow[] }>("/alerts");
-        if (!cancelled) setItems(Array.isArray(data?.alerts) ? data.alerts : []);
-      } catch {
-        if (!cancelled) setItems([]);
+        const calls = await pbxApi.calls({ limit: 10 });
+        if (mounted) setItems((Array.isArray(calls) ? calls : []).map(callActivity));
+      } catch (e) {
+        console.warn("[ActivityList] initial fetch:", e);
+        if (mounted) setItems([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+
+    socketProvider.start();
+
+    const offLive = socketProvider.on("call:live" as any, (p: any) => {
+      const item: ApiAlertRow = {
+        id: `live-${p.callKey || p.id || Date.now()}`,
+        level: "info",
+        title: "مكالمة نشطة",
+        message: `${p.ext || "تحويلة غير محددة"} · ${p.remote || "رقم غير معروف"} · ${directionLabel(p.direction)}`,
+        time: Date.now(),
+      };
+      setItems((prev) => [item, ...prev].slice(0, 10));
+    });
+
+    const offEnded = socketProvider.on("call:ended" as any, (p: any) => {
+      const item: ApiAlertRow = {
+        id: `ended-${p.callKey || p.id || Date.now()}`,
+        level: p.answered === false ? "warning" : "info",
+        title: p.answered === false ? "انتهت مكالمة غير مجابة" : "انتهت مكالمة",
+        message: `${p.ext || "تحويلة غير محددة"} · ${p.remote || "رقم غير معروف"} · ${directionLabel(p.direction)}`,
+        time: Date.now(),
+      };
+      setItems((prev) => [item, ...prev].slice(0, 10));
+      fetchActivities();
+    });
+
+    const t = window.setInterval(fetchActivities, 30_000);
+
+    return () => {
+      mounted = false;
+      offLive?.();
+      offEnded?.();
+      window.clearInterval(t);
+    };
   }, []);
 
-  // ادمج التنبيهات الحية القادمة من socket مع المخزَّنة (إزالة التكرار حسب id)
   const merged = useMemo(() => {
     const map = new Map<string, ApiAlertRow>();
-    [...liveAlerts, ...items].forEach((a) => map.set(a.id, a as ApiAlertRow));
+    [...liveAlerts, ...items].forEach((a) => {
+      if (!a?.id) return;
+      map.set(a.id, a as ApiAlertRow);
+    });
     return Array.from(map.values()).sort((a, b) => b.time - a.time).slice(0, 10);
   }, [items, liveAlerts]);
 
