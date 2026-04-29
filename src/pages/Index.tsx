@@ -97,44 +97,9 @@ const Index = () => {
     setCallsList([]);
     (async () => {
       try {
-        if (USE_REAL_API && callsAgent.ext) {
+        if (callsAgent.ext) {
           const data = await pbxApi.calls({ ext: callsAgent.ext, limit: 25 });
           if (!cancelled) setCallsList(data);
-        } else if (!USE_REAL_API) {
-          // وضع التجربة: نولّد سجلاً مشابهًا من بيانات الموظف
-          const { RECENT_CALLS } = await import("@/lib/mockData");
-          if (!cancelled) {
-            setCallsList(
-              RECENT_CALLS
-                .filter((c) => c.agent === callsAgent.name)
-                .map((c, i) => ({
-                  id: i,
-                  callKey: c.id,
-                  ext: callsAgent.ext,
-                  agentName: callsAgent.name,
-                  remote: c.number,
-                  direction: "incoming",
-                  status: c.status === "answered" ? "answered" : c.status === "missed" ? "no_answer" : "completed",
-                  answered: c.status === "answered",
-                  startedAt: new Date().toISOString(),
-                  answeredAt: null,
-                  endedAt: null,
-                  duration: c.duration,
-                  talkSeconds: c.duration,
-                  failureReason: null,
-                  transferTo: null,
-                  transferFrom: null,
-                  forwardedTo: null,
-                  customerId: null,
-                  customerName: null,
-                  claimNumber: null,
-                  claimId: null,
-                  trunk: null,
-                  queue: null,
-                  recordingUrl: null,
-                })) as unknown as CallLog[]
-            );
-          }
         }
       } catch (e: any) {
         if (!cancelled) setCallsError(e?.response?.data?.error || e?.message || "تعذّر جلب المكالمات");
