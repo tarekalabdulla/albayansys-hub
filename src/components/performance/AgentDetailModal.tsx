@@ -104,9 +104,14 @@ function generateWeeklyData(agent: Agent) {
   }));
 }
 
+type CallStatusFilter = "all" | "answered" | "missed" | "transferred";
+type TimeFilter = "all" | "morning" | "afternoon" | "evening";
+
 export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalProps) {
   const reportRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  const [callStatusFilter, setCallStatusFilter] = useState<CallStatusFilter>("all");
+  const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
 
   // ابحث في الموظفين الحيين أولاً (وضع الإنتاج) ثم في البيانات الوهمية (التطوير)
   const liveAgents = useLiveAgents();
@@ -123,6 +128,19 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
     () => (agent ? generateRecentCalls(agent) : []),
     [agent],
   );
+
+  const filteredCalls = useMemo(() => {
+    return recentCalls.filter((c) => {
+      if (callStatusFilter !== "all" && c.status !== callStatusFilter) return false;
+      if (timeFilter !== "all") {
+        const hour = parseInt(c.time.split(":")[0], 10);
+        if (timeFilter === "morning" && !(hour >= 6 && hour < 12)) return false;
+        if (timeFilter === "afternoon" && !(hour >= 12 && hour < 17)) return false;
+        if (timeFilter === "evening" && !(hour >= 17 || hour < 6)) return false;
+      }
+      return true;
+    });
+  }, [recentCalls, callStatusFilter, timeFilter]);
 
   const weekly = useMemo(
     () => (agent ? generateWeeklyData(agent) : []),
@@ -363,14 +381,60 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
 
           {/* آخر ١٠ مكالمات */}
           <div className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-border">
+            <div className="flex items-center justify-between gap-3 p-4 border-b border-border flex-wrap">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-primary" />
                 <h3 className="text-sm font-bold">آخر ١٠ مكالمات</h3>
+                <Badge variant="secondary" className="text-[10px]">
+                  {filteredCalls.length} / {recentCalls.length}
+                </Badge>
               </div>
-              <Badge variant="secondary" className="text-[10px]">
-                إجمالي: {recentCalls.length}
-              </Badge>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* فلتر الحالة */}
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 border border-border">
+                  {([
+                    { key: "all", label: "الكل" },
+                    { key: "answered", label: "مجابة" },
+                    { key: "missed", label: "فائتة" },
+                    { key: "transferred", label: "محولة" },
+                  ] as { key: CallStatusFilter; label: string }[]).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setCallStatusFilter(f.key)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors",
+                        callStatusFilter === f.key
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {/* فلتر الوقت */}
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 border border-border">
+                  {([
+                    { key: "all", label: "كل الأوقات" },
+                    { key: "morning", label: "صباحاً" },
+                    { key: "afternoon", label: "ظهراً" },
+                    { key: "evening", label: "مساءً" },
+                  ] as { key: TimeFilter; label: string }[]).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setTimeFilter(f.key)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors",
+                        timeFilter === f.key
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-right text-sm">
@@ -385,7 +449,7 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
                   </tr>
                 </thead>
                 <tbody>
-                  {recentCalls.map((c, i) => {
+                  {filteredCalls.map((c, i) => {
                     const statusMeta = {
                       answered:    { icon: PhoneIncoming, label: "مجابة", cls: "text-success bg-success/10 border-success/30" },
                       missed:      { icon: PhoneMissed, label: "فائتة", cls: "text-destructive bg-destructive/10 border-destructive/30" },
@@ -413,6 +477,13 @@ export function AgentDetailModal({ agentId, open, onClose }: AgentDetailModalPro
                       </tr>
                     );
                   })}
+                  {filteredCalls.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-xs">
+                        لا توجد مكالمات تطابق الفلتر الحالي.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
