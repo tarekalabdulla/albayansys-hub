@@ -34,14 +34,63 @@ function cssVarA(name: string, alpha: number): string {
   return `hsl(${v} / ${alpha})`;
 }
 
+// نطاق ساعات العمل (8 ص → 5 م) — يوافق التسميات المعروضة
+const WORK_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const HOUR_LABELS = ["8", "9", "10", "11", "12", "1", "2", "3", "4", "5"];
+
 function HourlyDistribution() {
-  const HOURS = ["8", "9", "10", "11", "12", "1", "2", "3", "4", "5"];
-  const data = [12, 28, 45, 62, 38, 25, 51, 70, 48, 22];
+  const [buckets, setBuckets] = useState<number[]>(() => Array(WORK_HOURS.length).fill(0));
+  const [loading, setLoading] = useState(true);
+
+  // نقطة البدء: تحميل مكالمات اليوم من /api/calls ثم تجميعها لكل ساعة
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const since = new Date();
+        since.setHours(0, 0, 0, 0);
+        const { data } = await api.get<{ calls: Array<{ startedAt: string }> }>("/calls", {
+          params: { limit: "500", since: since.toISOString() },
+        });
+        if (cancelled) return;
+        const next = Array(WORK_HOURS.length).fill(0);
+        (data?.calls || []).forEach((c) => {
+          const h = new Date(c.startedAt).getHours();
+          const idx = WORK_HOURS.indexOf(h);
+          if (idx >= 0) next[idx] += 1;
+        });
+        setBuckets(next);
+      } catch {
+        if (!cancelled) setBuckets(Array(WORK_HOURS.length).fill(0));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // تحديث حي: كلما انتهت مكالمة جديدة (call:ended) نزيد عدّاد الساعة الموافقة
+  useEffect(() => {
+    const off = socketProvider.on("call:ended", (payload: any) => {
+      const iso = payload?.startedAt || payload?.endedAt || new Date().toISOString();
+      const h = new Date(iso).getHours();
+      const idx = WORK_HOURS.indexOf(h);
+      if (idx < 0) return;
+      setBuckets((prev) => {
+        const copy = [...prev];
+        copy[idx] = (copy[idx] || 0) + 1;
+        return copy;
+      });
+    });
+    return off;
+  }, []);
 
   return (
     <div className="glass-card p-5 anim-fade-in">
       <h3 className="text-base font-bold mb-1">توزيع المكالمات بالساعة</h3>
-      <p className="text-xs text-muted-foreground mb-4">اليوم — حسب ساعة الاستلام</p>
+      <p className="text-xs text-muted-foreground mb-4">
+        اليوم — حسب ساعة الاستلام {loading ? "(جاري التحميل…)" : "(تحديث حي)"}
+      </p>
       <div className="h-[240px]">
         <Bar
           data={{
