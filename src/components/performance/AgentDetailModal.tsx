@@ -33,7 +33,7 @@ import {
   Legend,
   Filler,
 } from "chart.js";
-import { AGENTS, formatDuration, type Agent } from "@/lib/mockData";
+import { formatDuration, type Agent } from "@/lib/mockData";
 import { useLiveAgents } from "@/hooks/useLiveAgents";
 import { cn } from "@/lib/utils";
 
