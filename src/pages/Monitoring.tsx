@@ -263,6 +263,15 @@ const Monitoring = () => {
 
   const visibleAlerts = alerts.filter((a) => !dismissed.has(a.id));
 
+  // KPIs لحظية محسوبة من القائمة الحيّة
+  const kpis = useMemo(() => ({
+    total: roleFiltered.length,
+    inCall: roleFiltered.filter((a) => a.status === "in_call").length,
+    online: roleFiltered.filter((a) => a.status === "online").length,
+    idle: roleFiltered.filter((a) => a.status === "idle").length,
+    offline: roleFiltered.filter((a) => a.status === "offline").length,
+  }), [roleFiltered]);
+
   return (
     <AppLayout
       title="مراقبة الموظفين"
