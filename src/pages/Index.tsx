@@ -119,7 +119,7 @@ const Index = () => {
     : Math.round(agents.reduce((s, a) => s + a.avgDuration, 0) / agents.length);
   const avgM = Math.floor(avg / 60), avgS = avg % 60;
   const avgLabel = agents.length === 0 ? "—" : `${avgM}:${String(avgS).padStart(2, "0")}`;
-  const slaLabel = USE_REAL_API ? "—" : "92%";
+  const slaLabel = "—";
 
   const detail = useMemo(() => {
     if (!openMetric) return null;
