@@ -45,21 +45,118 @@ function parseRawJsonBody(req, _res, next) {
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
+function safeEqualText(a, b) {
+  const aa = Buffer.from(String(a || "").trim());
+  const bb = Buffer.from(String(b || "").trim());
+
+  if (!aa.length || !bb.length || aa.length !== bb.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(aa, bb);
+}
+
+function normalizeSignatureHeader(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^sha256=/i, "")
+    .replace(/^hmac-sha256=/i, "")
+    .replace(/^base64=/i, "")
+    .replace(/^"|"$/g, "")
+    .trim();
+}
+
+function safeCompareText(a, b) {
+  const aa = Buffer.from(String(a || "").trim());
+  const bb = Buffer.from(String(b || "").trim());
+
+  if (!aa.length || !bb.length || aa.length !== bb.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(aa, bb);
+}
+
+function normalizeWebhookSignature(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^sha256=/i, "")
+    .replace(/^hmac-sha256=/i, "")
+    .replace(/^base64=/i, "")
+    .replace(/^"|"$/g, "")
+    .trim();
+}
+
 function verifyHmac(rawBody, sigHeader) {
-  const cfg = getEffectiveConfigSync();
-  const secret = cfg.webhookSecret || "";
-  if (!secret) return true; // اختياري
-  if (!sigHeader) return false;
-
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-  const provided = String(sigHeader).replace(/^sha256=/i, "").trim();
-
   try {
-    const a = Buffer.from(expected, "hex");
-    const b = Buffer.from(provided, "hex");
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  } catch {
+    const runtimeCfg = getEffectiveConfigSync();
+    const secret = String(runtimeCfg.webhookSecret || process.env.YEASTAR_WEBHOOK_SECRET || "").trim();
+
+    // إذا لم يوجد secret لا نفرض HMAC.
+    if (!secret) return true;
+
+    const originalHeader = String(sigHeader || "").trim();
+
+    if (!originalHeader) {
+      console.warn("[yeastar-webhook-v2] missing HMAC signature header");
+      return false;
+    }
+
+    const bodyBuffer = Buffer.isBuffer(rawBody)
+      ? rawBody
+      : Buffer.from(rawBody ? String(rawBody) : "", "utf8");
+
+    const digest = crypto
+      .createHmac("sha256", secret)
+      .update(bodyBuffer)
+      .digest();
+
+    // Yeastar الرسمي يستخدم Base64 في X-Signature.
+    const expectedBase64 = digest.toString("base64");
+
+    // نبقي hex حتى تبقى اختبارات النظام الداخلية القديمة تعمل.
+    const expectedHex = digest.toString("hex");
+
+    const expectedBase64Url = expectedBase64
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+
+    const normalize = (v) =>
+      String(v || "")
+        .trim()
+        .replace(/^sha256=/i, "")
+        .replace(/^hmac-sha256=/i, "")
+        .replace(/^base64=/i, "")
+        .replace(/^"|"$/g, "")
+        .trim();
+
+    const received = normalize(originalHeader);
+
+    const candidates = [
+      expectedBase64,
+      expectedHex,
+      expectedBase64Url,
+      normalize(expectedBase64),
+      normalize(expectedHex),
+      normalize(expectedBase64Url),
+    ];
+
+    const ok = candidates.some((expected) => {
+      const a = Buffer.from(String(received));
+      const b = Buffer.from(String(expected));
+      return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+    });
+
+    if (!ok) {
+      console.warn(
+        `[yeastar-webhook-v2] HMAC mismatch details: header_len=${received.length} base64_len=${expectedBase64.length} hex_len=${expectedHex.length} raw_len=${bodyBuffer.length}`
+      );
+    }
+
+    return ok;
+  } catch (e) {
+    console.warn("[yeastar-webhook-v2] HMAC verify exception:", e?.message || e);
     return false;
   }
 }
@@ -67,37 +164,182 @@ function verifyHmac(rawBody, sigHeader) {
 // ----------------------------------------------------------------------------
 // Normalize Yeastar OpenAPI event → NormalizedPbxEvent
 // ----------------------------------------------------------------------------
+function cleanPbxNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const n = raw.replace(/[^0-9+]/g, "").replace(/^\+/, "");
+  if (!n || /^0+$/.test(n)) return "";
+  return n;
+}
+
+function shortExt(value) {
+  const n = String(value ?? "").replace(/[^0-9]/g, "");
+  if (n.length >= 2 && n.length <= 5 && !/^0+$/.test(n)) return n;
+  return "";
+}
+
 function normalizeYeastarEvent(body) {
-  const eventId = parseInt(body.type || body.event_id || body.eventId || 0, 10) || null;
-  const eventName = body.event_name || body.eventName || "";
-  const payload = body.msg || body.data || body.payload || body;
+  const payload = body?.msg || body?.data || body?.payload || body || {};
+
+  const members = Array.isArray(payload.members) ? payload.members : [];
+  const firstMember = members[0] || {};
+  const firstExt = firstMember.extension || firstMember.ext || {};
+
+  const memberStatusRaw = String(
+    firstExt.member_status ||
+    firstMember.member_status ||
+    payload.member_status ||
+    payload.call_status ||
+    payload.status ||
+    ""
+  ).trim();
+
+  const memberStatus = memberStatusRaw.toUpperCase();
+  const hasMembersShape = members.length > 0 || Boolean(firstExt.number || firstExt.channel_id);
+
+  let eventId = parseInt(body.type || body.event_id || body.eventId || payload.type || payload.event_id || 0, 10) || null;
+  let eventName = body.event_name || body.eventName || payload.event_name || payload.eventName || "";
+
+  // إذا وصل شكل members/call_id بدون event_id فهو غالبًا CallStateChanged.
+  if (!eventId && hasMembersShape) {
+    eventId = 30011;
+    eventName = "CallStateChanged";
+  }
+
+  // إذا وصل شكل CDR/CallEndDetails بدون event_id وفيه uid/call_from/call_to فهو 30012.
+  if (!eventId && (payload.uid || payload.call_from || payload.call_to || payload.call_duration || payload.recording)) {
+    eventId = 30012;
+    eventName = "CallEndDetailsNotification";
+  }
+
+  const statusMap = {
+    ALERT: "ringing",
+    RING: "ringing",
+    RINGING: "ringing",
+    DIALING: "ringing",
+    PROGRESS: "ringing",
+
+    ANSWER: "answered",
+    ANSWERED: "answered",
+    CONNECTED: "answered",
+    UP: "answered",
+    TALKING: "talking",
+
+    BYE: "hangup",
+    HANGUP: "hangup",
+    RELEASED: "released",
+    TERMINATED: "terminated",
+    END: "end",
+    ENDED: "end",
+
+    BUSY: "busy",
+    NOANSWER: "no_answer",
+    "NO ANSWER": "no_answer",
+    CANCEL: "cancelled",
+    CANCELLED: "cancelled",
+    FAILED: "failed",
+  };
+
+  const normalizedStatus =
+    statusMap[memberStatus] ||
+    payload.call_status ||
+    payload.status ||
+    memberStatusRaw ||
+    null;
+
+  const rawDirection = String(payload.direction || payload.call_type || payload.type || "").toLowerCase();
+
+  let direction = "unknown";
+  if (/outbound|outgoing|^out$/.test(rawDirection) || payload.call_type === "1") {
+    direction = "outgoing";
+  } else if (/inbound|incoming|^in$/.test(rawDirection) || payload.call_type === "2") {
+    direction = "incoming";
+  } else if (/internal/.test(rawDirection)) {
+    direction = "internal";
+  }
+
+  const callFrom = cleanPbxNumber(payload.call_from_number || payload.call_from || payload.caller_num || payload.from_num);
+  const callTo   = cleanPbxNumber(payload.call_to_number   || payload.call_to   || payload.callee_num || payload.to_num);
+
+  const extFrom = shortExt(payload.call_from || payload.call_from_number || payload.caller_num || payload.from_num);
+  const extTo   = shortExt(payload.call_to   || payload.call_to_number   || payload.callee_num || payload.to_num);
+
+  let extNumber = String(
+    firstExt.number ||
+    firstExt.ext ||
+    firstMember.number ||
+    payload.extension ||
+    payload.ext ||
+    payload.member_num ||
+    ""
+  ).trim();
+
+  if (!extNumber) {
+    if (direction === "outgoing") extNumber = extFrom || extTo;
+    else if (direction === "incoming") extNumber = extTo || extFrom;
+    else extNumber = extFrom || extTo;
+  }
+
+  let remoteNumber = "";
+  if (direction === "outgoing") {
+    remoteNumber = callTo || callFrom;
+  } else if (direction === "incoming") {
+    remoteNumber = callFrom || callTo;
+  } else {
+    remoteNumber =
+      cleanPbxNumber(payload.remote_number || payload.peer_num || payload.number || payload.did_number || payload.dod_number) ||
+      callFrom ||
+      callTo;
+  }
+
+  // لا تجعل التحويلة نفسها رقمًا خارجيًا.
+  if (remoteNumber && extNumber && remoteNumber === extNumber) {
+    remoteNumber = "";
+  }
+
+  const callId = String(
+    payload.call_id ||
+    payload.uniqueid ||
+    payload.uuid ||
+    payload.linkedid ||
+    payload.linked_id ||
+    body.call_id ||
+    ""
+  ).trim();
 
   return {
     eventId,
     eventName,
     source: "webhook",
-    linkedId: payload.linkedid || payload.linked_id || payload.call_id || "",
-    callId: payload.call_id || payload.uniqueid || payload.uuid || "",
-    ext: (payload.extension || payload.callee_num || payload.member_num || payload.ext || "").toString(),
-    remoteNumber: (payload.caller_num || payload.from_num || payload.peer_num || payload.remote_number || "").toString(),
-    fromNum: (payload.caller_num || payload.from_num || "").toString(),
-    toNum: (payload.callee_num || payload.to_num || "").toString(),
-    direction:
-      payload.direction ||
-      (payload.call_type === "1" ? "outgoing" : payload.call_type === "2" ? "incoming" : null),
-    callType: payload.call_type,
-    trunk: payload.trunk_name || payload.trunk || null,
+    linkedId: payload.linkedid || payload.linked_id || callId || "",
+    callId,
+    ext: extNumber,
+    remoteNumber,
+    fromNum: callFrom || "",
+    toNum: callTo || "",
+    direction,
+    callType: payload.call_type || payload.type || null,
+    trunk: payload.trunk_name || payload.src_trunk_name || payload.dst_trunk_name || payload.trunk || null,
     queue: payload.queue_name || payload.queue || null,
     duration: parseInt(payload.duration || payload.call_duration || 0, 10),
     talkDuration: parseInt(payload.talk_duration || payload.billsec || 0, 10),
-    status: payload.call_status || payload.status || null,
-    failureReason: payload.hangup_cause || payload.failure_reason || null,
+    status: normalizedStatus,
+    failureReason: payload.hangup_cause || payload.failure_reason || payload.reason || null,
     transferFrom: payload.transfer_from || payload.transferer || null,
     transferTo: payload.transfer_to || payload.transferee || null,
     forwardedTo: payload.forwarded_to || payload.forward_to || null,
-    recordingFile: payload.recording_file || payload.file_name || null,
+    recordingFile: payload.recording_file || payload.recording || payload.file_name || null,
     recordingUrl: payload.recording_url || payload.download_url || null,
-    payload: body,
+    payload: {
+      ...body,
+      status: normalizedStatus,
+      call_status: normalizedStatus,
+      member_status: memberStatusRaw,
+      _member_status: memberStatusRaw,
+      _normalized_direction: direction,
+      _normalized_remote_number: remoteNumber,
+      _normalized_ext: extNumber,
+    },
     timestamp: parseInt(payload.timestamp || payload.event_time || Date.now(), 10),
   };
 }
@@ -141,7 +383,7 @@ function handleEvent(req, res) {
   }
 
   // 2) HMAC (اختياري إذا secret غير مضبوط)
-  const sig = req.headers["x-yeastar-signature"] || req.headers["x-signature"] || "";
+  const sig = req.headers["x-yeastar-signature"] || req.headers["x-signature"] || req.headers["x-signature-256"] || "";
   if (!verifyHmac(req.rawBody || Buffer.from(""), sig)) {
     console.warn("[yeastar-webhook-v2] invalid HMAC from", ip);
     recordWebhookRejection("invalid_signature");

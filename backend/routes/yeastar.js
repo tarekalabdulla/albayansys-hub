@@ -367,72 +367,230 @@ async function fetchAccessToken(baseUrl, authShape, timeoutMs = 15_000) {
   }
 }
 
+
+function cdrCleanNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const n = raw.replace(/[^0-9+]/g, "").replace(/^\+/, "");
+  if (!n || /^0+$/.test(n) || n.length < 7) return "";
+  return n;
+}
+
+function cdrShortExt(value) {
+  const n = String(value ?? "").replace(/[^0-9]/g, "");
+  if (n.length >= 2 && n.length <= 5 && !/^0+$/.test(n)) return n;
+  return "";
+}
+
+function cdrDirection(c) {
+  const callType = String(c.call_type || c.type || c.direction || "").toLowerCase();
+
+  if (/out|outbound|outgoing/.test(callType)) return "outgoing";
+  if (/in|inbound|incoming/.test(callType)) return "incoming";
+  if (/internal/.test(callType)) return "internal";
+
+  return "unknown";
+}
+
+function cdrRemoteNumber(c) {
+  const dir = cdrDirection(c);
+
+  const fromNumber = cdrCleanNumber(c.call_from_number || c.call_from || c.caller_num || c.from_num);
+  const toNumber   = cdrCleanNumber(c.call_to_number   || c.call_to   || c.callee_num || c.to_num);
+
+  if (dir === "outgoing") return toNumber || fromNumber;
+  if (dir === "incoming") return fromNumber || toNumber;
+
+  return fromNumber || toNumber || cdrCleanNumber(c.did) || cdrCleanNumber(c.dod_number);
+}
+
+function cdrExt(c) {
+  const dir = cdrDirection(c);
+
+  const fromExt = cdrShortExt(c.call_from_number || c.call_from || c.caller_num || c.from_num);
+  const toExt   = cdrShortExt(c.call_to_number   || c.call_to   || c.callee_num || c.to_num);
+
+  if (dir === "outgoing") return fromExt || toExt;
+  if (dir === "incoming") return toExt || fromExt;
+
+  return fromExt || toExt || cdrShortExt(c.extension) || cdrShortExt(c.member_num);
+}
+
+function cdrStatus(c) {
+  const disposition = String(c.disposition || c.status || c.call_status || "").toUpperCase();
+
+  if (/ANSWER/.test(disposition)) return "completed";
+  if (/BUSY/.test(disposition)) return "busy";
+  if (/NO.?ANSWER|NO_ANSWER|NOANSWER|MISSED/.test(disposition)) return "no_answer";
+  if (/CANCEL/.test(disposition)) return "cancelled";
+  if (/FAIL/.test(disposition)) return "failed";
+
+  return "completed";
+}
+
+function cdrStartedAt(c) {
+  const ts = Number(c.timestamp || 0);
+  if (Number.isFinite(ts) && ts > 0) return new Date(ts * 1000);
+
+  if (c.time) {
+    const d = new Date(c.time);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  if (c.call_time) {
+    const d = new Date(c.call_time);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  return new Date();
+}
+
 async function fetchRecentCdr(baseUrl, token, limit, timeoutMs = 15_000) {
-  // Yeastar P-Series Open API — endpoint استرجاع CDR
-  // يستخدم POST /openapi/v1.0/cdr/list مع access_token query
   const ctrl = new AbortController();
   const tm = setTimeout(() => ctrl.abort(), timeoutMs);
+
   try {
-    const url = `${baseUrl}/openapi/v1.0/cdr/list?access_token=${encodeURIComponent(token)}`;
+    const pageSize = Math.min(Math.max(Number(limit || 100), 1), 100);
+
+    const url =
+      `${baseUrl}/openapi/v1.0/cdr/list` +
+      `?access_token=${encodeURIComponent(token)}` +
+      `&page=1&page_size=${pageSize}&sort_by=time&order_by=desc`;
+
     const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page: 1, page_size: Math.min(limit, 100), sort_by: "time", order_by: "desc" }),
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "OpenAPI",
+      },
       signal: ctrl.signal,
     });
+
     const data = await r.json().catch(() => ({}));
+
     if (!r.ok || (data.errcode && data.errcode !== 0)) {
-      return { ok: false, error: `errcode=${data.errcode ?? r.status} ${data.errmsg || ""}`.trim() };
+      return {
+        ok: false,
+        error: `errcode=${data.errcode ?? r.status} ${data.errmsg || data.message || ""}`.trim(),
+        errcode: data.errcode ?? null,
+        errmsg: data.errmsg || data.message || null,
+      };
     }
+
     const list = data.cdr_list || data.data || data.list || [];
-    return { ok: true, list: Array.isArray(list) ? list : [] };
+
+    return {
+      ok: true,
+      list: Array.isArray(list) ? list : [],
+      total: data.total_number || data.total || data.count || 0,
+    };
   } catch (e) {
-    return { ok: false, error: e.message };
+    const reason = e.name === "AbortError" ? `timeout_${timeoutMs}ms` : e.message;
+    return { ok: false, error: reason };
   } finally {
     clearTimeout(tm);
   }
 }
 
 async function upsertCdrRow(c) {
-  // اخترْ مفتاحاً موحّداً للتفرّد
-  const callId = (c.call_id || c.uniqueid || c.linkedid || `${c.time}-${c.caller_num}-${c.callee_num}`).toString().slice(0, 128);
-  const linkedid = (c.linkedid || c.call_id || "").toString().slice(0, 64);
-  const ext = (c.callee_num || c.member_num || c.extension || "").toString().slice(0, 32);
-  const remote = (c.caller_num || c.from_num || c.remote_number || "").toString().slice(0, 64);
-  const direction = (c.call_type === "1" || /out/i.test(c.direction || "")) ? "outgoing"
-                   : (c.call_type === "2" || /in/i.test(c.direction || "")) ? "incoming"
-                   : "unknown";
-  const status = /answer/i.test(c.status || "") ? "answered"
-               : /no.?answer|missed/i.test(c.status || "") ? "no_answer"
-               : /busy/i.test(c.status || "") ? "busy"
-               : "completed";
-  const answered = /answer/i.test(c.status || "") || parseInt(c.talk_duration || c.billsec || 0, 10) > 0;
-  const dur = parseInt(c.duration || c.call_duration || 0, 10) || 0;
-  const talk = parseInt(c.talk_duration || c.billsec || 0, 10) || 0;
-  const startedAt = c.time ? new Date(c.time) : new Date();
+  const uid = String(c.uid || c.call_id || c.uniqueid || c.linkedid || c.id || "").trim();
+
+  if (!uid) {
+    console.warn("[yeastar/sync] skipped CDR row without uid/call_id");
+    return false;
+  }
+
+  const callId = `CDR-${uid}`.slice(0, 128);
+  const linkedid = String(c.call_id || c.linkedid || uid).slice(0, 64);
+  const uniqueid = String(uid).slice(0, 64);
+
+  const ext = cdrExt(c).slice(0, 32);
+  const remote = cdrRemoteNumber(c).slice(0, 64);
+  const direction = cdrDirection(c);
+  const status = cdrStatus(c);
+
+  const duration = parseInt(c.duration || c.call_duration || 0, 10) || 0;
+  const ringDuration = parseInt(c.ring_duration || 0, 10) || 0;
+  const talk = Math.max(0, parseInt(c.talk_duration || c.billsec || (duration - ringDuration) || 0, 10) || 0);
+
+  const disposition = String(c.disposition || c.status || c.call_status || "").toUpperCase();
+  const answered = /ANSWER/.test(disposition) || talk > 0;
+
+  const startedAt = cdrStartedAt(c);
+  const endedAt = new Date(startedAt.getTime() + duration * 1000);
+
+  const trunk = String(c.src_trunk || c.dst_trunk || c.trunk || "").slice(0, 128);
+
+  const payload = {
+    ...c,
+    _import_source: "openapi-cdr",
+  };
 
   try {
-    await query(
+    const result = await query(
       `INSERT INTO pbx_call_logs
-        (call_unique_key, linkedid, ext, remote_number, remote_number_norm,
-         direction, status_last, answered, started_at, duration_seconds, talk_seconds,
-         source_of_truth, raw_final_payload)
-       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'api', $11::jsonb)
+        (call_unique_key, linkedid, uniqueid, ext, agent_id,
+         remote_number, remote_number_norm,
+         direction, direction_locked, status_last, answered,
+         started_at, last_seen_at, ended_at,
+         duration_seconds, talk_seconds, trunk_name,
+         source_of_truth, raw_final_payload,
+         created_at, updated_at)
+       VALUES
+        ($1, $2, $3, $4,
+         (SELECT id FROM agents WHERE ext = $4 LIMIT 1),
+         $5, $5,
+         $6::pbx_call_direction, true, $7::pbx_call_status, $8,
+         $9, $10, $10,
+         $11, $12, NULLIF($13, ''),
+         'api'::pbx_event_source, $14::jsonb,
+         NOW(), NOW())
        ON CONFLICT (call_unique_key) DO UPDATE SET
+         linkedid = COALESCE(EXCLUDED.linkedid, pbx_call_logs.linkedid),
+         uniqueid = COALESCE(EXCLUDED.uniqueid, pbx_call_logs.uniqueid),
+         ext = COALESCE(EXCLUDED.ext, pbx_call_logs.ext),
+         agent_id = COALESCE(EXCLUDED.agent_id, pbx_call_logs.agent_id),
+         remote_number = COALESCE(EXCLUDED.remote_number, pbx_call_logs.remote_number),
+         remote_number_norm = COALESCE(EXCLUDED.remote_number_norm, pbx_call_logs.remote_number_norm),
+         direction = EXCLUDED.direction,
+         direction_locked = true,
          status_last = EXCLUDED.status_last,
-         answered    = EXCLUDED.answered,
-         duration_seconds = GREATEST(pbx_call_logs.duration_seconds, EXCLUDED.duration_seconds),
-         talk_seconds     = GREATEST(pbx_call_logs.talk_seconds,    EXCLUDED.talk_seconds),
+         answered = EXCLUDED.answered,
+         started_at = COALESCE(EXCLUDED.started_at, pbx_call_logs.started_at),
+         last_seen_at = COALESCE(EXCLUDED.last_seen_at, pbx_call_logs.last_seen_at),
+         ended_at = COALESCE(EXCLUDED.ended_at, pbx_call_logs.ended_at),
+         duration_seconds = GREATEST(COALESCE(pbx_call_logs.duration_seconds, 0), COALESCE(EXCLUDED.duration_seconds, 0)),
+         talk_seconds = GREATEST(COALESCE(pbx_call_logs.talk_seconds, 0), COALESCE(EXCLUDED.talk_seconds, 0)),
+         trunk_name = COALESCE(EXCLUDED.trunk_name, pbx_call_logs.trunk_name),
+         source_of_truth = 'api'::pbx_event_source,
          raw_final_payload = EXCLUDED.raw_final_payload,
-         updated_at  = NOW()`,
-      [callId, linkedid || null, ext || null, remote || null, direction, status, answered, startedAt, dur, talk, JSON.stringify(c)]
+         updated_at = NOW()
+       RETURNING id`,
+      [
+        callId,
+        linkedid || null,
+        uniqueid || null,
+        ext || null,
+        remote || null,
+        direction,
+        status,
+        answered,
+        startedAt,
+        endedAt,
+        duration,
+        talk,
+        trunk,
+        JSON.stringify(payload),
+      ]
     );
-    return true;
+
+    return Boolean(result?.rows?.length);
   } catch (e) {
     console.warn("[yeastar/sync] upsertCdrRow failed:", e.message);
     return false;
   }
 }
+
 
 async function selfTestWebhook(baseUrlReq, token, secret, pathTemplate, timeoutMs = 30_000) {
   if (!token) return { ok: false, status: "disabled", error: "YEASTAR_WEBHOOK_TOKEN غير مضبوط" };
@@ -532,34 +690,40 @@ router.post("/sync", requireRole("admin"), async (req, res) => {
     ? { ok: true,  message: `Webhook استقبل الاختبار من ${w.url}` }
     : { ok: false, message: w.error || "فشل اختبار webhook" };
 
-  // ---- 3) CDR pull (يعتمد على نجاح خطوة token)
-  if (report.steps.token.ok) {
-    // أعد طلب التوكن للحصول على القيمة (لا نخزّنها هنا)
-    const t = await fetchAccessToken(eff.baseUrl, {
-      effectiveMode: eff.authMode, fields: eff.authFields,
-      payload: eff.authPayload, missing: eff.authMissing, explicit: eff.authExplicit,
-    });
-    if (t.ok) {
-      const cdr = await fetchRecentCdr(eff.baseUrl, t.token, 100);
-      if (cdr.ok) {
-        let upserted = 0;
-        for (const row of cdr.list) {
-          if (await upsertCdrRow(row)) upserted += 1;
-        }
-        report.steps.cdr = {
-          ok: true,
-          message: `تم سحب ${cdr.list.length} وحفظ ${upserted}`,
-          fetched: cdr.list.length,
-          upserted,
-        };
-      } else {
-        report.steps.cdr = { ok: false, message: cdr.error || "فشل cdr/list", fetched: 0, upserted: 0 };
+  // ---- 3) CDR pull
+  // مهم: لا نطلب get_token مرة ثانية هنا حتى لا نصل إلى MAX LIMITATION EXCEEDED.
+  // نستخدم نفس التوكن الذي نجح في الخطوة الأولى.
+  if (t.ok && t.token) {
+    const cdr = await fetchRecentCdr(eff.baseUrl, t.token, 100);
+
+    if (cdr.ok) {
+      let upserted = 0;
+
+      for (const row of cdr.list) {
+        if (await upsertCdrRow(row)) upserted += 1;
       }
+
+      report.steps.cdr = {
+        ok: true,
+        message: `تم سحب ${cdr.list.length} وحفظ ${upserted}`,
+        fetched: cdr.list.length,
+        upserted,
+      };
     } else {
-      report.steps.cdr = { ok: false, message: "تعذّر تجديد التوكن للسحب", fetched: 0, upserted: 0 };
+      report.steps.cdr = {
+        ok: false,
+        message: cdr.error || "فشل cdr/list",
+        fetched: 0,
+        upserted: 0,
+      };
     }
   } else {
-    report.steps.cdr = { ok: false, message: "تخطّيت — التوكن غير متاح", fetched: 0, upserted: 0 };
+    report.steps.cdr = {
+      ok: false,
+      message: "تخطّيت — التوكن غير متاح",
+      fetched: 0,
+      upserted: 0,
+    };
   }
 
   // ---- 4) Services snapshot
@@ -673,12 +837,12 @@ router.post("/sync/test", requireRole("admin"), async (req, res) => {
     } else {
       const sample = (cdr.list || []).slice(0, 5).map((c) => ({
         time:      c.time || c.call_time || null,
-        caller:    c.caller_num || c.from_num || "",
-        callee:    c.callee_num || c.member_num || c.extension || "",
+        caller:    c.call_from_number || c.call_from || c.caller_num || c.from_num || "",
+        callee:    c.call_to_number || c.call_to || c.callee_num || c.member_num || c.extension || "",
         duration:  parseInt(c.duration || c.call_duration || 0, 10) || 0,
         talk:      parseInt(c.talk_duration || c.billsec || 0, 10) || 0,
-        status:    c.status || c.call_status || "",
-        direction: c.direction || (c.call_type === "1" ? "outbound" : c.call_type === "2" ? "inbound" : ""),
+        status:    c.disposition || c.status || c.call_status || "",
+        direction: c.call_type || c.direction || "",
       }));
       result.cdr = {
         ok: true,

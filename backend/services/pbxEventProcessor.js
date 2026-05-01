@@ -216,6 +216,42 @@ async function upsertCallLog(evt, kind) {
     updates.push(`direction_locked = $${i++}`); params.push(true);
   }
 
+  // إذا وصل الرقم أو التحويلة متأخرين من حدث CDR النهائي، عبّئ الحقول الناقصة.
+  if (evt.ext && !existing.ext) {
+    updates.push(`ext = $${i++}`);
+    params.push(evt.ext);
+  }
+
+  if (evt.remoteNumber && !existing.remote_number) {
+    updates.push(`remote_number = $${i++}`);
+    params.push(evt.remoteNumber);
+
+    updates.push(`remote_number_norm = $${i++}`);
+    params.push(remoteNorm || evt.remoteNumber);
+  }
+
+  if (evt.remoteNumber && !linkedCustomer) {
+    try { linkedCustomer = await findCustomerByPhone(evt.remoteNumber); }
+    catch (e) { console.warn("[pbx-processor] linker update:", e.message); }
+  }
+
+  if (linkedCustomer?.customer?.id && !existing.customer_id) {
+    updates.push(`customer_id = $${i++}`);
+    params.push(linkedCustomer.customer.id);
+
+    updates.push(`claim_id = $${i++}`);
+    params.push(linkedCustomer.claim?.id || null);
+
+    updates.push(`claim_number = $${i++}`);
+    params.push(linkedCustomer.claim?.claim_number || null);
+
+    updates.push(`customer_name = $${i++}`);
+    params.push(linkedCustomer.customer?.name || null);
+
+    updates.push(`customer_type = $${i++}`);
+    params.push(linkedCustomer.customer?.customer_type || null);
+  }
+
   updates.push(`status_last = $${i++}`); params.push(mapStatusFromKind(kind, evt));
   updates.push(`last_seen_at = NOW()`);
 
@@ -380,7 +416,22 @@ export async function processPbxEvent(evt, io) {
   if (logged.duplicate) return { ok: true, duplicate: true };
 
   try {
-    const kind = deriveKindFromEventId(evt.eventId, evt.payload);
+    let kind = deriveKindFromEventId(evt.eventId, evt.payload);
+
+    // Yeastar Webhook قد يرسل الحالة داخل members[].extension.member_status
+    // وتم تمريرها لنا كـ evt.status / payload.status من routes/yeastar-webhook.js
+    // لذلك نضيف fallback حتى لا تبقى ALERT/BYE مجهولة أو عالقة.
+    if (!kind && evt.status) {
+      const st = String(evt.status || "").toLowerCase();
+
+      if (/alert|ring|ringing|dialing|progress/.test(st)) {
+        kind = "ring";
+      } else if (/answer|answered|talking|connected|up/.test(st)) {
+        kind = "answer";
+      } else if (/bye|hangup|end|ended|released|terminated|cancel|cancelled|busy|failed|no.?answer/.test(st)) {
+        kind = "hangup";
+      }
+    }
 
     // 2) أحداث presence/ext_state → تحديث agent status فقط
     if (kind === "presence" || kind === "ext_state" || kind === "agent_pause") {
